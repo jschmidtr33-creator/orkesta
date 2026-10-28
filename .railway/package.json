@@ -1,0 +1,13 @@
+{
+  "name": "orkesta-railway-config",
+  "private": true,
+  "type": "module",
+  "description": "Definición de infraestructura de ORKESTA en Railway. No forma parte de la aplicación.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "railway": "3.16.0",
+    "typescript": "5.9.3"
+  }
+}

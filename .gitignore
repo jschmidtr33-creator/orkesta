@@ -1,0 +1,27 @@
+# Entornos y caches
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.railway/node_modules/
+
+# Secretos: nunca al repositorio
+.env
+.env.*
+!.env.example
+
+# Datos de contactos: nunca al repositorio
+*.csv
+*.xlsx
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.xlsx
+*.dump
+*.sql.gz
+
+# Planes de Railway: pueden contener secretos
+*.plan.json

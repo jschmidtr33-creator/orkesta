@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orkesta"
+version = "0.1.0"
+description = "ORKESTA: prospección B2B y enriquecimiento de datos con motor de machine learning propio."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary" }
+dependencies = [
+    "fastapi>=0.162,<0.163",
+    "uvicorn[standard]>=0.54,<0.55",
+    "sqlalchemy>=2.1,<2.2",
+    "psycopg[binary]>=3.3,<3.4",
+    "alembic>=1.20,<1.21",
+    "pydantic>=2.14,<2.15",
+    "pydantic-settings>=2.16,<2.17",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.2,<9.3",
+    "httpx>=0.28,<0.29",
+    "ruff>=0.17,<0.18",
+    "mypy>=2.4,<2.5",
+    "pip-audit>=2.9",
+]
+
+[project.scripts]
+orkesta-worker = "orkesta.worker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+orkesta = ["migrations/*.py", "migrations/*.mako", "migrations/versions/*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"src/orkesta/migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["orkesta"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["db: requiere PostgreSQL (TEST_DATABASE_URL)"]
