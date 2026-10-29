@@ -94,6 +94,24 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release(args: argparse.Namespace) -> int:
+    """Paso previo al despliegue: migraciones, primer administrador y catálogo.
+
+    Un solo comando, sin depender de que la plataforma ejecute ``&&`` en una consola.
+    """
+    from alembic import command
+
+    from orkesta.config import get_settings
+    from orkesta.db.migrations_state import alembic_config
+
+    command.upgrade(alembic_config(get_settings().database_url), "head")
+    print("release: migraciones al día")
+    status = cmd_bootstrap_admin(args)
+    if status != 0:
+        return status
+    return cmd_catalog_load(argparse.Namespace(path=None))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orkesta")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -109,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     catalog = sub.add_parser("catalog-load", help="Carga el catálogo público de empresas")
     catalog.add_argument("path", nargs="?", help="Archivo .csv.gz (por defecto, el incluido)")
     catalog.set_defaults(func=cmd_catalog_load)
+
+    release = sub.add_parser("release", help="Paso previo al despliegue (migrar, admin, catálogo)")
+    release.set_defaults(func=cmd_release)
 
     args = parser.parse_args(argv)
     result: int = args.func(args)
