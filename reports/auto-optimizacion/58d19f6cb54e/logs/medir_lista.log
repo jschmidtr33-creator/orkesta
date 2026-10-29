@@ -1,0 +1,15 @@
+Variables: 586 candidatos → work/lista/features.csv.gz
+{
+  "empresas": 129,
+  "etiquetadas": 64,
+  "con_dominio": 57,
+  "aciertos": 43,
+  "exactitud_pct": 75.4,
+  "exactitud_marca_pct": 91.2,
+  "cobertura_pct": 89.1,
+  "top3_pct": 82.8,
+  "exactitud_confirmados_pct": 79.5,
+  "confirmados": 44,
+  "linea_base_exactitud_pct": 20.3,
+  "errores_red": 0
+}

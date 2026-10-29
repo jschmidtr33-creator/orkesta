@@ -1,0 +1,13 @@
+AR wd:Q4830453: HTTPStatusError("Server error '504 Gateway Timeout' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+WHERE+%7B%0A++VALUES+%3Ftype+%7B+wd%3AQ4830453+%7D%0A++%3Fitem+wdt%3AP31+%3Ftype+%3B+wdt%3AP17+wd%3AQ414+%3B+wdt%3AP856+%3Fwebsite+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+600%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504")
+MX: 400 empresas con sitio oficial, 400 elegidas
+CO: 207 empresas con sitio oficial, 200 elegidas
+PE: 113 empresas con sitio oficial, 113 elegidas
+CL: 240 empresas con sitio oficial, 200 elegidas
+AR: 129 empresas con sitio oficial, 129 elegidas
+EC: 49 empresas con sitio oficial, 49 elegidas
+UY: 36 empresas con sitio oficial, 36 elegidas
+PA: 29 empresas con sitio oficial, 29 elegidas
+CR: 19 empresas con sitio oficial, 19 elegidas
+GT: 21 empresas con sitio oficial, 21 elegidas
+DO: 29 empresas con sitio oficial, 29 elegidas
+Total: 1225 empresas → work/wikidata.csv
