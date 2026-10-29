@@ -34,6 +34,12 @@ ORKESTA_COLUMNS: tuple[tuple[str, str], ...] = (
     ("has_mx", "ORKESTA recibe correo (MX)"),
     ("mx_provider", "ORKESTA proveedor de correo"),
     ("domain_reasons", "ORKESTA razones dominio"),
+    ("email", "ORKESTA correo"),
+    ("email_confidence", "ORKESTA confianza correo"),
+    ("email_source", "ORKESTA origen correo"),
+    ("email_alternatives", "ORKESTA correos alternativos"),
+    ("email_pattern", "ORKESTA patrón de correo"),
+    ("email_reasons", "ORKESTA razones patrón"),
 )
 
 STATUS_LABELS = {

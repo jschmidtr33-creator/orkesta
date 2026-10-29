@@ -35,6 +35,14 @@ REASON_LABELS: dict[str, str] = {
     "PARKED_DOMAIN": "dominio aparcado o en venta",
     "REDIRECTS_TO_NON_CORPORATE": "redirige a una red social o directorio",
     "HISTORY": "reutilizado de una búsqueda reciente",
+    "PATTERN_NAMED_MULTIPLE": "varios correos publicados de personas siguen el patrón",
+    "PATTERN_NAMED_ONE": "un correo publicado de una persona sigue el patrón",
+    "PATTERN_STRUCTURAL_MULTIPLE": "varios correos publicados tienen esa forma",
+    "PATTERN_WEAK_EVIDENCE": "pocos correos publicados; patrón poco seguro",
+    "PATTERN_PRIOR": "sin correos publicados: patrón más frecuente en empresas similares",
+    "PATTERN_EXCEPTIONS": "algunos correos publicados usan otra forma",
+    "EMAIL_DOMAIN_FROM_SITE": "el correo usa otro dominio que el sitio web",
+    "NO_MX": "el dominio no recibe correo",
 }
 
 

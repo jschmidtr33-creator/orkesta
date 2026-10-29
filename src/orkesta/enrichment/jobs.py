@@ -18,7 +18,7 @@ def handle_resolve_domain(session: Session, job: EnrichmentJob) -> None:
         outcome = service.resolve_job(session, job, engine_factory)
     except TransientResolutionError as exc:
         raise RetryableJobError(str(exc)) from exc
-    service.advance_batch(session, job.batch_id, outcome)
+    service.advance_batch(session, job.batch_id, outcome.domain_status, outcome.pattern_level)
 
 
 def on_resolve_domain_failed(session: Session, job: EnrichmentJob) -> None:

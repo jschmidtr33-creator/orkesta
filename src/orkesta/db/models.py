@@ -251,6 +251,16 @@ class Domain(OrgScopedMixin, Base):
         ),
         CheckConstraint("confidence_score BETWEEN 0 AND 100", name="confidence_score"),
         CheckConstraint("domain = lower(domain)", name="domain_lowercase"),
+        CheckConstraint(
+            "pattern_confidence_level IS NULL OR "
+            + _in("pattern_confidence_level", CONFIDENCE_LEVELS),
+            name="pattern_confidence_level",
+        ),
+        CheckConstraint(
+            "pattern_confidence_score IS NULL OR pattern_confidence_score BETWEEN 0 AND 100",
+            name="pattern_confidence_score",
+        ),
+        Index("ix_domains_org_domain", "organization_id", "domain"),
         Index(
             "uq_domains_one_selected",
             "company_id",
@@ -286,6 +296,20 @@ class Domain(OrgScopedMixin, Base):
     final_url: Mapped[str | None] = mapped_column(Text)
     site_title: Mapped[str | None] = mapped_column(String(300))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Decisión de patrón de correo (solo en el dominio seleccionado). El dominio de correo puede
+    # diferir del sitio (samsung.com.mx → @samsung.com). NULL = patrón aún no investigado.
+    email_domain: Mapped[str | None] = mapped_column(String(253))
+    email_pattern: Mapped[str | None] = mapped_column(String(40))
+    pattern_ranked: Mapped[list[list[Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    pattern_confidence_score: Mapped[int | None] = mapped_column(SmallInteger)
+    pattern_confidence_level: Mapped[str | None] = mapped_column(String(10))
+    pattern_reason_codes: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    pattern_model_version: Mapped[str | None] = mapped_column(String(40))
+    pattern_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EvidenceRecord(OrgScopedMixin, Base):

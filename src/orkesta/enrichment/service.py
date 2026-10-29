@@ -37,6 +37,7 @@ from orkesta.engine.domain.wikidata import CompanySource
 from orkesta.engine.net.dns import Resolver
 from orkesta.engine.net.fetch import RobotsAwareFetcher
 from orkesta.engine.normalize import normalize_company
+from orkesta.enrichment.emails import apply_email_patterns
 from orkesta.worker.queue import enqueue_job
 
 DOMAIN_JOB_KIND = "resolve_domain"
@@ -279,12 +280,37 @@ def _copy_selection(session: Session, companies: list[Company], source: Domain) 
         company.domain_checked_at = now
 
 
-def resolve_job(session: Session, job: EnrichmentJob, engine: EngineFactory) -> str:
-    """Resuelve el dominio de un grupo de empresas. Devuelve el estado resultante."""
+@dataclass(frozen=True)
+class JobOutcome:
+    domain_status: str
+    pattern_level: str | None = None  # confianza del patrón de correo; None = sin correos
+
+
+def resolve_job(session: Session, job: EnrichmentJob, engine: EngineFactory) -> JobOutcome:
+    """Dominio, patrón de correo y correos de un grupo de empresas."""
     ids = [uuid.UUID(i) for i in job.payload.get("company_ids", [])]
     companies = list(session.scalars(select(Company).where(Company.id.in_(ids))))
     if not companies:
-        return "unknown"
+        return JobOutcome("unknown")
+    deps_cache: list[EngineDeps] = []
+
+    def deps() -> EngineDeps:
+        if not deps_cache:
+            deps_cache.append(engine())
+        return deps_cache[0]
+
+    status = _resolve_domain_status(session, job, companies, deps)
+    session.flush()
+    level = apply_email_patterns(session, companies, lambda: deps().fetcher)
+    return JobOutcome(status, level)
+
+
+def _resolve_domain_status(
+    session: Session,
+    job: EnrichmentJob,
+    companies: list[Company],
+    deps_factory: EngineFactory,
+) -> str:
     country: str | None = job.payload.get("country")
     match_key = companies[0].match_key or normalize_company(companies[0].name_original).match_key
 
@@ -294,7 +320,7 @@ def resolve_job(session: Session, job: EnrichmentJob, engine: EngineFactory) -> 
         return recent.status
 
     names = [normalize_company(c.name_original) for c in companies]
-    deps = engine()
+    deps = deps_factory()
     resolution = resolve_domain(
         names,
         country,
@@ -307,7 +333,9 @@ def resolve_job(session: Session, job: EnrichmentJob, engine: EngineFactory) -> 
     return resolution.status
 
 
-def advance_batch(session: Session, batch_id: uuid.UUID, outcome: str) -> None:
+def advance_batch(
+    session: Session, batch_id: uuid.UUID, outcome: str, pattern_level: str | None = None
+) -> None:
     """Registra el resultado de un trabajo; el último deja el lote como completado."""
     batch = session.get(EnrichmentBatch, batch_id, with_for_update=True)
     if batch is None or batch.status not in ("queued", "running"):
@@ -319,6 +347,10 @@ def advance_batch(session: Session, batch_id: uuid.UUID, outcome: str) -> None:
     else:
         summary["done"] = int(summary.get("done", 0)) + 1
         statuses[outcome] = int(statuses.get(outcome, 0)) + 1
+        patterns = dict(summary.get("patterns", {}))
+        key = pattern_level or "none"
+        patterns[key] = int(patterns.get(key, 0)) + 1
+        summary["patterns"] = patterns
     summary["statuses"] = statuses
     batch.enrichment_summary = summary
     if batch.status == "queued":

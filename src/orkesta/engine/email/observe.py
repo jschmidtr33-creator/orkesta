@@ -40,7 +40,11 @@ ROLE_WORDS = frozenset(
 )
 
 _SEPARATORS = re.compile(r"[._-]")
-_NAME_RUN = re.compile(r"(?:[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü'’]+\.?(?:\s+|$)){2,4}")
+_WORD = r"[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü'’]+"
+# Palabras capitalizadas seguidas (con partículas de apellido), sin importar la puntuación que
+# rodea al nombre: "Mariana Torres, Gerente", "Ing. José de la Cruz:".
+_NAME_RUN = re.compile(rf"{_WORD}(?:\s+(?:(?:de|del|la|las|los|y)\s+)*{_WORD})+")
+_PARTICLES = frozenset({"de", "del", "la", "las", "los", "y"})
 
 
 @dataclass(frozen=True)
@@ -68,17 +72,32 @@ def is_role_address(local: str) -> bool:
 def named_patterns(item: FoundEmail) -> list[str]:
     """Patrones confirmados por un nombre de persona escrito cerca del correo."""
     for match in _NAME_RUN.finditer(item.context):
-        candidate = match.group(0).strip()
-        split = split_full_name(candidate)
-        if not split.first or not split.last:
-            continue
-        person = normalize_person(split.first, split.last)
-        if not person.is_valid:
-            continue
-        found = matching_patterns(item.local, person)
-        if found:
-            return found
+        for candidate in _spans(match.group(0).split()):
+            split = split_full_name(candidate)
+            if not split.first or not split.last:
+                continue
+            person = normalize_person(split.first, split.last)
+            if not person.is_valid:
+                continue
+            found = matching_patterns(item.local, person)
+            if found:
+                return found
     return []
+
+
+def _spans(words: list[str]) -> list[str]:
+    """Tramos de 2 a 4 palabras ("Ventas Mariana Torres" → "Mariana Torres"), los largos primero.
+
+    Un tramo no empieza ni termina en partícula.
+    """
+    spans: list[str] = []
+    for size in range(min(4, len(words)), 1, -1):
+        for start in range(len(words) - size + 1):
+            part = words[start : start + size]
+            if part[0].lower() in _PARTICLES or part[-1].lower() in _PARTICLES:
+                continue
+            spans.append(" ".join(part))
+    return spans
 
 
 def structural_pattern(local: str) -> str | None:

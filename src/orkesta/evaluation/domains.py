@@ -151,7 +151,7 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
         for scored in result.candidates:
             rows.append(
                 {
-                    "case_id": f"{case.source}|{case.company}",
+                    "case_id": case_id(case),
                     "country": country or "",
                     "domain": scored.domain,
                     "rules_score": scored.score
@@ -177,7 +177,18 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
     )
 
 
-def summarize(outcomes: list[Outcome]) -> dict[str, float | int]:
+def case_id(case: Case) -> str:
+    return f"{case.source}|{case.company}"
+
+
+def unseen(outcomes: list[Outcome]) -> list[Outcome]:
+    """Empresas de la partición de prueba fija: el modelo nunca entrena con ellas."""
+    from orkesta.evaluation.train_domain import TEST_SHARE, bucket
+
+    return [o for o in outcomes if bucket(case_id(o.case), "test") < TEST_SHARE]
+
+
+def summarize(outcomes: list[Outcome], *, with_unseen: bool = True) -> dict[str, float | int]:
     labeled = [o for o in outcomes if o.labeled]
     answered = [o for o in labeled if o.selected]
     correct = [o for o in answered if o.correct]
@@ -201,6 +212,17 @@ def summarize(outcomes: list[Outcome]) -> dict[str, float | int]:
         "confirmados": len(confirmed),
         "linea_base_exactitud_pct": pct(len(base_correct), len(labeled)),
         "errores_red": sum(1 for o in outcomes if o.error),
+        **(_unseen_metrics(outcomes) if with_unseen else {}),
+    }
+
+
+def _unseen_metrics(outcomes: list[Outcome]) -> dict[str, float | int]:
+    held = summarize(unseen(outcomes), with_unseen=False)
+    return {
+        "no_vistas_etiquetadas": held["etiquetadas"],
+        "no_vistas_exactitud_pct": held["exactitud_pct"],
+        "no_vistas_exactitud_marca_pct": held["exactitud_marca_pct"],
+        "no_vistas_cobertura_pct": held["cobertura_pct"],
     }
 
 
@@ -240,6 +262,10 @@ def write_report(
         f"| Esperado entre los 3 primeros candidatos | {metrics['top3_pct']} % |",
         f"| Línea base (nombre + .com) | {metrics['linea_base_exactitud_pct']} % |",
         f"| Errores de red | {metrics['errores_red']} |",
+        f"| **Empresas nunca vistas por el modelo** ({metrics['no_vistas_etiquetadas']}) | "
+        f"exactitud **{metrics['no_vistas_exactitud_pct']} %**, marca "
+        f"{metrics['no_vistas_exactitud_marca_pct']} %, cobertura "
+        f"{metrics['no_vistas_cobertura_pct']} % |",
         "",
         "Estados: "
         + ", ".join(f"{DOMAIN_STATUS_LABELS.get(k, k)} {v}" for k, v in statuses.most_common()),

@@ -198,3 +198,17 @@ def test_generate_emails_ranks_and_flags_published() -> None:
     found = generate_emails(person, decision, published={"laura.mendez@acme.mx"})
     assert found[0].address == "laura.mendez@acme.mx"
     assert found[0].label == "publicly_found"
+
+
+def test_names_next_to_punctuation_and_particles_are_recognized() -> None:
+    from orkesta.engine.email.harvest import FoundEmail
+    from orkesta.engine.email.observe import named_patterns
+
+    def found(local: str, context: str) -> FoundEmail:
+        return FoundEmail(local, "empresa.com", context, "https://empresa.com/contacto")
+
+    assert named_patterns(found("mariana.torres", "Ventas Mariana Torres, Gerente:")) == [
+        "first.last"
+    ]
+    assert "flast" in named_patterns(found("jdelacruz", "Ing. José de la Cruz: jdelacruz@"))
+    assert named_patterns(found("mtorres", "Contacto general: mtorres@")) == []

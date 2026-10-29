@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session
 from orkesta.audit import audit
 from orkesta.auth import LoginThrottle, authenticate
 from orkesta.config import get_settings
-from orkesta.db.models import Company, Contact, Domain, EnrichmentBatch, ImportRow, User
+from orkesta.db.models import (
+    Company,
+    Contact,
+    Domain,
+    EmailCandidate,
+    EnrichmentBatch,
+    ImportRow,
+    User,
+)
 from orkesta.enrichment.service import EnrichmentStateError, start_domain_enrichment
 from orkesta.imports.export import to_csv, to_xlsx
 from orkesta.imports.mapping import FIELDS, propose_mapping
@@ -277,15 +285,22 @@ def batch_detail(
     contact_ids = [r.contact_id for r in rows if r.contact_id]
     domains: dict[uuid.UUID, dict[str, str]] = {}
     if contact_ids:
-        for contact_id, company_status, domain in db.execute(
-            select(Contact.id, Company.domain_status, Domain)
+        for contact_id, company_status, domain, email in db.execute(
+            select(Contact.id, Company.domain_status, Domain, EmailCandidate)
             .join(Company, Company.id == Contact.company_id)
             .outerjoin(Domain, (Domain.company_id == Company.id) & Domain.is_selected.is_(True))
+            .outerjoin(
+                EmailCandidate,
+                (EmailCandidate.contact_id == Contact.id) & (EmailCandidate.rank == 0),
+            )
             .where(Contact.id.in_(contact_ids))
         ):
             domains[contact_id] = {
                 "domain": domain.domain if domain else "",
                 "status": domain.status if domain else (company_status or ""),
+                "email": email.address if email else "",
+                "email_level": email.confidence_level if email else "",
+                "email_published": "1" if email and email.label == "publicly_found" else "",
             }
     return render(
         request,
