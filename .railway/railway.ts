@@ -25,7 +25,8 @@ export default defineRailway((ctx) => {
       "uvicorn --factory orkesta.api.main:create_app --host 0.0.0.0 --port ${PORT:-8000} " +
       "--proxy-headers --forwarded-allow-ips='*'",
     // Las migraciones corren antes de cada despliegue; si fallan, el despliegue se detiene.
-    preDeploy: "alembic upgrade head && python -m orkesta.cli bootstrap-admin",
+    preDeploy:
+      "alembic upgrade head && python -m orkesta.cli bootstrap-admin && python -m orkesta.cli catalog-load",
     healthcheck: "/health",
     healthcheckTimeout: 60,
     env: {

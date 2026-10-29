@@ -534,6 +534,37 @@ class DomainPattern(OrgScopedMixin, Base):
     agreeing: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class CatalogCompany(IdMixin, Base):
+    """Empresa del catálogo público LATAM (Wikidata, CC0), compartido por todas las
+    organizaciones: no contiene datos de personas ni de clientes."""
+
+    __tablename__ = "catalog_companies"
+    __table_args__ = (
+        UniqueConstraint("qid"),
+        CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_catalog_companies_country_industry", "country_code", "industry_code"),
+        Index("ix_catalog_companies_domain", "domain"),
+        Index(
+            "ix_catalog_companies_name_trgm",
+            "name_search",
+            postgresql_using="gin",
+            postgresql_ops={"name_search": "gin_trgm_ops"},
+        ),
+    )
+
+    qid: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    name_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    company_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    city: Mapped[str | None] = mapped_column(String(120))
+    domain: Mapped[str | None] = mapped_column(String(253))
+    industry_code: Mapped[str | None] = mapped_column(String(40))
+    industry_labels: Mapped[str | None] = mapped_column(String(400))
+    employees: Mapped[int | None] = mapped_column(Integer)
+    size_band: Mapped[str | None] = mapped_column(String(20))
+
+
 # --- Cola de trabajos ------------------------------------------------------------------------
 
 

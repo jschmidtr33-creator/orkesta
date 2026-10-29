@@ -99,11 +99,18 @@
   <p class="muted">ORKESTA visita las páginas públicas de equipo, directivos y prensa de las empresas que cumplen los filtros de
     <strong>empresa, industria y país</strong> de arriba, extrae nombre y cargo, y deduce el correo (con el patrón real de la empresa
     si ya lo conoce). Cada persona guarda la página donde se publicó. Las empresas exploradas en los últimos 30 días no se repiten.</p>
+  <p class="muted small">Empresas a explorar: las de tu base con dominio corporativo y {{ catalog_total | thousands }} del catálogo público LATAM.</p>
   <form method="post" action="/prospectos/descubrir" class="actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="empresa" value="{{ filters.company }}">
     {% for code in filters.industries %}<input type="hidden" name="industria" value="{{ code }}">{% endfor %}
     {% for code in filters.countries %}<input type="hidden" name="pais" value="{{ code }}">{% endfor %}
+    <details class="filter-group">
+      <summary>Tamaño de empresa (empleados, solo empresas del catálogo)</summary>
+      <div class="checks">
+        {% for band in sizes %}<label class="check"><input type="checkbox" name="tamano" value="{{ band }}"> {{ band }}</label>{% endfor %}
+      </div>
+    </details>
     <button type="submit" class="button">Buscar en la web{% if filters.industries or filters.countries or filters.company %} con estos filtros{% endif %}</button>
   </form>
   {% if runs %}

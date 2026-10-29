@@ -79,6 +79,7 @@ def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
     # Limpieza entre pruebas: borrar organizaciones elimina en cascada todo lo demás.
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM organizations"))
+        connection.execute(text("DELETE FROM catalog_companies"))  # global, sin organización
 
 
 @pytest.fixture()

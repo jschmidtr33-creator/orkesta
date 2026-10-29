@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from orkesta.catalog.companies import catalog_candidates
 from orkesta.catalog.prospects import FREEMAIL_DOMAINS
 from orkesta.catalog.service import ProspectFilters, known_pattern
 from orkesta.catalog.titles import classify_title
@@ -74,8 +75,23 @@ def candidate_companies(
         WebDiscovery.organization_id == organization_id, WebDiscovery.checked_at >= since
     )
     query = query.where(Prospect.email_domain.not_in(recent))
-    rows = session.execute(query.order_by(func.count().desc()).limit(limit))
-    return [dict(r._mapping) for r in rows]
+    base = [
+        dict(r._mapping) for r in session.execute(query.order_by(func.count().desc()).limit(limit))
+    ]
+    if filters.sizes:
+        base = []  # el tamaño solo se conoce en el catálogo
+    catalog = catalog_candidates(
+        session,
+        organization_id,
+        industries=filters.industries,
+        countries=filters.countries,
+        company=filters.company,
+        sizes=filters.sizes,
+        exclude_domains={c["email_domain"] for c in base},
+        recent_days=RECENT_DAYS,
+        limit=max(0, limit - len(base)),
+    )
+    return base + catalog
 
 
 def start_discovery(
@@ -99,6 +115,7 @@ def start_discovery(
             "industries": filters.industries,
             "countries": filters.countries,
             "company": filters.company,
+            "sizes": filters.sizes,
         },
         status="queued",
         total=len(companies),

@@ -294,6 +294,7 @@ class ProspectFilters:
     levels: list[str] = field(default_factory=list)
     areas: list[str] = field(default_factory=list)
     only_web: bool = False
+    sizes: list[str] = field(default_factory=list)  # solo para elegir empresas a explorar
     city: str = ""
     with_email: bool = False
 

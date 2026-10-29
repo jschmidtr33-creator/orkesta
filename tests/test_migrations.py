@@ -33,6 +33,7 @@ PROSPECTING_TABLES = {
     "prospect_uploads",
     "discovery_runs",
     "web_discoveries",
+    "catalog_companies",
 }
 
 pytestmark = pytest.mark.db

@@ -15,11 +15,18 @@ from sqlalchemy import func, select
 
 from orkesta.audit import audit
 from orkesta.catalog.discovery import DiscoveryError, start_discovery
-from orkesta.catalog.industries import INDUSTRY_LABELS
+from orkesta.catalog.industries import INDUSTRY_LABELS, SIZE_BANDS
 from orkesta.catalog.prospects import MAX_BYTES
 from orkesta.catalog.service import ProspectFilters, create_upload, iter_search, search_prospects
 from orkesta.catalog.titles import AREA_LABELS, LEVEL_LABELS
-from orkesta.db.models import DiscoveryRun, DomainPattern, Prospect, ProspectUpload, User
+from orkesta.db.models import (
+    CatalogCompany,
+    DiscoveryRun,
+    DomainPattern,
+    Prospect,
+    ProspectUpload,
+    User,
+)
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.imports.export import sanitize_cell
 from orkesta.web.deps import DbSession, check_csrf, current_user, flash, render
@@ -28,6 +35,7 @@ router = APIRouter(include_in_schema=False)
 CurrentUser = Annotated[User, Depends(current_user)]
 CsrfField = Annotated[str | None, Form(alias="csrf_token")]
 PAGE_SIZE = 50
+SIZE_LABELS = [band for band, _, _ in SIZE_BANDS]
 COUNTRY_CHOICES = sorted(
     ((code, name) for code, (name, _) in COUNTRIES.items()), key=lambda c: c[1]
 )
@@ -114,6 +122,7 @@ def prospects_page(
         )
         or 0
     )
+    catalog_total = int(db.scalar(select(func.count()).select_from(CatalogCompany)) or 0)
     runs = db.scalars(
         select(DiscoveryRun)
         .where(DiscoveryRun.organization_id == user.organization_id)
@@ -137,6 +146,8 @@ def prospects_page(
             "patterns": patterns,
             "uploads": uploads,
             "runs": runs,
+            "catalog_total": catalog_total,
+            "sizes": SIZE_LABELS,
             "filters": filters,
             "query": _query_string(filters),
             "page": min(pagina, max(1, math.ceil(total / PAGE_SIZE))),
@@ -237,10 +248,12 @@ def discover(
     empresa: Annotated[str, Form()] = "",
     industria: Annotated[list[str] | None, Form()] = None,
     pais: Annotated[list[str] | None, Form()] = None,
+    tamano: Annotated[list[str] | None, Form()] = None,
     csrf: CsrfField = None,
 ) -> Response:
     check_csrf(request, csrf)
     filters = _filters(empresa=empresa, industria=industria, pais=pais)
+    filters.sizes = [t for t in (tamano or []) if t in SIZE_LABELS]
     try:
         run = start_discovery(
             db, organization_id=user.organization_id, user_id=user.id, filters=filters
