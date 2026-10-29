@@ -9,6 +9,7 @@ name: Optimización autónoma
 on:
   push:
     branches: ["auto/**"]
+    paths-ignore: ["**.md", "docs/**"]
   schedule:
     - cron: "17 9 * * 1"  # lunes 09:17 UTC
   workflow_dispatch:
@@ -18,7 +19,7 @@ permissions:
 
 concurrency:
   group: auto-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false  # una medición nueva espera a la anterior; no se pierden
 
 jobs:
   medir:
