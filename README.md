@@ -191,6 +191,11 @@ uv pip compile pyproject.toml --python-version 3.12 --generate-hashes -o require
 
 ## Despliegue
 
+> **Alternativa mientras Railway no acepte registros nuevos** (pausados tras su incidente del
+> 20-22 de octubre de 2026): `render.yaml` despliega los mismos servicios en Render. En Render:
+> **New → Blueprint →** este repositorio, y completar `ORKESTA_BOOTSTRAP_ADMIN_EMAIL` y
+> `ORKESTA_BOOTSTRAP_ADMIN_PASSWORD`. La clave secreta la genera Render.
+
 ### 1. Repositorio en GitHub
 
 ```bash
