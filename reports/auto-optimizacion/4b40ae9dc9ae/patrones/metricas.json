@@ -1,0 +1,34 @@
+{
+  "modelo": "patterns-v1",
+  "dominios": 1040,
+  "con_mx_pct": 88.6,
+  "con_correos_publicados_pct": 36.8,
+  "con_correos_personales_pct": 17.6,
+  "con_nombre_confirmado_pct": 4.5,
+  "dominio_correo_distinto_del_sitio": 42,
+  "confianza": {
+    "low": 956,
+    "medium": 70,
+    "high": 14
+  },
+  "dejar_uno_fuera": {
+    "pruebas": 175,
+    "aciertos": 145,
+    "exactitud_pct": 82.9
+  },
+  "previo": {
+    "empresas_prueba": 98,
+    "previo_aprendido_top1_pct": 80.6,
+    "previo_aprendido_top3_pct": 90.8,
+    "previo_inicial_top1_pct": 6.1
+  },
+  "patrones_dominantes": {
+    "flast": 147,
+    "first.last": 13,
+    "first": 11,
+    "firstlast": 9,
+    "first.last.last2": 1,
+    "flastl2": 1,
+    "first-last": 1
+  }
+}
