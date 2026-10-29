@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ batch.source_filename }}{% endblock %}
+{% block content %}
+{% set s = batch.import_summary or {} %}
+<div class="heading-row">
+  <div>
+    <h1>{{ batch.source_filename }}</h1>
+    <p class="muted"><span class="badge badge-{{ batch.status }}">{{ BATCH_STATUS_LABELS.get(batch.status, batch.status) }}</span>
+      · subido {{ batch.created_at | fecha }}{% if batch.finished_at %} · terminado {{ batch.finished_at | fecha }}{% endif %}</p>
+  </div>
+  {% if batch.status != "importing" %}<a class="link-danger" href="/lotes/{{ batch.id }}/eliminar">Eliminar lote</a>{% endif %}
+</div>
+
+{% if batch.status == "importing" %}
+<section class="card">
+  <h2>Importando {{ batch.total_rows | thousands }} filas…</h2>
+  <p class="muted">Esta página se actualiza cada 3 segundos. Si no avanza en unos minutos, comprueba que el servicio worker está en marcha.</p>
+</section>
+{% elif batch.status == "failed" %}
+<div class="notice notice-error" role="alert">La importación falló: {{ batch.error_message }}</div>
+{% else %}
+<section class="card">
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ s.get("total", 0) | thousands }}</span><span class="stat-label">Filas</span></div>
+    <div class="stat stat-good"><span class="stat-value">{{ s.get("valid", 0) | thousands }}</span><span class="stat-label">Válidas</span></div>
+    <div class="stat stat-bad"><span class="stat-value">{{ s.get("invalid", 0) | thousands }}</span><span class="stat-label">Con errores</span></div>
+    <div class="stat stat-warn"><span class="stat-value">{{ s.get("duplicate", 0) | thousands }}</span><span class="stat-label">Duplicadas</span></div>
+    <div class="stat"><span class="stat-value">{{ s.get("companies", 0) | thousands }}</span><span class="stat-label">Empresas</span></div>
+    <div class="stat"><span class="stat-value">{{ s.get("contacts_new", 0) | thousands }}</span><span class="stat-label">Contactos nuevos</span></div>
+    <div class="stat"><span class="stat-value">{{ s.get("contacts_existing", 0) | thousands }}</span><span class="stat-label">Ya existían</span></div>
+  </div>
+  <div class="export">
+    <span class="muted">Exportar:</span>
+    <a class="button button-small" href="/lotes/{{ batch.id }}/exportar?formato=xlsx&filas=all">Todo (XLSX)</a>
+    <a class="button button-small button-secondary" href="/lotes/{{ batch.id }}/exportar?formato=csv&filas=all">Todo (CSV)</a>
+    <a class="button button-small button-secondary" href="/lotes/{{ batch.id }}/exportar?formato=xlsx&filas=valid">Solo válidas</a>
+    <a class="button button-small button-secondary" href="/lotes/{{ batch.id }}/exportar?formato=xlsx&filas=issues">Errores y duplicadas</a>
+  </div>
+  {% if s.get("countries") %}
+  <p class="muted small">Países: {% for code, n in s["countries"].items() %}{{ code }} {{ n | thousands }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <nav class="tabs">
+    {% for key, label in [("todas", "Todas"), ("valid", "Válidas"), ("invalid", "Con errores"), ("duplicate", "Duplicadas")] %}
+    <a href="/lotes/{{ batch.id }}?estado={{ key }}" class="{% if estado == key %}active{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th class="num">Fila</th><th>Estado</th><th>Nombre</th><th>Apellido</th><th>Empresa</th><th>País</th><th>Ciudad</th><th>Cargo</th><th>Incidencias</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      {% set n = r.normalized or {} %}
+      <tr>
+        <td class="num">{{ r.row_number }}</td>
+        <td><span class="badge badge-{{ r.status }}">{{ ROW_STATUS_LABELS.get(r.status, r.status) }}</span>{% if r.duplicate_of_row %}<div class="muted small">de la fila {{ r.duplicate_of_row }}</div>{% endif %}</td>
+        <td>{{ n.get("first_name") or "—" }}</td>
+        <td>{{ n.get("last_name") or "—" }}</td>
+        <td>{{ n.get("company") or "—" }}</td>
+        <td>{{ n.get("country") or "—" }}</td>
+        <td>{{ n.get("city") or "—" }}</td>
+        <td>{{ n.get("title") or "—" }}</td>
+        <td class="small">{% for code in r.issues %}<div>{{ ISSUES[code][1] if code in ISSUES else code }}</div>{% endfor %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="muted">No hay filas con este filtro.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page > 1 %}<a href="/lotes/{{ batch.id }}?estado={{ estado }}&pagina={{ page - 1 }}">← Anterior</a>{% endif %}
+    <span class="muted">Página {{ page }} de {{ pages }} · {{ total_filtered | thousands }} filas</span>
+    {% if page < pages %}<a href="/lotes/{{ batch.id }}?estado={{ estado }}&pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

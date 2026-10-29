@@ -22,6 +22,9 @@ from orkesta.db.migrations_state import alembic_config
 from orkesta.db.models import EnrichmentBatch, Organization
 
 ADMIN_URL = os.environ.get("TEST_DATABASE_URL")
+# La app necesita una DATABASE_URL para construir su configuración; las pruebas que usan base de
+# datos la sustituyen por la base temporal (fixture ``database_url``).
+os.environ.setdefault("DATABASE_URL", "postgresql://nadie@127.0.0.1:1/ninguna")
 
 
 def _require_db() -> str:

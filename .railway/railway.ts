@@ -22,13 +22,20 @@ export default defineRailway((ctx) => {
 
   const web = service("orkesta-web", {
     start:
-      "uvicorn orkesta.api.main:app --host 0.0.0.0 --port ${PORT:-8000} " +
+      "uvicorn --factory orkesta.api.main:create_app --host 0.0.0.0 --port ${PORT:-8000} " +
       "--proxy-headers --forwarded-allow-ips='*'",
     // Las migraciones corren antes de cada despliegue; si fallan, el despliegue se detiene.
-    preDeploy: "alembic upgrade head",
+    preDeploy: "alembic upgrade head && python -m orkesta.cli bootstrap-admin",
     healthcheck: "/health",
     healthcheckTimeout: 60,
-    env: shared,
+    env: {
+      ...shared,
+      // Primer administrador: se crea en el primer despliegue y luego se ignora.
+      // Solo la web las recibe; el worker no las necesita.
+      ORKESTA_BOOTSTRAP_ADMIN_EMAIL: preserve(),
+      ORKESTA_BOOTSTRAP_ADMIN_PASSWORD: preserve(),
+      ORKESTA_BOOTSTRAP_ORG_NAME: "America Digital",
+    },
   });
 
   const worker = service("orkesta-worker", {

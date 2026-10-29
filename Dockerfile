@@ -25,4 +25,4 @@ USER orkesta
 EXPOSE 8000
 
 # Comando por defecto: servicio web. El worker lo sobrescribe con `python -m orkesta.worker`.
-CMD ["sh", "-c", "uvicorn orkesta.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "uvicorn --factory orkesta.api.main:create_app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

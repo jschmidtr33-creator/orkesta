@@ -12,18 +12,34 @@ No usa Gemini, OpenAI ni Google Search API. El código corre en Railway y vive e
 | Etapa | Contenido | Estado |
 | --- | --- | --- |
 | 0 | Propuesta arquitectónica | Aprobada |
-| **1** | **Base ejecutable: API, PostgreSQL, migraciones, worker, CI, Railway** | **Esta entrega** |
-| 2 | Importación CSV/XLSX, mapeo, normalización, deduplicación, exportación | Pendiente |
+| 1 | Base ejecutable: API, PostgreSQL, migraciones, worker, CI, Railway | Hecha |
+| **2** | **Acceso, importación CSV/XLSX, mapeo, normalización, deduplicación, exportación** | **Esta entrega** |
 | 3 | Motor: señales, DNS/MX, evidencia, modelos ML de dominio y patrón | Pendiente |
 | 4 | Evaluación con conjunto etiquetado | Pendiente |
 | 5 | Interfaz operativa | Pendiente |
 | 6 | Campañas Gmail | Pendiente |
 | 7 | SaaS | Pendiente |
 
-Lo que funciona hoy: `/health`, `/ready`, el esquema MVP de 16 tablas con migraciones
-reversibles y una cola de trabajos en PostgreSQL con reclamación concurrente, reintentos con
-espera exponencial, reanudación de trabajos abandonados y cancelación. Todavía no hay
-manejadores de enriquecimiento: un trabajo de un tipo sin manejador falla con `no_handler`.
+Lo que funciona hoy:
+
+1. **Acceso** con correo y contraseña (Argon2id), sesión firmada, protección CSRF y bloqueo
+   temporal tras 5 intentos fallidos.
+2. **Importación** de CSV (UTF-8, Windows-1252, Latin-1; coma, punto y coma, tabulador) y XLSX,
+   hasta 10 MB y 50.000 filas por lote.
+3. **Mapeo de columnas** propuesto automáticamente (español e inglés) y editable, con vista
+   previa del resultado antes de confirmar.
+4. **Normalización:** nombres compuestos, dos apellidos, partículas ("de la"), tratamientos
+   ("Ing.", "Dra.") y credenciales; formas jurídicas de LATAM (S.A.S., S.A.B. de C.V., Ltda.,
+   BIC, E.S.P.); ubicaciones libres a país ISO y ciudad con nivel de confianza.
+5. **Validación y deduplicación:** errores (falta nombre, empresa no válida como "Freelance")
+   y avisos (país no reconocido, ciudad ambigua); duplicados dentro del archivo y contactos que
+   ya existían de lotes anteriores.
+6. **Exportación** CSV y XLSX con las columnas originales intactas más las de ORKESTA, con
+   protección contra inyección de fórmulas.
+7. **Borrado de lotes** con sus contactos exclusivos, y registro de auditoría de cada acción.
+
+La importación corre en el worker: la vista previa de 50.000 filas tarda unos 3 s y la
+importación completa unos 25 s en segundo plano.
 
 ## Estructura
 
@@ -31,7 +47,13 @@ manejadores de enriquecimiento: un trabajo de un tipo sin manejador falla con `n
 src/orkesta/
   config.py            Ajustes desde variables de entorno
   logs.py              Logs JSON a stdout
-  api/main.py          FastAPI: /health y /ready
+  auth.py              Usuarios, Argon2id, límite de intentos de acceso
+  audit.py             Registro de auditoría
+  cli.py               create-admin y bootstrap-admin
+  api/main.py          App FastAPI: /health, /ready, sesión, cabeceras de seguridad
+  web/                 Interfaz: rutas, plantillas Jinja2 y CSS
+  engine/normalize/    Normalización de nombres, empresas y ubicaciones
+  imports/             Lectura, mapeo, validación, servicio, exportación y trabajo del worker
   db/base.py           Base declarativa, UUID, timestamps, organization_id
   db/models.py         Las 16 tablas del MVP
   db/session.py        Motor y sesiones
@@ -60,8 +82,9 @@ cp .env.example .env            # ajusta DATABASE_URL si hace falta
 createdb orkesta_dev
 alembic upgrade head
 
-uvicorn orkesta.api.main:app --reload    # http://localhost:8000/health
-python -m orkesta.worker                 # en otra terminal
+python -m orkesta.cli create-admin --email tu@correo.com --org-name "America Digital"
+uvicorn --factory orkesta.api.main:create_app --reload   # http://localhost:8000
+python -m orkesta.worker                                 # en otra terminal: procesa las importaciones
 ```
 
 ### Pruebas y controles
@@ -128,8 +151,13 @@ Después, en el panel de Railway:
    GitHub, rama `main`. Railway detecta el `Dockerfile` y lo usa para construir.
 2. En ambos servicios, Variables → crea `SECRET_KEY` con un valor generado por
    `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
-3. En **orkesta-web**: Settings → Networking → Generate Domain para obtener la URL pública.
-4. En **PostgreSQL**: activa los backups automáticos si tu plan los incluye.
+3. En **orkesta-web**, Variables → crea `ORKESTA_BOOTSTRAP_ADMIN_EMAIL` y
+   `ORKESTA_BOOTSTRAP_ADMIN_PASSWORD` (mínimo 12 caracteres). En el primer despliegue se crea
+   ese administrador; en los siguientes no hace nada. Después puedes borrar la contraseña.
+4. En **orkesta-web**: Settings → Networking → Generate Domain para obtener la URL pública.
+5. En **PostgreSQL**: activa los backups automáticos si tu plan los incluye y no le des
+   acceso de red público.
+6. Recursos: para lotes de 50.000 filas, el worker necesita unos 512 MB de memoria.
 
 ### 3. Verificación
 
@@ -138,7 +166,8 @@ curl https://<tu-dominio>.up.railway.app/health   # {"status":"ok","version":"0.
 curl https://<tu-dominio>.up.railway.app/ready    # {"status":"ready",...}
 ```
 
-`/ready` responde 503 si la base no es accesible o si faltan migraciones.
+`/ready` responde 503 si la base no es accesible o si faltan migraciones. Abre el dominio en el
+navegador e inicia sesión con el administrador del paso 3.
 
 ### Operación
 
@@ -156,5 +185,12 @@ curl https://<tu-dominio>.up.railway.app/ready    # {"status":"ready",...}
 
 - Ningún secreto en el repositorio: `.env` y los planes de Railway están en `.gitignore`.
 - Archivos de contactos (`*.csv`, `*.xlsx`) excluidos del repositorio, salvo fixtures de prueba.
-- `SECRET_KEY` de al menos 32 caracteres obligatoria en staging y producción.
+- `SECRET_KEY` de al menos 32 caracteres obligatoria en staging y producción. Firma las
+  sesiones: si cambia, todos los usuarios deben volver a iniciar sesión.
+- Contraseñas con Argon2id; bloqueo de 15 minutos tras 5 intentos fallidos por correo e IP
+  (contador en memoria: válido mientras haya una sola réplica web).
+- Cookie de sesión `HttpOnly`, `SameSite=Lax` y `Secure` en producción; token CSRF en todos los
+  formularios; cabeceras CSP, `X-Frame-Options` y HSTS.
+- Cada lote, fila y exportación se filtra por organización.
+- Los logs y la auditoría no guardan datos de contactos.
 - El contenedor corre con un usuario sin privilegios.

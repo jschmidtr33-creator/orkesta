@@ -29,6 +29,9 @@ from orkesta.worker.queue import (
 logger = logging.getLogger("orkesta.worker")
 
 JobHandler = Callable[[Session, EnrichmentJob], None]
+# Se ejecuta en la misma transacción en la que un trabajo queda fallido de forma definitiva,
+# para que el objeto afectado (p. ej. el lote) no se quede en un estado intermedio.
+FailureHook = Callable[[Session, EnrichmentJob], None]
 
 
 class RetryableJobError(Exception):
@@ -53,9 +56,11 @@ class Worker:
         poll_interval_seconds: float,
         lock_timeout_seconds: int,
         worker_id: str | None = None,
+        failure_hooks: dict[str, FailureHook] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._handlers = dict(handlers)
+        self._failure_hooks = dict(failure_hooks or {})
         self._retry_policy = retry_policy
         self._poll_interval = poll_interval_seconds
         self._lock_timeout = lock_timeout_seconds
@@ -123,6 +128,9 @@ class Worker:
                 fail_job(
                     session, current, error=error, retryable=retryable, policy=self._retry_policy
                 )
+                hook = self._failure_hooks.get(kind)
+                if current.status == "failed" and hook is not None:
+                    hook(session, current)
                 logger.warning(
                     "job_failed",
                     extra={**log_extra, "retryable": retryable, "status": current.status},

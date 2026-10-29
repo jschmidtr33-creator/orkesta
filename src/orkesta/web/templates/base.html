@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}
+  <title>{% block title %}ORKESTA{% endblock %} · ORKESTA</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/lotes">ORKESTA</a>
+    {% if user %}
+    <nav class="topnav">
+      <a href="/lotes">Lotes</a>
+      <a href="/lotes/nuevo" class="button button-small">Nueva importación</a>
+      <span class="muted">{{ user.email }}</span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="link">Salir</button>
+      </form>
+    </nav>
+    {% endif %}
+  </header>
+  <main class="page">
+    {% for item in flashes %}
+    <div class="notice notice-{{ item.kind }}" role="status">{{ item.message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
