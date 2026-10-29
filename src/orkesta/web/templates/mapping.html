@@ -11,7 +11,9 @@
 
 <section class="card">
   <h2>1. Columnas</h2>
-  <p class="muted">Revisa qué columna del archivo corresponde a cada campo y actualiza la vista previa.</p>
+  <p class="muted">Revisa qué columna del archivo corresponde a cada campo y actualiza la vista previa.
+    Para el nombre usa Nombre y Apellido por separado, o Nombre completo si tu archivo los trae en una sola columna:
+    ORKESTA separa nombres y apellidos automáticamente.</p>
   <form method="get" action="/lotes/{{ batch.id }}/mapeo" class="mapping-grid">
     {% for field in FIELDS %}
     <label><span>{{ FIELD_LABELS[field] }}{% if field in REQUIRED_FIELDS %} <span class="required" aria-label="obligatorio">*</span>{% endif %}</span>

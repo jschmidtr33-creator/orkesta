@@ -31,11 +31,10 @@ from orkesta.imports.service import (
     delete_batch,
     export_rows,
 )
-from orkesta.web.deps import check_csrf, current_user, flash, get_db, render
+from orkesta.web.deps import DbSession, check_csrf, current_user, flash, render
 
 router = APIRouter(include_in_schema=False)
 
-DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(current_user)]
 CsrfField = Annotated[str | None, Form(alias="csrf_token")]
 PAGE_SIZE = 50
@@ -219,6 +218,7 @@ def confirm(
     csrf: CsrfField = None,
     first_name: Annotated[str, Form()] = "",
     last_name: Annotated[str, Form()] = "",
+    full_name: Annotated[str, Form()] = "",
     title: Annotated[str, Form()] = "",
     company: Annotated[str, Form()] = "",
     location: Annotated[str, Form()] = "",
@@ -228,6 +228,7 @@ def confirm(
     values = {
         "first_name": first_name,
         "last_name": last_name,
+        "full_name": full_name,
         "title": title,
         "company": company,
         "location": location,

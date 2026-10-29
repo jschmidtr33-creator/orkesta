@@ -240,3 +240,13 @@ def test_logout(client: TestClient) -> None:
     token = _csrf(client, "/lotes")
     assert client.post("/logout", data={"csrf_token": token}).status_code == 303
     assert client.get("/lotes").status_code == 303
+
+
+def test_db_session_commits_before_response_is_sent() -> None:
+    """Regresión: la transacción debe confirmarse antes de responder (ver deps.DbSession)."""
+    from typing import get_args
+
+    from orkesta.web import deps
+
+    dependency = get_args(deps.DbSession)[1]
+    assert dependency.scope == "function"

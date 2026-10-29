@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from orkesta.engine.normalize import normalize_company, normalize_person, parse_location
+from orkesta.engine.normalize.names import split_full_name
 from orkesta.engine.normalize.text import clean, fold
 
 # --- texto ---------------------------------------------------------------------------------
@@ -154,3 +155,56 @@ def test_unrecognized_location(raw: str | None) -> None:
     location = parse_location(raw)
     assert not location.recognized
     assert location.confidence is None
+
+
+# --- nombre completo en una sola columna ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("full", "first", "last"),
+    [
+        ("Sharon Cervantes", "Sharon", "Cervantes"),
+        ("Diego Carús Chávez", "Diego", "Carús Chávez"),
+        ("Luis Javier Gómez", "Luis Javier", "Gómez"),
+        ("Rodrigo Alonso Quintero Mora", "Rodrigo Alonso", "Quintero Mora"),
+        ("Karen Arlett Pérez Vázquez", "Karen Arlett", "Pérez Vázquez"),
+        ("Luis Martínez Lavín Casta", "Luis", "Martínez Lavín Casta"),
+        ("Ernesto De Jesús", "Ernesto", "De Jesús"),
+        ("Ana Gabriela de la Peña Martínez", "Ana Gabriela", "de la Peña Martínez"),
+        ("Gabriel Morales del Portillo", "Gabriel", "Morales del Portillo"),
+        ("Carlos Alberto Toledo Cal y Mayor", "Carlos Alberto", "Toledo Cal y Mayor"),
+        ("Teresa N. Suarez", "Teresa", "Suarez"),
+        ("Andrea Zamarripa J.", "Andrea", "Zamarripa"),
+        ("Jenny Fernanda Q.", "Jenny Fernanda", "Q"),
+        ("Marvin N.", "Marvin", "N"),
+        ("Heidi (hei) Padilla", "Heidi", "Padilla"),
+        ("Alejandro Murcia Lindo - BLINDAJE AUTOMOTRIZ", "Alejandro", "Murcia Lindo"),
+        ("Lourdes Torrescano - Human Resources Manager", "Lourdes", "Torrescano"),
+        ("YANIRA MUÑOZ Marketing - Shopper - Innovation", "YANIRA", "MUÑOZ"),
+        ("Lorena Trujillo RM", "Lorena", "Trujillo"),
+        ("JONATHAN MATA", "JONATHAN", "MATA"),
+        ("Ing. Jorge Ramírez", "Jorge", "Ramírez"),
+        ("Cher", "Cher", ""),
+        ("", "", ""),
+    ],
+)
+def test_split_full_name(full: str, first: str, last: str) -> None:
+    split = split_full_name(full)
+    assert (split.first, split.last) == (first, last)
+
+
+def test_split_records_what_was_removed() -> None:
+    split = split_full_name("Alejandro Murcia Lindo - BLINDAJE AUTOMOTRIZ")
+    assert "BLINDAJE AUTOMOTRIZ" in split.removed
+
+
+def test_last_name_initial_is_detected() -> None:
+    assert normalize_person("Marvin", "N").last_is_initial
+    assert not normalize_person("Marvin", "Nava").last_is_initial
+
+
+def test_state_is_not_read_as_homonym_city() -> None:
+    location = parse_location("San Nicolás de los Garza, Nuevo León, México")
+    assert location.city == "San Nicolás de los Garza"
+    assert parse_location("Guadalupe, Nuevo León, México").city is None
+    assert parse_location("León, Guanajuato, México").city == "León"

@@ -122,6 +122,39 @@ CITIES: dict[str, tuple[str, str]] = {
     "veracruz": ("MX", "Veracruz"),
     "naucalpan": ("MX", "Naucalpan"),
     "tlalnepantla": ("MX", "Tlalnepantla"),
+    "tlalnepantla de baz": ("MX", "Tlalnepantla"),
+    "naucalpan de juarez": ("MX", "Naucalpan"),
+    "toluca de lerdo": ("MX", "Toluca"),
+    "cuautitlan izcalli": ("MX", "Cuautitlán Izcalli"),
+    "atizapan de zaragoza": ("MX", "Atizapán de Zaragoza"),
+    "huixquilucan": ("MX", "Huixquilucan"),
+    "metepec": ("MX", "Metepec"),
+    "lerma": ("MX", "Lerma"),
+    "texcoco": ("MX", "Texcoco"),
+    "ecatepec": ("MX", "Ecatepec"),
+    "puebla de zaragoza": ("MX", "Puebla"),
+    "san nicolas de los garza": ("MX", "San Nicolás de los Garza"),
+    "apodaca": ("MX", "Apodaca"),
+    "santa catarina": ("MX", "Santa Catarina"),
+    "escobedo": ("MX", "Escobedo"),
+    "ramos arizpe": ("MX", "Ramos Arizpe"),
+    "tlaquepaque": ("MX", "Tlaquepaque"),
+    "tonala": ("MX", "Tonalá"),
+    "alvaro obregon": ("MX", "Ciudad de México"),
+    "miguel hidalgo": ("MX", "Ciudad de México"),
+    "benito juarez": ("MX", "Ciudad de México"),
+    "cuajimalpa de morelos": ("MX", "Ciudad de México"),
+    "cuajimalpa": ("MX", "Ciudad de México"),
+    "gustavo a madero": ("MX", "Ciudad de México"),
+    "tlalpan": ("MX", "Ciudad de México"),
+    "xochimilco": ("MX", "Ciudad de México"),
+    "coyoacan": ("MX", "Ciudad de México"),
+    "cuauhtemoc": ("MX", "Ciudad de México"),
+    "azcapotzalco": ("MX", "Ciudad de México"),
+    "iztapalapa": ("MX", "Ciudad de México"),
+    "roma norte": ("MX", "Ciudad de México"),
+    "polanco": ("MX", "Ciudad de México"),
+    "santa fe": ("MX", "Ciudad de México"),
     "oaxaca": ("MX", "Oaxaca"),
     # Perú
     "lima": ("PE", "Lima"),
@@ -244,7 +277,8 @@ AMBIGUOUS_CITIES = frozenset(
     }
 )
 
-# Regiones administrativas: si aparecen sin ciudad, permiten deducir el país.
+# Regiones administrativas: si aparecen sin ciudad, permiten deducir el país. Los estados que
+# se llaman igual que su capital (Puebla, Chihuahua) están solo en CITIES.
 REGIONS: dict[str, str] = {
     "distrito capital": "CO",
     "cundinamarca": "CO",
@@ -260,10 +294,16 @@ REGIONS: dict[str, str] = {
     "estado de mexico": "MX",
     "edomex": "MX",
     "baja california": "MX",
+    "michoacan de ocampo": "MX",
+    "michoacan": "MX",
+    "coahuila de zaragoza": "MX",
+    "coahuila": "MX",
+    "tamaulipas": "MX",
+    "queretaro arteaga": "MX",
+    "sinaloa": "MX",
     "yucatan": "MX",
     "guanajuato": "MX",
     "sonora": "MX",
-    "coahuila": "MX",
     "veracruz de ignacio de la llave": "MX",
     "quintana roo": "MX",
     "region metropolitana": "CL",
@@ -342,6 +382,9 @@ def _find_country(segments: list[str]) -> str | None:
 def _find_city(segments: list[str], country: str | None) -> tuple[str, str] | None:
     candidates: list[tuple[str, tuple[str, str]]] = []
     for segment in segments:
+        # "Nuevo León" es un estado, no la ciudad de León; un país tampoco es una ciudad.
+        if segment in REGIONS or (segment in _COUNTRY_INDEX and segment not in CITIES):
+            continue
         if segment in CITIES:
             candidates.append((segment, CITIES[segment]))
             continue

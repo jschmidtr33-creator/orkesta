@@ -27,7 +27,10 @@ Lo que funciona hoy:
 2. **Importación** de CSV (UTF-8, Windows-1252, Latin-1; coma, punto y coma, tabulador) y XLSX,
    hasta 10 MB y 50.000 filas por lote.
 3. **Mapeo de columnas** propuesto automáticamente (español e inglés) y editable, con vista
-   previa del resultado antes de confirmar.
+   previa del resultado antes de confirmar. Acepta Nombre y Apellido por separado o un
+   **Nombre completo** en una sola columna (exportaciones de LinkedIn): ORKESTA separa nombres
+   y apellidos, retira textos pegados ("- BLINDAJE AUTOMOTRIZ"), iniciales intermedias y
+   apodos, y avisa cuando el apellido solo trae la inicial.
 4. **Normalización:** nombres compuestos, dos apellidos, partículas ("de la"), tratamientos
    ("Ing.", "Dra.") y credenciales; formas jurídicas de LATAM (S.A.S., S.A.B. de C.V., Ltda.,
    BIC, E.S.P.); ubicaciones libres a país ISO y ciudad con nivel de confianza.
