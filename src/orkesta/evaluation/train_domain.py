@@ -32,6 +32,7 @@ from orkesta.engine.domain.scoring import PROBABLE
 TEST_SHARE = 0.3
 VALIDATION_SHARE = 0.25
 MIN_ACCURACY_FOR_CONFIRMED = 0.95
+MIN_TEST_COMPANIES = 30  # con menos, la comparación no es fiable y no se promueve
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,16 @@ def should_promote(model_m: dict[str, float], rules_m: dict[str, float]) -> bool
 
 def train(rows: list[Row], version: str) -> tuple[dict[str, Any], dict[str, Any]]:
     train_rows, test_rows = split(rows, TEST_SHARE, "test")
+    if len(by_case(test_rows)) < MIN_TEST_COMPANIES or len(by_case(train_rows)) < 60:
+        report = {
+            "version": version,
+            "filas": len(rows),
+            "empresas_entrenamiento": len(by_case(train_rows)),
+            "empresas_prueba": len(by_case(test_rows)),
+            "promover": False,
+            "motivo": "muy pocas empresas para entrenar y comparar con fiabilidad",
+        }
+        return {}, report
     fit_rows, validation_rows = split(train_rows, VALIDATION_SHARE, "validation")
 
     booster = _train_booster(fit_rows)
@@ -223,8 +234,12 @@ def main(argv: list[str] | None = None) -> int:
     rows = load_rows(args.features)
     data, report = train(rows, args.version)
     args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: v for k, v in report.items() if k != "importancia"}, indent=2))
-    if report["promover"] or args.force:
+    print(
+        json.dumps(
+            {k: v for k, v in report.items() if k != "importancia"}, indent=2, ensure_ascii=False
+        )
+    )
+    if data and (report["promover"] or args.force):
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(data), encoding="utf-8")
         print(f"Modelo guardado en {args.out}")

@@ -44,21 +44,26 @@ jobs:
         id: dataset
         continue-on-error: true
         run: |
+          set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.wikidata_dataset --out work/wikidata.csv \
-            --per-country "MX=250,CO=100,PE=50,CL=50,AR=50"
+            --per-country "MX=250,CO=100,PE=50,CL=50,AR=50" 2>&1 | tee work/logs/wikidata_dataset.log
 
       - name: Medir con etiquetas de Wikidata (sin Wikidata como fuente)
         if: steps.dataset.outcome == 'success'
         continue-on-error: true
         run: |
+          set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.domains work/wikidata.csv --out work/wikidata \
-            --no-wikidata --workers 8 --features work/wikidata/features.csv.gz
+            --no-wikidata --workers 8 --features work/wikidata/features.csv.gz \
+            2>&1 | tail -n 200 | tee work/logs/medir_wikidata.log
 
       - name: Medir con la lista de empresas
         continue-on-error: true
         run: |
+          set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.domains data/eval/empresas_mx.csv --out work/lista \
-            --workers 8 --features work/lista/features.csv.gz
+            --workers 8 --features work/lista/features.csv.gz \
+            2>&1 | tail -n 200 | tee work/logs/medir_lista.log
 
       - name: Entrenar modelo candidato (empresas nunca vistas deciden la promoción)
         continue-on-error: true
@@ -67,8 +72,10 @@ jobs:
           FEATURES=$(ls work/*/features.csv.gz 2>/dev/null || true)
           [ -n "$FEATURES" ] || { echo "Sin variables para entrenar"; exit 0; }
           mkdir -p work/modelo
+          set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.train_domain $FEATURES \
-            --out work/modelo/domain-model.json --report work/modelo/informe_modelo.json
+            --out work/modelo/domain-model.json --report work/modelo/informe_modelo.json \
+            2>&1 | tail -n 200 | tee work/logs/entrenar.log
 
       - name: Publicar en la rama informes
         if: always()

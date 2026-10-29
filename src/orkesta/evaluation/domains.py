@@ -138,7 +138,7 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
         for scored in result.candidates:
             rows.append(
                 {
-                    "case_id": case.source or case.company,
+                    "case_id": f"{case.source}|{case.company}",
                     "country": country or "",
                     "domain": scored.domain,
                     "rules_score": scored.score

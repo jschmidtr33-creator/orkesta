@@ -26,7 +26,10 @@ import httpx
 from orkesta import __version__
 from orkesta.engine.net.dns import DnsError, Resolver
 
-USER_AGENT = f"ORKESTA-bot/{__version__} (+verificacion de dominios corporativos)"
+USER_AGENT = (
+    f"ORKESTA-bot/{__version__} (+https://github.com/jschmidtr33-creator/orkesta;"
+    " verificacion de dominios corporativos)"
+)
 MAX_REDIRECTS = 5
 _TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
 

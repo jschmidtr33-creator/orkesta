@@ -96,3 +96,9 @@ def test_cli_trains_and_promotes_only_when_better(tmp_path: Path) -> None:
     if out.exists():
         model = DomainModel.load(out)
         assert 0 < model.threshold_probable <= model.threshold_confirmed < 1
+
+
+def test_too_few_companies_never_promotes() -> None:
+    data, report = train_domain.train(_synthetic_rows(40), "t")
+    assert data == {}
+    assert report["promover"] is False

@@ -136,11 +136,19 @@ def main(argv: list[str] | None = None) -> int:
     selected: list[WikidataCompany] = []
     with httpx.Client(timeout=90, headers={"User-Agent": USER_AGENT}) as client:
         for country, n in quotas.items():
-            found = fetch_country(country, limit=max(n * 6, 600), client=client)
+            try:
+                found = fetch_country(country, limit=min(max(n * 4, 400), 1200), client=client)
+            except (httpx.HTTPError, ValueError, KeyError) as exc:
+                # Un país que falla no debe dejar sin conjunto a los demás.
+                print(f"{country}: error consultando Wikidata: {exc!r}", file=sys.stderr)
+                continue
             chosen = sample(found, n)
             print(f"{country}: {len(found)} empresas con sitio oficial, {len(chosen)} elegidas")
             selected.extend(chosen)
             time.sleep(2)  # cortesía con el servicio público
+    if not selected:
+        print("Wikidata no devolvió empresas", file=sys.stderr)
+        return 1
     write_csv(selected, args.out)
     print(f"Total: {len(selected)} empresas → {args.out}")
     return 0
