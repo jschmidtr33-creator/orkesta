@@ -158,7 +158,7 @@ def test_preview_reports_mapping_errors(
         batch = session.get(EnrichmentBatch, batch_id)
         assert batch is not None
         preview = build_preview(session, batch, coerce_mapping({"first_name": "Nombre"}, []))
-    assert "Falta asignar la columna de Nombre." in preview.errors
+    assert "Falta asignar la columna de Nombre (o la de Nombre completo)." in preview.errors
 
 
 def test_full_import_creates_companies_and_contacts(

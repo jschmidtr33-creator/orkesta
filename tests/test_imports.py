@@ -120,11 +120,12 @@ def test_proposes_spanish_mapping() -> None:
     assert proposed.mapping == {
         "first_name": "Nombre",
         "last_name": "Apellido",
+        "full_name": None,
         "title": "Cargo",
         "company": "Empresa",
         "location": "Ubicación",
     }
-    assert set(proposed.confidence.values()) == {"exact"}
+    assert {v for k, v in proposed.confidence.items() if k != "full_name"} == {"exact"}
 
 
 def test_proposes_english_crm_mapping() -> None:
@@ -133,10 +134,51 @@ def test_proposes_english_crm_mapping() -> None:
     assert proposed.mapping == {
         "first_name": "First Name",
         "last_name": "Last Name",
+        "full_name": None,
         "title": "Job Title",
         "company": "Company Name",
         "location": "Person Location",
     }
+
+
+def test_single_name_column_is_mapped_as_full_name() -> None:
+    proposed = propose_mapping(["NOMBRE", "EMAIL", "CARGO", "EMPRESA", "UBICACIÓN"])
+    assert proposed.mapping["full_name"] == "NOMBRE"
+    assert proposed.mapping["first_name"] is None and proposed.mapping["last_name"] is None
+    assert (
+        validate_mapping(proposed.mapping, ["NOMBRE", "EMAIL", "CARGO", "EMPRESA", "UBICACIÓN"])
+        == []
+    )
+
+
+def test_explicit_full_name_header() -> None:
+    proposed = propose_mapping(["Nombre completo", "Empresa"])
+    assert proposed.mapping["full_name"] == "Nombre completo"
+
+
+def test_separate_columns_win_over_full_name() -> None:
+    proposed = propose_mapping(["Nombre", "Apellido", "Nombre completo", "Empresa"])
+    assert (proposed.mapping["first_name"], proposed.mapping["last_name"]) == ("Nombre", "Apellido")
+
+
+def test_full_name_rows_are_split_and_flagged() -> None:
+    content = (FIXTURE.parent / "contactos_nombre_completo.csv").read_bytes()
+    table = read_table(content, "leads.csv", LIMITS)
+    rows = [(i, dict(zip(table.headers, r, strict=True))) for i, r in enumerate(table.rows, 2)]
+    processed, summary = process_rows(rows, propose_mapping(table.headers).mapping)
+    by_row = {r.row_number: r for r in processed}
+    assert (summary.valid, summary.invalid) == (7, 1)
+    assert (by_row[2].person.first_display, by_row[2].person.last_display) == (
+        "Rodrigo Alonso",
+        "Quintana Mora",
+    )
+    assert by_row[3].person.last_display == "Salinas" and "NAME_CLEANED" in by_row[3].issues
+    assert "LAST_NAME_INITIAL" in by_row[4].issues
+    assert (by_row[5].person.first_display, by_row[5].person.last_display) == ("Yanira", "Delgado")
+    assert by_row[6].person.last_display == "Ruiz Lindo"
+    assert by_row[8].person.last_display == "De Jesús"
+    assert by_row[9].status == "invalid" and "COMPANY_MISSING" in by_row[9].issues
+    assert by_row[3].location.city == "San Pedro Garza García"
 
 
 def test_specific_header_wins_over_generic_word() -> None:

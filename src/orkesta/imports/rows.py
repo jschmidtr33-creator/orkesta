@@ -19,9 +19,9 @@ from orkesta.engine.normalize import (
     normalize_person,
     parse_location,
 )
-from orkesta.engine.normalize.names import looks_like_name
+from orkesta.engine.normalize.names import looks_like_name, split_full_name
 from orkesta.engine.normalize.text import clean
-from orkesta.imports.mapping import Field
+from orkesta.imports.mapping import Field, uses_full_name
 
 RowStatus = Literal["valid", "invalid", "duplicate"]
 
@@ -37,6 +37,7 @@ ISSUES: dict[str, tuple[Literal["error", "warning"], str]] = {
     "LOCATION_AMBIGUOUS": ("warning", "Ciudad en varios países; se eligió el más probable"),
     "NAME_CLEANED": ("warning", "Se retiraron tratamientos, credenciales o símbolos del nombre"),
     "TITLE_MISSING": ("warning", "Falta el cargo"),
+    "LAST_NAME_INITIAL": ("warning", "El apellido solo trae la inicial"),
     # Solo se conoce al guardar: la persona ya estaba en ORKESTA por un lote anterior.
     "CONTACT_EXISTS": ("warning", "El contacto ya existía en ORKESTA y se reutilizó"),
 }
@@ -104,8 +105,13 @@ def _value(raw: Mapping[str, str], mapping: Mapping[Field, str | None], key: Fie
 def process_row(
     row_number: int, raw: dict[str, str], mapping: Mapping[Field, str | None]
 ) -> ProcessedRow:
-    first = _value(raw, mapping, "first_name")
-    last = _value(raw, mapping, "last_name")
+    removed_from_full: tuple[str, ...] = ()
+    if uses_full_name(mapping):
+        split = split_full_name(_value(raw, mapping, "full_name"))
+        first, last, removed_from_full = split.first, split.last, split.removed
+    else:
+        first = _value(raw, mapping, "first_name")
+        last = _value(raw, mapping, "last_name")
     company_raw = _value(raw, mapping, "company")
     location_raw = _value(raw, mapping, "location")
     title = _value(raw, mapping, "title") or None
@@ -137,8 +143,10 @@ def process_row(
             issues.append("LOCATION_UNRECOGNIZED")
         elif location.confidence == "low":
             issues.append("LOCATION_AMBIGUOUS")
-    if person.removed and person.is_valid:
+    if (person.removed or removed_from_full) and person.is_valid:
         issues.append("NAME_CLEANED")
+    if person.is_valid and person.last_is_initial:
+        issues.append("LAST_NAME_INITIAL")
     if mapping.get("title") and not title:
         issues.append("TITLE_MISSING")
 

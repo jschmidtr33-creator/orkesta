@@ -18,6 +18,11 @@ LEGAL_FORMS: tuple[str, ...] = tuple(
     sorted(
         {
             "s a de c v",
+            "s a de cv",
+            "sa de c v",
+            "s de r l de cv",
+            "s a p i de cv",
+            "s a b de cv",
             "sa de cv",
             "s de r l de c v",
             "s de rl de cv",
@@ -160,6 +165,8 @@ GENERIC_WORDS = frozenset(
         "espana",
         "spain",
         "usa",
+        "com",
+        "oficial",
     }
 )
 

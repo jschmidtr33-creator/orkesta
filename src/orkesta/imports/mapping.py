@@ -7,19 +7,22 @@ usuario puede corregirlo antes de confirmar la importación.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 from orkesta.engine.normalize.text import fold
 
-Field = Literal["first_name", "last_name", "title", "company", "location"]
+Field = Literal["first_name", "last_name", "full_name", "title", "company", "location"]
 
-FIELDS: tuple[Field, ...] = ("first_name", "last_name", "title", "company", "location")
-REQUIRED_FIELDS: tuple[Field, ...] = ("first_name", "last_name", "company")
+FIELDS: tuple[Field, ...] = ("first_name", "last_name", "full_name", "title", "company", "location")
+# Además de la empresa hace falta el nombre: Nombre + Apellido, o bien Nombre completo.
+REQUIRED_FIELDS: tuple[Field, ...] = ("company",)
 
 FIELD_LABELS: dict[Field, str] = {
     "first_name": "Nombre",
     "last_name": "Apellido",
+    "full_name": "Nombre completo",
     "title": "Cargo",
     "company": "Empresa",
     "location": "Ubicación",
@@ -50,6 +53,17 @@ SYNONYMS: dict[Field, tuple[str, ...]] = {
         "surname",
         "family name",
         "apellido del contacto",
+    ),
+    "full_name": (
+        "nombre completo",
+        "full name",
+        "fullname",
+        "nombre y apellido",
+        "nombre y apellidos",
+        "nombres y apellidos",
+        "contacto",
+        "contact name",
+        "person name",
     ),
     "title": (
         "cargo",
@@ -142,12 +156,30 @@ def propose_mapping(headers: list[str]) -> ProposedMapping:
         mapping[field] = header
         confidence[field] = "exact" if score >= _EXACT else "partial"
         used.add(header)
+
+    # Una sola columna de nombre sin columna de apellido suele traer el nombre completo
+    # ("NOMBRE" en exportaciones de LinkedIn): se asigna a Nombre completo.
+    if mapping["first_name"] and not mapping["last_name"] and not mapping["full_name"]:
+        mapping["full_name"], mapping["first_name"] = mapping["first_name"], None
+        confidence["full_name"], confidence["first_name"] = "partial", "none"
     return ProposedMapping(mapping=mapping, confidence=confidence)
+
+
+def uses_full_name(mapping: Mapping[Field, str | None]) -> bool:
+    """El nombre se separa desde Nombre completo cuando no hay Nombre y Apellido por separado."""
+    return bool(mapping.get("full_name")) and not (
+        mapping.get("first_name") and mapping.get("last_name")
+    )
 
 
 def validate_mapping(mapping: dict[Field, str | None], headers: list[str]) -> list[str]:
     """Devuelve errores legibles; lista vacía si el mapeo es usable."""
     errors = []
+    if not uses_full_name(mapping):
+        if not mapping.get("first_name"):
+            errors.append("Falta asignar la columna de Nombre (o la de Nombre completo).")
+        if not mapping.get("last_name"):
+            errors.append("Falta asignar la columna de Apellido.")
     for field in REQUIRED_FIELDS:
         if not mapping.get(field):
             errors.append(f"Falta asignar la columna de {FIELD_LABELS[field]}.")

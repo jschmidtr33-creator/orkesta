@@ -78,7 +78,13 @@ def get_db(request: Request) -> Iterator[Session]:
         session.close()
 
 
-def current_user(request: Request, db: Annotated[Session, Depends(get_db)]) -> User:
+# scope="function": la transacción se confirma ANTES de enviar la respuesta. Con el valor por
+# defecto ("request") se confirmaría después, y un navegador que sigue una redirección al
+# instante (subir archivo → mapeo) podría pedir un lote que todavía no está guardado.
+DbSession = Annotated[Session, Depends(get_db, scope="function")]
+
+
+def current_user(request: Request, db: DbSession) -> User:
     raw_id = request.session.get("user_id")
     try:
         user_id = uuid.UUID(str(raw_id)) if raw_id else None
