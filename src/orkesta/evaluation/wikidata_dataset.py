@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import re
 import sys
 import time
 from collections import defaultdict
@@ -33,6 +34,9 @@ COUNTRY_ENTITY = {
 # Clases de empresa: negocio, empresa, compañía, empresa cotizada, corporación, empresa
 # privada, holding.
 BUSINESS_TYPES = "wd:Q4830453 wd:Q6881511 wd:Q783794 wd:Q891723 wd:Q167037 wd:Q1589009 wd:Q219577"
+# Dominios del sector público: no son empresas con correo corporativo propio.
+PUBLIC_SECTOR = re.compile(r"\.(gob|gov|mil)(\.[a-z]{2})?$|^gob\.[a-z]{2}$")
+_QID = re.compile(r"^Q\d+$")
 
 QUERY = """
 SELECT ?item ?itemLabel ?website ?cityLabel WHERE {{
@@ -68,14 +72,14 @@ def parse_bindings(bindings: list[dict[str, Any]], country: str) -> list[Wikidat
         qid = row["item"]["value"].rsplit("/", 1)[-1]
         label = row.get("itemLabel", {}).get("value", "")
         # Sin etiqueta legible Wikidata devuelve el propio identificador: no sirve.
-        if not label or label == qid:
+        if not label or _QID.match(label):
             continue
         names[qid] = label
         city = row.get("cityLabel", {}).get("value")
         if city and not city.startswith("Q"):
             cities.setdefault(qid, city)
         domain = registrable_domain(row.get("website", {}).get("value", ""))
-        if domain and not is_non_corporate(domain):
+        if domain and not is_non_corporate(domain) and not PUBLIC_SECTOR.search(domain):
             domains[qid].add(domain)
     return [
         WikidataCompany(qid, names[qid], country, cities.get(qid), tuple(sorted(domains[qid])))
@@ -84,20 +88,37 @@ def parse_bindings(bindings: list[dict[str, Any]], country: str) -> list[Wikidat
     ]
 
 
-def fetch_country(
-    country: str, limit: int, client: httpx.Client, retries: int = 3
-) -> list[WikidataCompany]:
-    query = QUERY.format(types=BUSINESS_TYPES, country=COUNTRY_ENTITY[country], limit=limit)
+def _query(client: httpx.Client, query: str, retries: int = 3) -> list[dict[str, Any]]:
     for attempt in range(retries):
         try:
             response = client.get(SPARQL, params={"query": query, "format": "json"})
             response.raise_for_status()
-            return parse_bindings(response.json()["results"]["bindings"], country)
+            bindings: list[dict[str, Any]] = response.json()["results"]["bindings"]
+            return bindings
         except (httpx.HTTPError, ValueError, KeyError):
             if attempt == retries - 1:
                 raise
             time.sleep(5 * (attempt + 1))
     return []
+
+
+def fetch_country(country: str, limit: int, client: httpx.Client) -> list[WikidataCompany]:
+    """Una consulta por tipo de empresa: una sola consulta con todos los tipos agota el tiempo
+    del servicio en países grandes (504 en México). Un tipo que falla no anula a los demás."""
+    bindings: list[dict[str, Any]] = []
+    errors = 0
+    types = BUSINESS_TYPES.split()
+    for business_type in types:
+        query = QUERY.format(types=business_type, country=COUNTRY_ENTITY[country], limit=limit)
+        try:
+            bindings.extend(_query(client, query))
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            errors += 1
+            print(f"{country} {business_type}: {exc!r}", file=sys.stderr)
+        time.sleep(1)  # cortesía con el servicio público
+    if errors == len(types):
+        raise httpx.HTTPError(f"Wikidata no respondió para {country}")
+    return parse_bindings(bindings, country)
 
 
 def sample(
@@ -137,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     with httpx.Client(timeout=90, headers={"User-Agent": USER_AGENT}) as client:
         for country, n in quotas.items():
             try:
-                found = fetch_country(country, limit=min(max(n * 4, 400), 1200), client=client)
+                found = fetch_country(country, limit=max(n * 3, 300), client=client)
             except (httpx.HTTPError, ValueError, KeyError) as exc:
                 # Un país que falla no debe dejar sin conjunto a los demás.
                 print(f"{country}: error consultando Wikidata: {exc!r}", file=sys.stderr)

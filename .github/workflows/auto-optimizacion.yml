@@ -24,7 +24,7 @@ jobs:
   medir:
     name: Medir y publicar
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 240
     env:
       DATABASE_URL: postgresql://sin-base@127.0.0.1:1/ninguna
     steps:
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.wikidata_dataset --out work/wikidata.csv \
-            --per-country "MX=250,CO=100,PE=50,CL=50,AR=50" 2>&1 | tee work/logs/wikidata_dataset.log
+            --per-country "MX=400,CO=200,PE=120,CL=200,AR=200,EC=80,UY=60,PA=50,CR=50,GT=40,DO=40" 2>&1 | tee work/logs/wikidata_dataset.log
 
       - name: Medir con etiquetas de Wikidata (sin Wikidata como fuente)
         if: steps.dataset.outcome == 'success'
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.domains work/wikidata.csv --out work/wikidata \
-            --no-wikidata --workers 8 --features work/wikidata/features.csv.gz \
+            --no-wikidata --workers 16 --features work/wikidata/features.csv.gz \
             2>&1 | tail -n 200 | tee work/logs/medir_wikidata.log
 
       - name: Medir con la lista de empresas
@@ -62,7 +62,7 @@ jobs:
         run: |
           set -o pipefail; mkdir -p work/logs
           python -m orkesta.evaluation.domains data/eval/empresas_mx.csv --out work/lista \
-            --workers 8 --features work/lista/features.csv.gz \
+            --workers 16 --features work/lista/features.csv.gz \
             2>&1 | tail -n 200 | tee work/logs/medir_lista.log
 
       - name: Entrenar modelo candidato (empresas nunca vistas deciden la promoción)

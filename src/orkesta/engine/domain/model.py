@@ -85,7 +85,11 @@ def apply_model(
     if scored.status == "rejected" and scored.score == 0:
         return scored
     probability = model.predict(candidate_features(scored.evidence, companies, country))
-    if probability >= model.threshold_confirmed:
+    if probability >= model.threshold_confirmed or (
+        # Confirmado también cuando ambos coinciden: reglas con evidencia de identidad y
+        # modelo por encima de su umbral de probable.
+        scored.status == "confirmed" and probability >= model.threshold_probable
+    ):
         status = "confirmed"
     elif probability >= model.threshold_probable:
         status = "probable"

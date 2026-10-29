@@ -12,7 +12,13 @@ from dataclasses import dataclass, field
 
 from orkesta.engine.domain.candidates import Candidate, generate_candidates
 from orkesta.engine.domain.model import DomainModel, apply_model
-from orkesta.engine.domain.scoring import CandidateEvidence, ScoredCandidate, score
+from orkesta.engine.domain.scoring import (
+    CandidateEvidence,
+    ScoredCandidate,
+    common_word_label,
+    label_similarity,
+    score,
+)
 from orkesta.engine.domain.signals import analyze_page
 from orkesta.engine.domain.wikidata import CompanySource, WikidataError, WikidataHit
 from orkesta.engine.net.dns import DnsError, Resolver
@@ -23,7 +29,7 @@ from orkesta.engine.normalize.text import fold
 
 logger = logging.getLogger("orkesta.engine.domain")
 
-MAX_SITE_VISITS = 6
+MAX_SITE_VISITS = 8
 WORKERS = 6
 
 
@@ -91,6 +97,46 @@ def _visit(fetcher: RobotsAwareFetcher, domain: str) -> tuple[FetchResult | None
     return last, blocked
 
 
+def _check_mx(
+    resolver: Resolver,
+    evidence: dict[str, CandidateEvidence],
+    checked: set[str],
+    notes: list[str],
+) -> None:
+    pending = [i for i in evidence.values() if i.resolves and i.domain not in checked]
+    for item in pending:
+        checked.add(item.domain)
+        try:
+            mx = resolver.mx(item.domain)
+        except DnsError:
+            notes.append(f"mx: sin respuesta para {item.domain}")
+            continue
+        item.has_mx, item.mx_provider = mx.has_mx, mx.provider
+
+
+_METHOD_PRIORITY = {"embedded": 0, "wikidata": 0, "match_key": 1, "full_name": 2}
+
+
+def _visit_order(evidence: dict[str, CandidateEvidence], companies: list[CompanyName]) -> list[str]:
+    """Qué sitios visitar primero cuando hay más candidatos vivos que visitas permitidas.
+
+    Primero la evidencia externa, luego los que reciben correo y se parecen más al nombre; las
+    palabras comunes van al final. El orden original desempata (estable).
+    """
+    alive = [d for d, item in evidence.items() if item.resolves]
+
+    def key(domain: str) -> tuple[int, int, int, float]:
+        item = evidence[domain]
+        return (
+            _METHOD_PRIORITY.get(item.method.split(":", 1)[0], 3) if item.method else 3,
+            int(common_word_label(domain, companies)),
+            0 if item.has_mx else 1,
+            -label_similarity(domain, companies),
+        )
+
+    return sorted(alive, key=key)
+
+
 def resolve_domain(
     companies: list[CompanyName],
     country: str | None,
@@ -129,7 +175,9 @@ def resolve_domain(
     if not any(ok for ok, _ in dns_results.values()) and not resolver.healthy():
         raise TransientResolutionError("el DNS no responde correctamente (dominio de control)")
 
-    to_visit = [d for d in evidence if evidence[d].resolves][:MAX_SITE_VISITS]
+    mx_checked: set[str] = set()
+    _check_mx(resolver, evidence, mx_checked, notes)
+    to_visit = _visit_order(evidence, companies)[:MAX_SITE_VISITS]
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         visits = dict(zip(to_visit, pool.map(lambda d: _visit(fetcher, d), to_visit), strict=True))
 
@@ -165,14 +213,7 @@ def resolve_domain(
         item.final_url = result.final_url
         item.page = page
 
-    for item in evidence.values():
-        if item.resolves and not item.rejected_reason:
-            try:
-                mx = resolver.mx(item.domain)
-            except DnsError:
-                notes.append(f"mx: sin respuesta para {item.domain}")
-                continue
-            item.has_mx, item.mx_provider = mx.has_mx, mx.provider
+    _check_mx(resolver, evidence, mx_checked, notes)  # destinos de redirecciones nuevos
 
     rule_scores = [score(item, companies, country) for item in evidence.values()]
     if model is not None:

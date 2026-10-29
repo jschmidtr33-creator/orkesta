@@ -46,3 +46,16 @@ def test_two_word_acronym() -> None:
         for c in generate_candidates([normalize_company("General Motors de México")], "MX")
         if c.method == "token"
     }
+
+
+def test_common_word_label_only_penalizes_partial_names() -> None:
+    epm = [normalize_company("Empresas Públicas de Medellín")]
+    item = CandidateEvidence("medellin.com", "token", resolves=True, has_mx=True)
+    assert "COMMON_WORD_LABEL" in score(item, epm, "CO").reasons
+    corona = [normalize_company("Corona")]
+    assert (
+        "COMMON_WORD_LABEL"
+        not in score(
+            CandidateEvidence("corona.com.co", "match_key", resolves=True), corona, "CO"
+        ).reasons
+    )

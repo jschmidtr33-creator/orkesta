@@ -4,7 +4,7 @@ Uso: ``python -m orkesta.evaluation.train_domain features1.csv.gz [features2.csv
 
 - Partición por empresa (``case_id``): una empresa nunca está a la vez en entrenamiento y
   prueba, así que la medición refleja empresas que el modelo no ha visto.
-- Umbrales elegidos en validación (dentro de entrenamiento), nunca en prueba.
+- Umbrales elegidos con validación cruzada por empresa dentro de entrenamiento, nunca en prueba.
 - Promoción solo si, en prueba, el modelo iguala o supera la exactitud de las reglas y gana en
   cobertura, o supera claramente la exactitud con una cobertura similar.
 
@@ -20,7 +20,7 @@ import hashlib
 import json
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,8 +30,9 @@ from orkesta.engine.domain.model import ACTIVE_MODEL, DomainModel
 from orkesta.engine.domain.scoring import PROBABLE
 
 TEST_SHARE = 0.3
-VALIDATION_SHARE = 0.25
+FOLDS = 5
 MIN_ACCURACY_FOR_CONFIRMED = 0.95
+TARGET_ACCURACY = 0.75  # meta del producto para resultados "probables"
 MIN_TEST_COMPANIES = 30  # con menos, la comparación no es fiable y no se promueve
 
 
@@ -60,6 +61,23 @@ def load_rows(paths: list[Path]) -> list[Row]:
                     )
                 )
     return rows
+
+
+def brand_relabel(rows: list[Row]) -> list[Row]:
+    """Etiqueta de marca: correcto si comparte marca con el dominio esperado (control).
+
+    Las etiquetas automáticas registran un solo dominio (alpina.com.co) aunque la empresa use
+    varios (alpina.com). Se entrena con la etiqueta estricta para aprender la extensión, y la
+    exactitud de marca vigila que el modelo no confunda marcas.
+    """
+    brands: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        if row.label:
+            brands[row.case_id].add(row.domain.split(".", 1)[0])
+    return [
+        replace(row, label=int(row.label or row.domain.split(".", 1)[0] in brands[row.case_id]))
+        for row in rows
+    ]
 
 
 def bucket(case_id: str, salt: str) -> float:
@@ -134,11 +152,38 @@ def _rules_scores(rows: list[Row]) -> dict[tuple[str, str], float]:
     return {(r.case_id, r.domain): r.rules_score for r in rows}
 
 
-def choose_thresholds(rows: list[Row], model: DomainModel) -> tuple[float, float]:
-    """Probable: máxima exactitud × cobertura. Confirmado: el menor umbral con ≥ 95 %."""
-    scores = _scores(model, rows)
+def _model_from(booster: Any, version: str) -> DomainModel:
+    return DomainModel.from_dict(
+        {
+            "version": version,
+            "booster": booster.dump_model(),
+            "threshold_confirmed": 0.9,
+            "threshold_probable": 0.5,
+        }
+    )
+
+
+def out_of_fold_scores(rows: list[Row], version: str) -> dict[tuple[str, str], float]:
+    """Probabilidad de cada candidato según un modelo que nunca vio a su empresa (K grupos)."""
+    scores: dict[tuple[str, str], float] = {}
+    for fold in range(FOLDS):
+        held = [r for r in rows if int(bucket(r.case_id, "fold") * FOLDS) % FOLDS == fold]
+        fit = [r for r in rows if int(bucket(r.case_id, "fold") * FOLDS) % FOLDS != fold]
+        if not held or not fit:
+            continue
+        model = _model_from(_train_booster(fit), version)
+        scores.update(_scores(model, held))
+    return scores
+
+
+def choose_thresholds(rows: list[Row], scores: dict[tuple[str, str], float]) -> tuple[float, float]:
+    """Probable: menor umbral con la exactitud meta (75 %); si ninguno la alcanza, el de
+    máxima exactitud × cobertura. Confirmado: el menor umbral con ≥ 95 %."""
     grid = [i / 100 for i in range(5, 100)]
-    probable = max(
+    probable = next(
+        (t for t in grid if company_metrics(rows, scores, t)["exactitud"] >= TARGET_ACCURACY),
+        None,
+    ) or max(
         grid,
         key=lambda t: (
             (m := company_metrics(rows, scores, t))["exactitud"] * m["cobertura"],
@@ -157,7 +202,19 @@ def choose_thresholds(rows: list[Row], model: DomainModel) -> tuple[float, float
     return confirmed, probable
 
 
-def should_promote(model_m: dict[str, float], rules_m: dict[str, float]) -> bool:
+def should_promote(
+    model_m: dict[str, float],
+    rules_m: dict[str, float],
+    model_brand: dict[str, float] | None = None,
+    rules_brand: dict[str, float] | None = None,
+) -> bool:
+    """Decide con la exactitud estricta; la de marca nunca puede empeorar más de un punto."""
+    if model_brand and rules_brand and model_brand["exactitud"] < rules_brand["exactitud"] - 0.01:
+        return False
+    return _beats(model_m, rules_m)
+
+
+def _beats(model_m: dict[str, float], rules_m: dict[str, float]) -> bool:
     accuracy_ok = model_m["exactitud"] >= rules_m["exactitud"] - 0.005
     coverage_gain = model_m["cobertura"] > rules_m["cobertura"] + 0.01
     clear_accuracy_gain = (
@@ -169,6 +226,7 @@ def should_promote(model_m: dict[str, float], rules_m: dict[str, float]) -> bool
 
 def train(rows: list[Row], version: str) -> tuple[dict[str, Any], dict[str, Any]]:
     train_rows, test_rows = split(rows, TEST_SHARE, "test")
+    brand_test = brand_relabel(test_rows)
     if len(by_case(test_rows)) < MIN_TEST_COMPANIES or len(by_case(train_rows)) < 60:
         report = {
             "version": version,
@@ -179,20 +237,11 @@ def train(rows: list[Row], version: str) -> tuple[dict[str, Any], dict[str, Any]
             "motivo": "muy pocas empresas para entrenar y comparar con fiabilidad",
         }
         return {}, report
-    fit_rows, validation_rows = split(train_rows, VALIDATION_SHARE, "validation")
+    # Umbrales con predicciones fuera de grupo sobre todo el entrenamiento: más estables que
+    # una sola partición de validación con pocas empresas.
+    confirmed, probable = choose_thresholds(train_rows, out_of_fold_scores(train_rows, version))
 
-    booster = _train_booster(fit_rows)
-    provisional = DomainModel.from_dict(
-        {
-            "version": version,
-            "booster": booster.dump_model(),
-            "threshold_confirmed": 0.9,
-            "threshold_probable": 0.5,
-        }
-    )
-    confirmed, probable = choose_thresholds(validation_rows, provisional)
-
-    # Modelo final: todo el entrenamiento (sin tocar prueba) con los umbrales de validación.
+    # Modelo final: todo el entrenamiento (sin tocar prueba) con esos umbrales.
     final_booster = _train_booster(train_rows)
     data: dict[str, Any] = {
         "version": version,
@@ -204,6 +253,8 @@ def train(rows: list[Row], version: str) -> tuple[dict[str, Any], dict[str, Any]
     model = DomainModel.from_dict(data)
     model_metrics = company_metrics(test_rows, _scores(model, test_rows), probable)
     rules_metrics = company_metrics(test_rows, _rules_scores(test_rows), PROBABLE)
+    model_brand = company_metrics(brand_test, _scores(model, brand_test), probable)
+    rules_brand = company_metrics(brand_test, _rules_scores(brand_test), PROBABLE)
     importance = dict(
         zip(FEATURE_NAMES, final_booster.feature_importance("gain").round(1).tolist(), strict=True)
     )
@@ -216,7 +267,9 @@ def train(rows: list[Row], version: str) -> tuple[dict[str, Any], dict[str, Any]
         "umbral_probable": probable,
         "modelo_prueba": model_metrics,
         "reglas_prueba": rules_metrics,
-        "promover": should_promote(model_metrics, rules_metrics),
+        "modelo_prueba_marca": model_brand,
+        "reglas_prueba_marca": rules_brand,
+        "promover": should_promote(model_metrics, rules_metrics, model_brand, rules_brand),
         "importancia": dict(sorted(importance.items(), key=lambda kv: -kv[1])),
     }
     data["metrics"] = report

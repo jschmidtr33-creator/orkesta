@@ -13,6 +13,7 @@ from orkesta.engine.domain.scoring import (
     _is_short_generic,
     _label,
     _label_similarity,
+    common_word_label,
 )
 from orkesta.engine.normalize.company import CompanyName
 
@@ -42,6 +43,7 @@ FEATURE_NAMES: tuple[str, ...] = (
     "dot_com",
     "other_country_tld",
     "short_generic_name",
+    "common_word_label",
     "name_tokens",
     *(f"method_{m}" for m in METHODS),
 )
@@ -92,6 +94,7 @@ def candidate_features(
         "dot_com": float(tld == "com"),
         "other_country_tld": float(len(last) == 2 and bool(country_tld) and last != country_tld),
         "short_generic_name": float(_is_short_generic(companies)),
+        "common_word_label": float(common_word_label(evidence.domain, companies)),
         "name_tokens": float(max((len(c.distinctive_tokens) for c in companies), default=0)),
     }
     for m in METHODS:

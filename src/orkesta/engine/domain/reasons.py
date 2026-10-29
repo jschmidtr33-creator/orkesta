@@ -29,6 +29,7 @@ REASON_LABELS: dict[str, str] = {
     "EMBEDDED_IN_NAME": "el dominio aparece en el nombre de la empresa",
     "SHORT_GENERIC_NAME": "nombre corto con posibles homónimos",
     "ROBOTS_BLOCKED": "el sitio no permite su revisión automática",
+    "COMMON_WORD_LABEL": "el dominio es una palabra común o un lugar, no el nombre completo",
     "SITE_PROTECTED": "hay un sitio web activo que bloquea visitas automáticas",
     "MODEL_DECISION": "decidido por el modelo propio entrenado",
     "PARKED_DOMAIN": "dominio aparcado o en venta",

@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
+from orkesta.engine.domain.common_words import is_common_word
 from orkesta.engine.domain.signals import PageSignals
 from orkesta.engine.normalize.company import CompanyName
 from orkesta.engine.normalize.text import fold
@@ -34,6 +35,7 @@ WEIGHTS: dict[str, int] = {
     "SHORT_GENERIC_NAME": -10,
     "OTHER_COUNTRY_TLD": -10,
     "SITE_PROTECTED": 10,
+    "COMMON_WORD_LABEL": -15,
 }
 
 CONFIRMED, PROBABLE, CANDIDATE = 70, 50, 30
@@ -110,6 +112,15 @@ def _brand_in_title(domain: str, page: PageSignals, companies: list[CompanyName]
     return label in brands and re.search(rf"\b{re.escape(label)}\b", header) is not None
 
 
+def label_similarity(domain: str, companies: list[CompanyName]) -> float:
+    return _label_similarity(domain, companies)
+
+
+def common_word_label(domain: str, companies: list[CompanyName]) -> bool:
+    """La etiqueta es una palabra común o un lugar y el nombre tiene más palabras."""
+    return is_common_word(_label(domain)) and max((len(c.tokens) for c in companies), default=0) > 1
+
+
 def _is_short_generic(companies: list[CompanyName]) -> bool:
     """Nombres de una sola palabra corta ("Sophia", "Envases") tienen muchos homónimos."""
     return all(len(c.distinctive_tokens) <= 1 and len(c.match_key) <= 7 for c in companies)
@@ -146,6 +157,8 @@ def score(
             reasons.append("COUNTRY_SIGNALS")
     if _label_similarity(evidence.domain, companies) >= 0.9:
         reasons.append("LABEL_MATCHES_NAME")
+    if common_word_label(evidence.domain, companies):
+        reasons.append("COMMON_WORD_LABEL")
 
     tld = evidence.domain.split(".", 1)[1] if "." in evidence.domain else ""
     country_tld = (country or "").lower()

@@ -30,7 +30,8 @@ NON_CORPORATE_HOSTS = frozenset(
 PARKING_HOSTS = frozenset(
     """sedo.com sedoparking.com dan.com afternic.com hugedomains.com bodis.com parkingcrew.net
     above.com undeveloped.com namebright.com uniregistry.com domainmarket.com buydomains.com
-    squadhelp.com atom.com""".split()
+    squadhelp.com atom.com markmonitor.com cscglobal.com cscdbs.com safenames.net comlaude.com
+    brandshelter.com""".split()
 )
 
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")

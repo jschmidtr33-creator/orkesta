@@ -48,3 +48,24 @@ def test_model_does_not_revive_hard_rejections() -> None:
     dead = CandidateEvidence("acme.mx", "match_key", resolves=False)
     rules = score(dead, names, "MX")
     assert apply_model(_model(4.0), rules, names, "MX") is rules
+
+
+def test_confirmed_when_rules_and_model_agree() -> None:
+    from orkesta.engine.domain.signals import PageSignals
+
+    names = [normalize_company("Acme Logística")]
+    page = PageSignals(
+        title="Acme Logística",
+        site_name="",
+        name_in_header=1.0,
+        name_in_body=True,
+        country_markers=("+52",),
+        parked=False,
+    )
+    evidence = CandidateEvidence(
+        "acmelogistica.com.mx", "match_key", resolves=True, has_mx=True, site_ok=True, page=page
+    )
+    rules = score(evidence, names, "MX")
+    assert rules.status == "confirmed"
+    model = _model(1.0)  # p≈0.73: por encima de probable (0.6), por debajo de confirmado (0.9)
+    assert apply_model(model, rules, names, "MX").status == "confirmed"

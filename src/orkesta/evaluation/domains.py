@@ -77,8 +77,21 @@ class Outcome:
         return self.selected is not None and self.selected in (self.accepted or self.case.expected)
 
     @property
+    def brand_correct(self) -> bool:
+        """Misma marca con otra extensión (alpina.com frente a alpina.com.co)."""
+        if self.selected is None:
+            return False
+        brands = {brand_label(d) for d in (self.accepted or self.case.expected)}
+        return brand_label(self.selected) in brands
+
+    @property
     def in_top3(self) -> bool:
         return any(d in (self.accepted or self.case.expected) for d in self.top3)
+
+
+def brand_label(domain: str) -> str:
+    """Parte de marca de un dominio registrable: ``alpina.com.co`` → ``alpina``."""
+    return domain.split(".", 1)[0]
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -168,6 +181,7 @@ def summarize(outcomes: list[Outcome]) -> dict[str, float | int]:
     labeled = [o for o in outcomes if o.labeled]
     answered = [o for o in labeled if o.selected]
     correct = [o for o in answered if o.correct]
+    brand = [o for o in answered if o.brand_correct]
     base_correct = [o for o in labeled if baseline(o.case) in o.case.expected]
     confirmed = [o for o in answered if o.status == "confirmed"]
 
@@ -180,6 +194,7 @@ def summarize(outcomes: list[Outcome]) -> dict[str, float | int]:
         "con_dominio": len(answered),
         "aciertos": len(correct),
         "exactitud_pct": pct(len(correct), len(answered)),
+        "exactitud_marca_pct": pct(len(brand), len(answered)),
         "cobertura_pct": pct(len(answered), len(labeled)),
         "top3_pct": pct(sum(o.in_top3 for o in labeled), len(labeled)),
         "exactitud_confirmados_pct": pct(sum(o.correct for o in confirmed), len(confirmed)),
@@ -218,6 +233,7 @@ def write_report(
         f"| Empresas evaluadas | {metrics['empresas']} |",
         f"| Con dominio esperado (etiquetadas) | {metrics['etiquetadas']} |",
         f"| **Exactitud** (aciertos / con dominio) | **{metrics['exactitud_pct']} %** |",
+        f"| Exactitud de marca (otra extensión cuenta) | {metrics['exactitud_marca_pct']} % |",
         f"| Cobertura (etiquetadas con dominio / etiquetadas) | {metrics['cobertura_pct']} % |",
         f"| Exactitud en confirmados ({metrics['confirmados']}) | "
         f"{metrics['exactitud_confirmados_pct']} % |",
