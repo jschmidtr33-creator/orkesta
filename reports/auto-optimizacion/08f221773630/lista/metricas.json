@@ -1,0 +1,13 @@
+{
+  "empresas": 129,
+  "etiquetadas": 64,
+  "con_dominio": 55,
+  "aciertos": 43,
+  "exactitud_pct": 78.2,
+  "cobertura_pct": 85.9,
+  "top3_pct": 84.4,
+  "exactitud_confirmados_pct": 79.5,
+  "confirmados": 44,
+  "linea_base_exactitud_pct": 20.3,
+  "errores_red": 0
+}

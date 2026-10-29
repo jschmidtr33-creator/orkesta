@@ -1,0 +1,13 @@
+{
+  "empresas": 250,
+  "etiquetadas": 250,
+  "con_dominio": 185,
+  "aciertos": 115,
+  "exactitud_pct": 62.2,
+  "cobertura_pct": 74.0,
+  "top3_pct": 60.8,
+  "exactitud_confirmados_pct": 83.9,
+  "confirmados": 112,
+  "linea_base_exactitud_pct": 22.8,
+  "errores_red": 0
+}

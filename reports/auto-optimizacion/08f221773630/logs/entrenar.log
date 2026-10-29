@@ -1,0 +1,24 @@
+{
+  "version": "lgbm-20261029",
+  "filas": 2648,
+  "empresas_entrenamiento": 216,
+  "empresas_prueba": 93,
+  "umbral_confirmado": 0.99,
+  "umbral_probable": 0.34,
+  "modelo_prueba": {
+    "empresas": 93,
+    "con_dominio": 77,
+    "aciertos": 48,
+    "exactitud": 0.6234,
+    "cobertura": 0.828
+  },
+  "reglas_prueba": {
+    "empresas": 93,
+    "con_dominio": 66,
+    "aciertos": 40,
+    "exactitud": 0.6061,
+    "cobertura": 0.7097
+  },
+  "promover": true
+}
+Modelo guardado en work/modelo/domain-model.json
