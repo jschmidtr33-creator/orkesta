@@ -110,6 +110,14 @@ def deobfuscate(text: str) -> str:
     return _OBFUSCATED_DOT.sub(".", text)
 
 
+def page_links(page_html: str) -> list[tuple[str, str]]:
+    """Enlaces (href, texto) de una página, sin filtrar."""
+    parser = _PageParser()
+    with contextlib.suppress(Exception):
+        parser.feed(page_html[:1_500_000])
+    return parser.links
+
+
 def extract_emails(page_html: str, url: str, domain: str) -> tuple[list[FoundEmail], list[str]]:
     """Correos del dominio (o sus subdominios) y enlaces internos candidatos de la página."""
     parser = _PageParser()
@@ -136,7 +144,12 @@ def _same_brand(root: str, domain: str) -> bool:
     return root == domain or root.split(".", 1)[0] == domain.split(".", 1)[0]
 
 
-def _rank_links(links: list[tuple[str, str]], base: str, domain: str) -> list[str]:
+def _rank_links(
+    links: list[tuple[str, str]],
+    base: str,
+    domain: str,
+    hints: tuple[tuple[str, int], ...] = PAGE_HINTS,
+) -> list[str]:
     scored: dict[str, int] = {}
     for href, anchor in links:
         absolute = urljoin(base, href.strip()).split("#", 1)[0]
@@ -144,7 +157,7 @@ def _rank_links(links: list[tuple[str, str]], base: str, domain: str) -> list[st
         if parts.scheme not in ("http", "https") or registrable_domain(parts.netloc) != domain:
             continue
         haystack = fold(f"{parts.path} {anchor}").replace(" ", "-")
-        score = max((weight for hint, weight in PAGE_HINTS if hint in haystack), default=0)
+        score = max((weight for hint, weight in hints if hint in haystack), default=0)
         if score:
             scored[absolute] = max(score, scored.get(absolute, 0))
     return sorted(scored, key=lambda u: (-scored[u], len(u)))

@@ -393,6 +393,7 @@ class EmailCandidate(OrgScopedMixin, Base):
 # --- Base de prospectos ---------------------------------------------------------------------
 
 PROSPECT_SOURCES = ("base", "web", "wikidata")
+EMAIL_STATUSES = ("known", "inferred")
 
 
 class Prospect(OrgScopedMixin, Base):
@@ -407,6 +408,9 @@ class Prospect(OrgScopedMixin, Base):
         UniqueConstraint("organization_id", "dedup_key"),
         CheckConstraint(_in("source", PROSPECT_SOURCES), name="source"),
         CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
+        CheckConstraint(
+            "email_status IS NULL OR " + _in("email_status", EMAIL_STATUSES), name="email_status"
+        ),
         CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
         Index("ix_prospects_org_country", "organization_id", "country_code"),
         Index("ix_prospects_org_industry", "organization_id", "industry_code"),
@@ -437,6 +441,9 @@ class Prospect(OrgScopedMixin, Base):
     company_key: Mapped[str] = mapped_column(String(300), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320))
     email_domain: Mapped[str | None] = mapped_column(String(253))
+    # "known": correo real de una base; "inferred": deducido del patrón (nunca enseña patrones).
+    email_status: Mapped[str | None] = mapped_column(String(10))
+    email_confidence: Mapped[int | None] = mapped_column(SmallInteger)
     phone: Mapped[str | None] = mapped_column(String(40))
     city: Mapped[str | None] = mapped_column(String(120))
     country_code: Mapped[str | None] = mapped_column(String(2))
@@ -473,6 +480,40 @@ class ProspectUpload(OrgScopedMixin, Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+DISCOVERY_STATUSES = ("queued", "running", "completed", "failed")
+
+
+class DiscoveryRun(OrgScopedMixin, Base):
+    """Búsqueda de personas en la web para un conjunto de empresas (filtros de la interfaz)."""
+
+    __tablename__ = "discovery_runs"
+    __table_args__ = (CheckConstraint(_in("status", DISCOVERY_STATUSES), name="status"),)
+
+    filters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    people_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebDiscovery(OrgScopedMixin, Base):
+    """Última exploración del sitio de un dominio: evita repetirla durante 30 días."""
+
+    __tablename__ = "web_discoveries"
+    __table_args__ = (UniqueConstraint("organization_id", "domain"),)
+
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    people_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pages_visited: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class DomainPattern(OrgScopedMixin, Base):

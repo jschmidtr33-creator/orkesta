@@ -6,10 +6,15 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from orkesta.catalog.discovery import advance_run, run_discovery_job
 from orkesta.catalog.service import ProspectUploadError, mark_upload_failed, process_upload
 from orkesta.db.models import EnrichmentJob
+from orkesta.enrichment.service import EngineFactory, default_engine
 from orkesta.imports.reader import ImportFileError
 from orkesta.worker.runner import PermanentJobError
+
+# Se puede sustituir en pruebas por un motor con red simulada.
+engine_factory: EngineFactory = default_engine
 
 
 def _upload_id(job: EnrichmentJob) -> uuid.UUID:
@@ -28,3 +33,25 @@ def handle_import_prospects(session: Session, job: EnrichmentJob) -> None:
 
 def on_import_prospects_failed(session: Session, job: EnrichmentJob) -> None:
     mark_upload_failed(session, _upload_id(job), job.last_error or "Error desconocido")
+
+
+def _run_id(job: EnrichmentJob) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(job.payload["run_id"]))
+    except (KeyError, ValueError) as exc:
+        raise PermanentJobError("Trabajo de descubrimiento sin identificador válido") from exc
+
+
+def handle_discover_people(session: Session, job: EnrichmentJob) -> None:
+    run_id = _run_id(job)
+    added = run_discovery_job(
+        session,
+        organization_id=job.organization_id,
+        payload=job.payload,
+        fetcher_factory=lambda: engine_factory().fetcher,
+    )
+    advance_run(session, run_id, added)
+
+
+def on_discover_people_failed(session: Session, job: EnrichmentJob) -> None:
+    advance_run(session, _run_id(job), 0, failed=True)

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from orkesta.catalog.jobs import handle_import_prospects, on_import_prospects_failed
+from orkesta.catalog.discovery import DISCOVERY_JOB_KIND
+from orkesta.catalog.jobs import (
+    handle_discover_people,
+    handle_import_prospects,
+    on_discover_people_failed,
+    on_import_prospects_failed,
+)
 from orkesta.catalog.service import UPLOAD_JOB_KIND
 from orkesta.config import get_settings
 from orkesta.db.session import get_session_factory
@@ -18,11 +24,13 @@ HANDLERS: dict[str, JobHandler] = {
     IMPORT_JOB_KIND: handle_import_batch,
     DOMAIN_JOB_KIND: handle_resolve_domain,
     UPLOAD_JOB_KIND: handle_import_prospects,
+    DISCOVERY_JOB_KIND: handle_discover_people,
 }
 FAILURE_HOOKS: dict[str, FailureHook] = {
     IMPORT_JOB_KIND: on_import_failed,
     DOMAIN_JOB_KIND: on_resolve_domain_failed,
     UPLOAD_JOB_KIND: on_import_prospects_failed,
+    DISCOVERY_JOB_KIND: on_discover_people_failed,
 }
 
 

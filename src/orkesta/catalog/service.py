@@ -122,6 +122,7 @@ def _row(
         "company_key": record.company_key,
         "email": record.email,
         "email_domain": record.email_domain,
+        "email_status": "known" if record.email else None,
         "phone": record.phone,
         "city": record.city,
         "country_code": record.country_code,
@@ -206,6 +207,8 @@ def refresh_domain_patterns(
                 Prospect.organization_id == organization_id,
                 Prospect.email_domain.in_(chunk),
                 Prospect.email.is_not(None),
+                # Solo correos reales enseñan patrones; los deducidos nunca.
+                Prospect.email_status == "known",
             )
         )
         records = [
@@ -290,6 +293,7 @@ class ProspectFilters:
     countries: list[str] = field(default_factory=list)
     levels: list[str] = field(default_factory=list)
     areas: list[str] = field(default_factory=list)
+    only_web: bool = False
     city: str = ""
     with_email: bool = False
 
@@ -297,7 +301,7 @@ class ProspectFilters:
     def active(self) -> bool:
         return bool(
             self.title or self.company or self.industries or self.countries or self.city
-            or self.with_email or self.levels or self.areas
+            or self.with_email or self.levels or self.areas or self.only_web
         )  # fmt: skip
 
 
@@ -337,6 +341,8 @@ def search_prospects(
         query = query.where(
             func.lower(Prospect.city).contains(filters.city.lower(), autoescape=True)
         )
+    if filters.only_web:
+        query = query.where(Prospect.source == "web")
     if filters.with_email:
         query = query.where(Prospect.email.is_not(None))
     total = int(session.scalar(select(func.count()).select_from(query.subquery())) or 0)

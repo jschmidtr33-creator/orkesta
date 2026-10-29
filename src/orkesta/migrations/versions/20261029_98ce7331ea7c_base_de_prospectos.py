@@ -219,9 +219,109 @@ def upgrade() -> None:
         ["organization_id"],
         unique=False,
     )
+    op.create_table(
+        "web_discoveries",
+        sa.Column("domain", sa.String(length=253), nullable=False),
+        sa.Column("company", sa.String(length=300), nullable=False),
+        sa.Column("checked_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("people_found", sa.Integer(), nullable=False),
+        sa.Column("pages_visited", sa.Integer(), nullable=False),
+        sa.Column("blocked", sa.Boolean(), nullable=False),
+        sa.Column("organization_id", sa.UUID(), nullable=False),
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["organization_id"],
+            ["organizations.id"],
+            name=op.f("fk_web_discoveries_organization_id_organizations"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_web_discoveries")),
+        sa.UniqueConstraint(
+            "organization_id", "domain", name=op.f("uq_web_discoveries_organization_id_domain")
+        ),
+    )
+    op.create_index(
+        op.f("ix_web_discoveries_organization_id"),
+        "web_discoveries",
+        ["organization_id"],
+        unique=False,
+    )
+    op.create_table(
+        "discovery_runs",
+        sa.Column("filters", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("total", sa.Integer(), nullable=False),
+        sa.Column("done", sa.Integer(), nullable=False),
+        sa.Column("people_found", sa.Integer(), nullable=False),
+        sa.Column("user_id", sa.UUID(), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("organization_id", sa.UUID(), nullable=False),
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed')",
+            name=op.f("ck_discovery_runs_status"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["organization_id"],
+            ["organizations.id"],
+            name=op.f("fk_discovery_runs_organization_id_organizations"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name=op.f("fk_discovery_runs_user_id_users"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_discovery_runs")),
+    )
+    op.create_index(
+        op.f("ix_discovery_runs_organization_id"),
+        "discovery_runs",
+        ["organization_id"],
+        unique=False,
+    )
+    op.add_column("prospects", sa.Column("email_status", sa.String(length=10), nullable=True))
+    op.add_column("prospects", sa.Column("email_confidence", sa.SmallInteger(), nullable=True))
+    op.create_check_constraint(
+        op.f("ck_prospects_email_status"),
+        "prospects",
+        "email_status IS NULL OR email_status IN ('known', 'inferred')",
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(op.f("ck_prospects_email_status"), "prospects", type_="check")
+    op.drop_column("prospects", "email_confidence")
+    op.drop_column("prospects", "email_status")
+    op.drop_index(op.f("ix_discovery_runs_organization_id"), table_name="discovery_runs")
+    op.drop_table("discovery_runs")
+    op.drop_index(op.f("ix_web_discoveries_organization_id"), table_name="web_discoveries")
+    op.drop_table("web_discoveries")
     op.execute("DELETE FROM enrichment_jobs WHERE batch_id IS NULL")
     op.drop_constraint(
         op.f("uq_enrichment_jobs_batch_id_idempotency_key"), "enrichment_jobs", type_="unique"

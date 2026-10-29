@@ -14,11 +14,12 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import func, select
 
 from orkesta.audit import audit
+from orkesta.catalog.discovery import DiscoveryError, start_discovery
 from orkesta.catalog.industries import INDUSTRY_LABELS
 from orkesta.catalog.prospects import MAX_BYTES
 from orkesta.catalog.service import ProspectFilters, create_upload, iter_search, search_prospects
 from orkesta.catalog.titles import AREA_LABELS, LEVEL_LABELS
-from orkesta.db.models import DomainPattern, Prospect, ProspectUpload, User
+from orkesta.db.models import DiscoveryRun, DomainPattern, Prospect, ProspectUpload, User
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.imports.export import sanitize_cell
 from orkesta.web.deps import DbSession, check_csrf, current_user, flash, render
@@ -51,8 +52,10 @@ def _filters(
     con_correo: str = "",
     nivel: list[str] | None = None,
     area: list[str] | None = None,
+    web: str = "",
 ) -> ProspectFilters:
     return ProspectFilters(
+        only_web=web == "1",
         levels=[n for n in (nivel or []) if n in LEVEL_LABELS],
         areas=[a for a in (area or []) if a in AREA_LABELS],
         title=cargo.strip()[:200],
@@ -70,6 +73,8 @@ def _query_string(f: ProspectFilters) -> str:
     pairs += [("nivel", n) for n in f.levels] + [("area", a) for a in f.areas]
     if f.with_email:
         pairs.append(("con_correo", "1"))
+    if f.only_web:
+        pairs.append(("web", "1"))
     return urlencode([(k, v) for k, v in pairs if v])
 
 
@@ -86,9 +91,10 @@ def prospects_page(
     con_correo: str = "",
     nivel: Annotated[list[str] | None, Query()] = None,
     area: Annotated[list[str] | None, Query()] = None,
+    web: str = "",
     pagina: Annotated[int, Query(ge=1)] = 1,
 ) -> Response:
-    filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area)
+    filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web)
     rows, total = search_prospects(
         db, user.organization_id, filters, page=pagina, page_size=PAGE_SIZE
     )
@@ -108,6 +114,12 @@ def prospects_page(
         )
         or 0
     )
+    runs = db.scalars(
+        select(DiscoveryRun)
+        .where(DiscoveryRun.organization_id == user.organization_id)
+        .order_by(DiscoveryRun.created_at.desc())
+        .limit(5)
+    ).all()
     uploads = db.scalars(
         select(ProspectUpload)
         .where(ProspectUpload.organization_id == user.organization_id)
@@ -124,6 +136,7 @@ def prospects_page(
             "base_total": base_total,
             "patterns": patterns,
             "uploads": uploads,
+            "runs": runs,
             "filters": filters,
             "query": _query_string(filters),
             "page": min(pagina, max(1, math.ceil(total / PAGE_SIZE))),
@@ -133,7 +146,8 @@ def prospects_page(
             "areas": AREA_LABELS,
             "countries": COUNTRY_CHOICES,
             "max_mb": MAX_BYTES // (1024 * 1024),
-            "refresh": any(u.status in ("queued", "running") for u in uploads),
+            "refresh": any(u.status in ("queued", "running") for u in uploads)
+            or any(r.status in ("queued", "running") for r in runs),
         },
     )
 
@@ -179,8 +193,9 @@ def export_prospects(
     con_correo: str = "",
     nivel: Annotated[list[str] | None, Query()] = None,
     area: Annotated[list[str] | None, Query()] = None,
+    web: str = "",
 ) -> Response:
-    filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area)
+    filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web)
     rows = iter_search(db, user.organization_id, filters)
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
@@ -212,3 +227,36 @@ def export_prospects(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": disposition},
     )
+
+
+@router.post("/prospectos/descubrir")
+def discover(
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+    empresa: Annotated[str, Form()] = "",
+    industria: Annotated[list[str] | None, Form()] = None,
+    pais: Annotated[list[str] | None, Form()] = None,
+    csrf: CsrfField = None,
+) -> Response:
+    check_csrf(request, csrf)
+    filters = _filters(empresa=empresa, industria=industria, pais=pais)
+    try:
+        run = start_discovery(
+            db, organization_id=user.organization_id, user_id=user.id, filters=filters
+        )
+    except DiscoveryError as exc:
+        db.rollback()
+        flash(request, str(exc), "warning")
+    else:
+        audit(
+            db,
+            organization_id=user.organization_id,
+            actor_user_id=user.id,
+            action="prospects.discovery_started",
+            entity_type="discovery_run",
+            entity_id=run.id,
+            companies=run.total,
+        )
+        flash(request, f"Buscando personas en los sitios de {run.total} empresas.", "success")
+    return RedirectResponse(f"/prospectos?{_query_string(filters)}", status_code=303)

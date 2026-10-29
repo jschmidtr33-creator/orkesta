@@ -27,7 +27,13 @@ MVP_TABLES = {
     "app_settings",
     "audit_logs",
 }
-PROSPECTING_TABLES = {"prospects", "domain_patterns", "prospect_uploads"}
+PROSPECTING_TABLES = {
+    "prospects",
+    "domain_patterns",
+    "prospect_uploads",
+    "discovery_runs",
+    "web_discoveries",
+}
 
 pytestmark = pytest.mark.db
 

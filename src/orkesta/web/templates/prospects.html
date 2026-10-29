@@ -53,6 +53,7 @@
         </div>
       </details>
       <label class="check"><input type="checkbox" name="con_correo" value="1" {% if filters.with_email %}checked{% endif %}> Solo con correo</label>
+      <label class="check"><input type="checkbox" name="web" value="1" {% if filters.only_web %}checked{% endif %}> Solo encontrados en la web</label>
     </div>
     <div class="actions">
       <button type="submit" class="button">Buscar</button>
@@ -69,10 +70,10 @@
     <tbody>
       {% for p in rows %}
       <tr>
-        <td>{{ p.full_name }}</td>
+        <td>{{ p.full_name }}{% if p.source == "web" %}<div><a class="badge badge-queued" href="{{ p.source_name }}" rel="noopener noreferrer nofollow" target="_blank">web</a></div>{% endif %}</td>
         <td>{{ p.title or "—" }}</td>
         <td>{{ p.company }}</td>
-        <td>{{ p.email or "—" }}</td>
+        <td>{% if p.email %}{{ p.email }}{% if p.email_status == "inferred" %}<div><span class="badge badge-email-{% if (p.email_confidence or 0) >= 70 %}high{% elif (p.email_confidence or 0) >= 50 %}medium{% else %}low{% endif %}">deducido ({{ p.email_confidence }})</span></div>{% endif %}{% else %}—{% endif %}</td>
         <td>{{ p.phone or "—" }}</td>
         <td>{{ p.city or "—" }}</td>
         <td>{{ p.country_code or "—" }}</td>
@@ -90,6 +91,35 @@
     <span class="muted">Página {{ page }} de {{ pages }}</span>
     {% if page < pages %}<a href="/prospectos?{{ query }}&pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
   </nav>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Buscar personas nuevas en la web</h2>
+  <p class="muted">ORKESTA visita las páginas públicas de equipo, directivos y prensa de las empresas que cumplen los filtros de
+    <strong>empresa, industria y país</strong> de arriba, extrae nombre y cargo, y deduce el correo (con el patrón real de la empresa
+    si ya lo conoce). Cada persona guarda la página donde se publicó. Las empresas exploradas en los últimos 30 días no se repiten.</p>
+  <form method="post" action="/prospectos/descubrir" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="empresa" value="{{ filters.company }}">
+    {% for code in filters.industries %}<input type="hidden" name="industria" value="{{ code }}">{% endfor %}
+    {% for code in filters.countries %}<input type="hidden" name="pais" value="{{ code }}">{% endfor %}
+    <button type="submit" class="button">Buscar en la web{% if filters.industries or filters.countries or filters.company %} con estos filtros{% endif %}</button>
+  </form>
+  {% if runs %}
+  <table class="top-gap">
+    <thead><tr><th>Búsqueda</th><th>Estado</th><th class="num">Empresas</th><th class="num">Personas nuevas</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="small">{% set f = r.filters %}{{ (f.get("industries") or []) | map("replace", "_", " ") | join(", ") or "todas las industrias" }} · {{ (f.get("countries") or []) | join(", ") or "todos los países" }}{% if f.get("company") %} · «{{ f["company"] }}»{% endif %}</td>
+        <td>{% if r.status == "completed" %}<span class="badge badge-valid">terminada</span>{% else %}<span class="badge badge-queued">{{ r.done }} de {{ r.total }}</span>{% endif %}</td>
+        <td class="num">{{ r.total | thousands }}</td>
+        <td class="num">{{ r.people_found | thousands }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 </section>
 
