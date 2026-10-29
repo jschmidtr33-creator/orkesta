@@ -15,10 +15,10 @@ No usa Gemini, OpenAI ni Google Search API. El código corre en Railway y vive e
 | 1 | Base ejecutable: API, PostgreSQL, migraciones, worker, CI, Railway | Hecha |
 | 2 | Acceso, importación CSV/XLSX, mapeo, normalización, deduplicación, exportación | Hecha |
 | 3A | Dominios: unificación de empresas, DNS/MX, sitios, Wikidata, puntuación `rules-v1` | Hecha |
-| **3B** | **Patrones de correo y generación de correos** | **Esta entrega** |
-| 3C | Modelo propio de dominio (LightGBM) y bucle autónomo de mejora | Hecho (dominio); patrón en curso |
-| 4 | Evaluación con conjunto etiquetado | Automatizada (Wikidata + lista propia) |
-| 5 | Interfaz operativa | Pendiente |
+| 3B | Patrones de correo y generación de correos | Hecha |
+| 3C | Modelo propio de dominio (LightGBM) y bucle autónomo de mejora | Hecha |
+| 4 | Base de prospectos, filtros tipo Sales Navigator, descubrimiento en la web, catálogo LATAM | Hecha |
+| **5** | **Interfaz operativa: decisores, listas con correo + 2 alternativos, panel** | **Esta entrega** |
 | 6 | Campañas Gmail | Pendiente |
 | 7 | SaaS | Pendiente |
 
