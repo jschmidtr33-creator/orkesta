@@ -1,0 +1,18 @@
+{
+  "empresas": 1031,
+  "etiquetadas": 1031,
+  "con_dominio": 758,
+  "aciertos": 598,
+  "exactitud_pct": 78.9,
+  "exactitud_marca_pct": 86.7,
+  "cobertura_pct": 73.5,
+  "top3_pct": 66.4,
+  "exactitud_confirmados_pct": 85.7,
+  "confirmados": 449,
+  "linea_base_exactitud_pct": 25.1,
+  "errores_red": 0,
+  "no_vistas_etiquetadas": 278,
+  "no_vistas_exactitud_pct": 74.6,
+  "no_vistas_exactitud_marca_pct": 84.9,
+  "no_vistas_cobertura_pct": 73.7
+}

@@ -1,0 +1,45 @@
+{
+  "empresas": 400,
+  "con_personas": 99,
+  "con_personas_pct": 24.8,
+  "personas_total": 553,
+  "personas_por_empresa_con_personas_media": 5.6,
+  "personas_por_empresa_con_personas_mediana": 3,
+  "con_5_o_mas_pct": 10.0,
+  "sitios_sin_pagina": 101,
+  "sitios_con_robots_bloqueando": 72,
+  "metodos": {
+    "card": 474,
+    "jsonld": 42,
+    "inline": 35,
+    "press": 2
+  },
+  "niveles": {
+    "c_level": 165,
+    "sin nivel": 101,
+    "director": 64,
+    "especialista": 49,
+    "gerente": 47,
+    "vp": 39,
+    "jefe": 34,
+    "duenio_socio": 31,
+    "coordinador": 23
+  },
+  "areas": {
+    "direccion": 171,
+    "sin área": 132,
+    "finanzas": 44,
+    "tecnologia": 36,
+    "legal": 34,
+    "comercial": 32,
+    "operaciones": 28,
+    "rrhh": 28,
+    "marketing": 20,
+    "transformacion_digital": 10,
+    "compras": 9,
+    "supply_chain": 5,
+    "datos": 2,
+    "atencion_cliente": 1,
+    "seguridad": 1
+  }
+}
