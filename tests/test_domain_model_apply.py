@@ -69,3 +69,14 @@ def test_confirmed_when_rules_and_model_agree() -> None:
     assert rules.status == "confirmed"
     model = _model(1.0)  # p≈0.73: por encima de probable (0.6), por debajo de confirmado (0.9)
     assert apply_model(model, rules, names, "MX").status == "confirmed"
+
+
+def test_promoted_model_matches_current_features() -> None:
+    """El modelo promovido usa solo variables que el motor calcula hoy."""
+    from orkesta.engine.domain.model import active_model
+
+    model = active_model()
+    assert model is not None
+    assert set(model.feature_names) <= set(FEATURE_NAMES)
+    assert 0 < model.threshold_probable <= model.threshold_confirmed < 1
+    assert model.metrics["promover"] is True
