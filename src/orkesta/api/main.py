@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -60,7 +61,18 @@ def create_app(engine_provider: Callable[[], Engine] = get_engine) -> FastAPI:
         if not settings.secret_key:
             logger.warning("secret_key_missing: sesiones con clave temporal hasta reiniciar")
         logger.info("api_started", extra={"environment": settings.environment})
+        worker, thread = None, None
+        if settings.run_worker_in_web:
+            # Un solo servicio: el worker corre en un hilo del proceso web.
+            from orkesta.worker.__main__ import build_worker
+
+            worker = build_worker(session_factory())
+            thread = threading.Thread(target=worker.run_forever, name="orkesta-worker", daemon=True)
+            thread.start()
         yield
+        if worker is not None and thread is not None:
+            worker.stop()
+            thread.join(timeout=30)
         logger.info("api_stopped")
 
     app = FastAPI(

@@ -214,10 +214,13 @@ uv pip compile pyproject.toml --python-version 3.12 --generate-hashes -o require
 
 ## Despliegue
 
-> **Alternativa mientras Railway no acepte registros nuevos** (pausados tras su incidente del
-> 20-22 de octubre de 2026): `render.yaml` despliega los mismos servicios en Render. En Render:
-> **New → Blueprint →** este repositorio, y completar `ORKESTA_BOOTSTRAP_ADMIN_EMAIL` y
-> `ORKESTA_BOOTSTRAP_ADMIN_PASSWORD`. La clave secreta la genera Render.
+> **Render (despliegue actual):** `render.yaml` crea la base PostgreSQL y un servicio web que
+> también ejecuta el worker (`RUN_WORKER_IN_WEB=true`, unos 13 USD/mes). En Render:
+> **New → Blueprint →** este repositorio (rama `main`), y completar
+> `ORKESTA_BOOTSTRAP_ADMIN_EMAIL` y `ORKESTA_BOOTSTRAP_ADMIN_PASSWORD`; tras el primer
+> despliegue, `PUBLIC_BASE_URL` con la URL del servicio. La clave secreta la genera Render.
+> Con más volumen conviene separar el worker en su propio servicio. Railway sigue disponible
+> con `.railway/railway.ts`.
 
 ### 1. Repositorio en GitHub
 
