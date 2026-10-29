@@ -14,8 +14,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from orkesta.engine.domain.common_words import COMMON_WORDS
 from orkesta.engine.email.harvest import FoundEmail
 from orkesta.engine.email.patterns import matching_patterns
+from orkesta.engine.email.surnames import COMMON_SURNAMES
 from orkesta.engine.normalize.first_names import FIRST_NAMES
 from orkesta.engine.normalize.names import normalize_person, split_full_name
 from orkesta.engine.normalize.text import fold
@@ -36,8 +38,20 @@ ROLE_WORDS = frozenset(
     inversionistas investors ir relacioninversionistas accionistas
     noreply no-reply donotreply mailer postmaster abuse office oficina recepcion
     direccion gerencia secretaria mesa mesadeayuda servicioalcliente sac pqr pqrs pqrsd
-    notificaciones notificacionesjudiciales boletin newsletter suscripciones""".split()
+    notificaciones notificacionesjudiciales boletin newsletter suscripciones
+    licitaciones licitacion convocatorias concursos voluntariado donaciones alianzas
+    academia capacitacion becas egresados alumni estudiantes admisiones inscripciones
+    reservas reservaciones ventasonline tienda shop store ecommerce pedidosonline
+    sostenibilidad sustentabilidad ambiental responsabilidadsocial rse fundacion
+    seguridad ciberseguridad infosec soc proyectos operaciones produccion planta mantenimiento
+    reclamos quejas sugerencias garantias devoluciones postventa servicioalcliente
+    importaciones exportaciones aduanas comercioexterior distribuidores franquicias
+    general central principal corporativo institucional sede matriz""".split()
 )
+# Palabras que, como buzón de una sola palabra, no son personas: genéricos de correo, áreas de
+# trabajo, industrias y lugares que ORKESTA ya conoce.
+_GENERIC_WORDS = ROLE_WORDS | COMMON_WORDS
+_GENERIC_PREFIX_MIN = 6
 
 _SEPARATORS = re.compile(r"[._-]")
 _WORD = r"[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü'’]+"
@@ -53,17 +67,34 @@ class Observation:
     kind: str  # "named" | "structural"
     email_domain: str
 
+    surname_verified: bool = True
+
     @property
     def weight(self) -> float:
-        return 1.0 if self.kind == "named" else 0.35
+        if self.kind == "named":
+            return 1.0
+        # inicial+apellido sin apellido reconocido puede ser un buzón genérico: evidencia débil.
+        return 0.35 if self.surname_verified else 0.15
 
 
 def is_role_address(local: str) -> bool:
     tokens = [t for t in re.split(r"[\s._-]+", fold(local)) if t]
     folded = "".join(tokens)
-    if folded in ROLE_WORDS:
+    person_word = folded in FIRST_NAMES or folded in COMMON_SURNAMES
+    if folded in ROLE_WORDS or (folded in _GENERIC_WORDS and not person_word):
         return True
+    # En correos de varias partes ("juan.flores") solo cuentan los buzones genéricos clásicos:
+    # muchos apellidos son también palabras comunes o lugares (Flores, Vega, Campos).
     if any(t in ROLE_WORDS or t.rstrip("0123456789") in ROLE_WORDS for t in tokens):
+        return True
+    # Buzón de una palabra que empieza por un genérico largo: "proveedoresmx", "ventasbogota".
+    if (
+        len(tokens) == 1
+        and not person_word
+        and any(
+            folded.startswith(word) for word in _GENERIC_WORDS if len(word) >= _GENERIC_PREFIX_MIN
+        )
+    ):
         return True
     # Muchos dígitos: buzones numerados (ventas01, mx123…), no personas.
     return sum(c.isdigit() for c in folded) >= 3
@@ -149,5 +180,6 @@ def observe(emails: list[FoundEmail]) -> list[Observation]:
             continue
         pattern = structural_pattern(item.local)
         if pattern:
-            observations.append(Observation(pattern, "structural", item.domain))
+            verified = pattern != "flast" or fold(item.local)[1:] in COMMON_SURNAMES
+            observations.append(Observation(pattern, "structural", item.domain, verified))
     return observations

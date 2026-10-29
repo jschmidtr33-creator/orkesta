@@ -212,3 +212,49 @@ def test_names_next_to_punctuation_and_particles_are_recognized() -> None:
     ]
     assert "flast" in named_patterns(found("jdelacruz", "Ing. José de la Cruz: jdelacruz@"))
     assert named_patterns(found("mtorres", "Contacto general: mtorres@")) == []
+
+
+@pytest.mark.parametrize(
+    ("local", "generic"),
+    [
+        ("proveedores", True),
+        ("licitaciones", True),
+        ("proveedoresmx", True),
+        ("ventas.mx", True),
+        ("transparencia", True),
+        ("juan.flores", False),  # apellido que también es palabra común
+        ("flores", False),
+        ("leon", False),  # nombre de pila que también es ciudad
+        ("jperez", False),
+        ("mariana.torres", False),
+    ],
+)
+def test_generic_mailboxes(local: str, generic: bool) -> None:
+    from orkesta.engine.email.observe import is_role_address
+
+    assert is_role_address(local) is generic
+
+
+def test_initial_plus_unknown_surname_is_weak_evidence() -> None:
+    from orkesta.engine.email.harvest import FoundEmail
+    from orkesta.engine.email.observe import observe
+
+    def found(local: str) -> FoundEmail:
+        return FoundEmail(local, "empresa.com", "", "https://empresa.com/contacto")
+
+    verified, unknown = observe([found("jperez"), found("xqwrtz")])
+    assert verified.pattern == unknown.pattern == "flast"
+    assert verified.weight > unknown.weight
+
+
+def test_learned_priors_are_aggregates_only() -> None:
+    import json
+
+    from orkesta.engine.email.decide import PRIORS_FILE, prior_for
+
+    text = PRIORS_FILE.read_text(encoding="utf-8")
+    assert "@" not in text  # nunca direcciones
+    for distribution in json.loads(text)["priors"].values():
+        assert abs(sum(distribution.values()) - 1) < 0.01
+    assert next(iter(prior_for("AR", None))) == "flast"
+    assert next(iter(prior_for("MX", None))) == "first.last"
