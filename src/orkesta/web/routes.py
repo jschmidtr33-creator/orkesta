@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -126,8 +126,61 @@ def logout(request: Request, csrf: CsrfField = None) -> Response:
 
 
 @router.get("/")
-def home() -> Response:
-    return _redirect("/lotes")
+def home(request: Request, db: DbSession, user: CurrentUser) -> Response:
+    """Panel de inicio: estado de la base de prospectos y accesos a las tareas habituales."""
+    from orkesta.catalog.lists import list_counts
+    from orkesta.catalog.titles import DECISION_LEVELS
+    from orkesta.db.models import (
+        CatalogCompany,
+        DiscoveryRun,
+        DomainPattern,
+        Prospect,
+        ProspectList,
+    )
+
+    org = user.organization_id
+
+    def count(query: Any) -> int:
+        return int(db.scalar(query) or 0)
+
+    prospects = select(func.count()).select_from(Prospect).where(Prospect.organization_id == org)
+    stats = {
+        "personas": count(prospects),
+        "decisores": count(prospects.where(Prospect.level_code.in_(DECISION_LEVELS))),
+        "decisores_con_correo": count(
+            prospects.where(Prospect.level_code.in_(DECISION_LEVELS), Prospect.email.is_not(None))
+        ),
+        "web": count(prospects.where(Prospect.source == "web")),
+        "patrones": count(
+            select(func.count())
+            .select_from(DomainPattern)
+            .where(DomainPattern.organization_id == org)
+        ),
+        "catalogo": count(select(func.count()).select_from(CatalogCompany)),
+    }
+    lists = db.scalars(
+        select(ProspectList)
+        .where(ProspectList.organization_id == org)
+        .order_by(ProspectList.created_at.desc())
+        .limit(5)
+    ).all()
+    runs = db.scalars(
+        select(DiscoveryRun)
+        .where(DiscoveryRun.organization_id == org)
+        .order_by(DiscoveryRun.created_at.desc())
+        .limit(3)
+    ).all()
+    return render(
+        request,
+        "home.html",
+        {
+            "user": user,
+            "stats": stats,
+            "lists": lists,
+            "counts": list_counts(db, org),
+            "runs": runs,
+        },
+    )
 
 
 @router.get("/lotes")

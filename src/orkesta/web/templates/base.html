@@ -9,10 +9,12 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/lotes">ORKESTA</a>
+    <a class="brand" href="/">ORKESTA</a>
     {% if user %}
     <nav class="topnav">
+      <a href="/">Inicio</a>
       <a href="/prospectos">Prospectos</a>
+      <a href="/listas">Listas</a>
       <a href="/lotes">Lotes</a>
       <a href="/lotes/nuevo" class="button button-small">Nueva importación</a>
       <span class="muted">{{ user.email }}</span>

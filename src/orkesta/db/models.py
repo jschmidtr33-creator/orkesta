@@ -565,6 +565,59 @@ class CatalogCompany(IdMixin, Base):
     size_band: Mapped[str | None] = mapped_column(String(20))
 
 
+EMAIL_SOURCES = ("known", "real_pattern", "country_prior")
+
+
+class ProspectList(OrgScopedMixin, Base):
+    """Lista de prospección: personas elegidas de la base para trabajar (y luego campañas)."""
+
+    __tablename__ = "prospect_lists"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+class ProspectListMember(OrgScopedMixin, Base):
+    """Persona en una lista, con correo principal y dos alternativos calculados al agregarla."""
+
+    __tablename__ = "prospect_list_members"
+    __table_args__ = (
+        UniqueConstraint("list_id", "prospect_id"),
+        CheckConstraint(
+            "email_source IS NULL OR " + _in("email_source", EMAIL_SOURCES), name="email_source"
+        ),
+        CheckConstraint(
+            "email_confidence IS NULL OR email_confidence BETWEEN 0 AND 100",
+            name="email_confidence",
+        ),
+    )
+
+    list_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prospect_lists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    prospect_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    email_source: Mapped[str | None] = mapped_column(String(20))
+    alt_email_1: Mapped[str | None] = mapped_column(String(320))
+    alt_email_1_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    alt_email_2: Mapped[str | None] = mapped_column(String(320))
+    alt_email_2_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    email_pattern: Mapped[str | None] = mapped_column(String(40))
+
+
 # --- Cola de trabajos ------------------------------------------------------------------------
 
 

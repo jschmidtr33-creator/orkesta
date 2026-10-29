@@ -64,13 +64,40 @@
 </section>
 
 <section class="card">
+  <form method="post" action="/prospectos/a-lista" id="a-lista">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="cargo" value="{{ filters.title }}">
+  <input type="hidden" name="empresa" value="{{ filters.company }}">
+  <input type="hidden" name="ciudad" value="{{ filters.city }}">
+  {% for code in filters.industries %}<input type="hidden" name="industria" value="{{ code }}">{% endfor %}
+  {% for code in filters.countries %}<input type="hidden" name="pais" value="{{ code }}">{% endfor %}
+  {% for code in filters.levels %}<input type="hidden" name="nivel" value="{{ code }}">{% endfor %}
+  {% for code in filters.areas %}<input type="hidden" name="area" value="{{ code }}">{% endfor %}
+  {% if filters.with_email %}<input type="hidden" name="con_correo" value="1">{% endif %}
+  {% if filters.only_web %}<input type="hidden" name="web" value="1">{% endif %}
+  {% if total %}
+  <div class="filter-row list-bar">
+    <label>Agregar a lista
+      <select name="lista">
+        <option value="">— elegir —</option>
+        {% for l in lists %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>o nueva lista <input type="text" name="nueva_lista" maxlength="120" placeholder="Nombre de la lista"></label>
+    <label class="check"><input type="radio" name="alcance" value="seleccionados" checked> Seleccionados</label>
+    <label class="check"><input type="radio" name="alcance" value="todos"> Todos los resultados ({{ total | thousands }}{% if total > 5000 %}, máx. 5.000{% endif %})</label>
+    <label class="check"><input type="checkbox" name="excluir_otras" value="1"> Excluir a quienes ya están en otras listas</label>
+    <div class="actions"><button type="submit" class="button">Agregar</button></div>
+  </div>
+  {% endif %}
   <p class="muted small">{{ total | thousands }} {% if total == 1 %}persona{% else %}personas{% endif %}{% if filters.active %} con estos filtros{% endif %}.</p>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Nombre</th><th>Cargo</th><th>Empresa</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th><th>País</th><th>Industria</th></tr></thead>
+    <thead><tr><th></th><th>Nombre</th><th>Cargo</th><th>Empresa</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th><th>País</th><th>Industria</th></tr></thead>
     <tbody>
       {% for p in rows %}
       <tr>
+        <td><input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar {{ p.full_name }}"></td>
         <td>{{ p.full_name }}{% if p.source == "web" %}<div><a class="badge badge-queued" href="{{ p.source_name }}" rel="noopener noreferrer nofollow" target="_blank">web</a></div>{% endif %}</td>
         <td>{{ p.title or "—" }}</td>
         <td>{{ p.company }}</td>
@@ -81,11 +108,12 @@
         <td>{{ industries.get(p.industry_code, p.industry or "—") }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="muted">{% if base_total %}Nadie coincide con estos filtros.{% else %}Tu base está vacía: sube una base de contactos abajo.{% endif %}</td></tr>
+      <tr><td colspan="9" class="muted">{% if base_total %}Nadie coincide con estos filtros.{% else %}Tu base está vacía: sube una base de contactos abajo.{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
+  </form>
   {% if pages > 1 %}
   <nav class="pager">
     {% if page > 1 %}<a href="/prospectos?{{ query }}&pagina={{ page - 1 }}">← Anterior</a>{% endif %}

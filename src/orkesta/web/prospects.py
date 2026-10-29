@@ -24,6 +24,7 @@ from orkesta.db.models import (
     DiscoveryRun,
     DomainPattern,
     Prospect,
+    ProspectList,
     ProspectUpload,
     User,
 )
@@ -135,6 +136,11 @@ def prospects_page(
         .order_by(DiscoveryRun.created_at.desc())
         .limit(5)
     ).all()
+    lists = db.scalars(
+        select(ProspectList)
+        .where(ProspectList.organization_id == user.organization_id)
+        .order_by(ProspectList.name)
+    ).all()
     uploads = db.scalars(
         select(ProspectUpload)
         .where(ProspectUpload.organization_id == user.organization_id)
@@ -152,6 +158,7 @@ def prospects_page(
             "patterns": patterns,
             "uploads": uploads,
             "runs": runs,
+            "lists": lists,
             "catalog_total": catalog_total,
             "sizes": SIZE_LABELS,
             "decision_levels": DECISION_LEVELS,
