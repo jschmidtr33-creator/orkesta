@@ -30,8 +30,9 @@ from orkesta.db.models import (
     EvidenceRecord,
     ImportRow,
 )
+from orkesta.engine.domain.model import DomainModel, active_model
 from orkesta.engine.domain.resolver import DomainResolution, resolve_domain
-from orkesta.engine.domain.scoring import MODEL_VERSION, ScoredCandidate
+from orkesta.engine.domain.scoring import ScoredCandidate
 from orkesta.engine.domain.wikidata import CompanySource
 from orkesta.engine.net.dns import Resolver
 from orkesta.engine.net.fetch import RobotsAwareFetcher
@@ -52,6 +53,7 @@ class EngineDeps:
     resolver: Resolver
     fetcher: RobotsAwareFetcher
     wikidata: CompanySource | None
+    model: DomainModel | None = None
 
 
 EngineFactory = Callable[[], EngineDeps]
@@ -63,7 +65,7 @@ def default_engine() -> EngineDeps:
     from orkesta.engine.net.fetch import SafeFetcher
 
     resolver = DnsPythonResolver()
-    return EngineDeps(resolver, SafeFetcher(resolver=resolver), WikidataSource())
+    return EngineDeps(resolver, SafeFetcher(resolver=resolver), WikidataSource(), active_model())
 
 
 def _batch_companies(session: Session, batch_id: uuid.UUID) -> list[Company]:
@@ -167,7 +169,7 @@ def _upsert_domain(
         "has_mx": evidence.has_mx if evidence.resolves else None,
         "mx_provider": evidence.mx_provider,
         "discovery_method": (method or evidence.method)[:40],
-        "model_version": MODEL_VERSION,
+        "model_version": scored.model_version,
         "is_selected": selected,
         "final_url": evidence.final_url,
         "site_title": evidence.page.title[:300] if evidence.page else None,
@@ -294,7 +296,12 @@ def resolve_job(session: Session, job: EnrichmentJob, engine: EngineFactory) -> 
     names = [normalize_company(c.name_original) for c in companies]
     deps = engine()
     resolution = resolve_domain(
-        names, country, resolver=deps.resolver, fetcher=deps.fetcher, wikidata=deps.wikidata
+        names,
+        country,
+        resolver=deps.resolver,
+        fetcher=deps.fetcher,
+        wikidata=deps.wikidata,
+        model=deps.model,
     )
     save_resolution(session, companies, resolution)
     return resolution.status

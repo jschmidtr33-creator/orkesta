@@ -60,6 +60,8 @@ class ScoredCandidate:
     score: int
     status: str
     reasons: tuple[str, ...]
+    rules_score: int | None = None  # puntuación de reglas cuando decide el modelo
+    model_version: str = MODEL_VERSION
 
     @property
     def domain(self) -> str:
@@ -67,9 +69,9 @@ class ScoredCandidate:
 
     @property
     def confidence_level(self) -> str:
-        if self.score >= CONFIRMED:
+        if self.status == "confirmed":
             return "high"
-        return "medium" if self.score >= PROBABLE else "low"
+        return "medium" if self.status == "probable" else "low"
 
 
 def _label(domain: str) -> str:

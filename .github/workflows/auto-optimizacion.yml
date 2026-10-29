@@ -60,6 +60,16 @@ jobs:
           python -m orkesta.evaluation.domains data/eval/empresas_mx.csv --out work/lista \
             --workers 8 --features work/lista/features.csv.gz
 
+      - name: Entrenar modelo candidato (empresas nunca vistas deciden la promoción)
+        continue-on-error: true
+        run: |
+          pip install --require-hashes -r requirements-train.txt
+          FEATURES=$(ls work/*/features.csv.gz 2>/dev/null || true)
+          [ -n "$FEATURES" ] || { echo "Sin variables para entrenar"; exit 0; }
+          mkdir -p work/modelo
+          python -m orkesta.evaluation.train_domain $FEATURES \
+            --out work/modelo/domain-model.json --report work/modelo/informe_modelo.json
+
       - name: Publicar en la rama informes
         if: always()
         env:

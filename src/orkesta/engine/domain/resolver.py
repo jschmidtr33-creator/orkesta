@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from orkesta.engine.domain.candidates import Candidate, generate_candidates
+from orkesta.engine.domain.model import DomainModel, apply_model
 from orkesta.engine.domain.scoring import CandidateEvidence, ScoredCandidate, score
 from orkesta.engine.domain.signals import analyze_page
 from orkesta.engine.domain.wikidata import CompanySource, WikidataError, WikidataHit
@@ -97,6 +98,7 @@ def resolve_domain(
     resolver: Resolver,
     fetcher: RobotsAwareFetcher,
     wikidata: CompanySource | None = None,
+    model: DomainModel | None = None,
 ) -> DomainResolution:
     hits, notes = _wikidata_candidates(wikidata, companies, country)
     extra = [Candidate(h.domain, "wikidata") for h in hits]
@@ -170,8 +172,11 @@ def resolve_domain(
                 continue
             item.has_mx, item.mx_provider = mx.has_mx, mx.provider
 
+    rule_scores = [score(item, companies, country) for item in evidence.values()]
+    if model is not None:
+        rule_scores = [apply_model(model, s, companies, country) for s in rule_scores]
     scored = sorted(
-        (score(item, companies, country) for item in evidence.values()),
+        rule_scores,
         key=lambda s: (-s.score, s.domain),
     )
     best = scored[0] if scored else None

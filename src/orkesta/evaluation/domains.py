@@ -33,6 +33,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from orkesta.engine.domain.features import FEATURE_NAMES, candidate_features
+from orkesta.engine.domain.model import active_model
 from orkesta.engine.domain.reasons import DOMAIN_STATUS_LABELS, describe_reasons
 from orkesta.engine.domain.resolver import (
     DomainResolution,
@@ -123,6 +124,7 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
             resolver=engine.resolver,
             fetcher=engine.fetcher,
             wikidata=engine.wikidata,
+            model=engine.model,
         )
     except TransientResolutionError as exc:
         return Outcome(
@@ -139,7 +141,9 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
                     "case_id": case.source or case.company,
                     "country": country or "",
                     "domain": scored.domain,
-                    "rules_score": scored.score,
+                    "rules_score": scored.score
+                    if scored.rules_score is None
+                    else scored.rules_score,
                     "label": int(scored.domain in accepted),
                     **candidate_features(scored.evidence, names, country),
                 }
@@ -183,7 +187,9 @@ def summarize(outcomes: list[Outcome]) -> dict[str, float | int]:
     }
 
 
-def write_report(outcomes: list[Outcome], out: Path) -> dict[str, float | int]:
+def write_report(
+    outcomes: list[Outcome], out: Path, version: str = MODEL_VERSION
+) -> dict[str, float | int]:
     out.mkdir(parents=True, exist_ok=True)
     metrics = summarize(outcomes)
     statuses = Counter(o.status for o in outcomes)
@@ -203,7 +209,7 @@ def write_report(outcomes: list[Outcome], out: Path) -> dict[str, float | int]:
             )  # fmt: skip
 
     lines = [
-        f"# Evaluación en vivo de dominios ({MODEL_VERSION})",
+        f"# Evaluación en vivo de dominios ({version})",
         "",
         "| Métrica | Valor |",
         "| --- | --- |",
@@ -255,10 +261,13 @@ def run(
     workers: int = 4,
     *,
     use_wikidata: bool = True,
+    use_model: bool = True,
 ) -> list[Outcome]:
     engine = engine_factory()
     if not use_wikidata:
         engine = replace(engine, wikidata=None)
+    if not use_model:
+        engine = replace(engine, model=None)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda c: evaluate_case(c, engine), cases))
 
@@ -285,14 +294,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--limit", type=int, default=0, help="Solo las primeras N empresas")
     parser.add_argument("--no-wikidata", action="store_true", help="No consultar Wikidata")
+    parser.add_argument("--rules-only", action="store_true", help="Medir solo las reglas")
     parser.add_argument("--features", type=Path, help="Volcar variables por candidato (.csv.gz)")
     args = parser.parse_args(argv)
 
     cases = load_cases(args.dataset)
     if args.limit:
         cases = cases[: args.limit]
-    outcomes = run(cases, default_engine, args.workers, use_wikidata=not args.no_wikidata)
-    metrics = write_report(outcomes, args.out)
+    outcomes = run(
+        cases,
+        default_engine,
+        args.workers,
+        use_wikidata=not args.no_wikidata,
+        use_model=not args.rules_only,
+    )
+    model = None if args.rules_only else active_model()
+    metrics = write_report(outcomes, args.out, model.version if model else MODEL_VERSION)
     if args.features:
         print(f"Variables: {write_features(outcomes, args.features)} candidatos → {args.features}")
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
