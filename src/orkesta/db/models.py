@@ -390,6 +390,109 @@ class EmailCandidate(OrgScopedMixin, Base):
     )
 
 
+# --- Base de prospectos ---------------------------------------------------------------------
+
+PROSPECT_SOURCES = ("base", "web", "wikidata")
+
+
+class Prospect(OrgScopedMixin, Base):
+    """Persona de la base de prospectos de la organización, buscable por filtros.
+
+    Solo los campos necesarios para prospectar: nombre, cargo, empresa, correo, teléfono,
+    ciudad, país e industria. ``dedup_key`` es el correo o, sin correo, nombre + empresa.
+    """
+
+    __tablename__ = "prospects"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "dedup_key"),
+        CheckConstraint(_in("source", PROSPECT_SOURCES), name="source"),
+        CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
+        CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_prospects_org_country", "organization_id", "country_code"),
+        Index("ix_prospects_org_industry", "organization_id", "industry_code"),
+        Index("ix_prospects_org_company", "organization_id", "company_key"),
+        Index("ix_prospects_org_email_domain", "organization_id", "email_domain"),
+        Index("ix_prospects_org_level", "organization_id", "level_code"),
+        Index("ix_prospects_org_area", "organization_id", "area_code"),
+        Index(
+            "ix_prospects_title_trgm",
+            "title_search",
+            postgresql_using="gin",
+            postgresql_ops={"title_search": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_prospects_company_trgm",
+            "company_search",
+            postgresql_using="gin",
+            postgresql_ops={"company_search": "gin_trgm_ops"},
+        ),
+    )
+
+    dedup_key: Mapped[str] = mapped_column(String(400), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    title: Mapped[str | None] = mapped_column(String(300))
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    company_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_domain: Mapped[str | None] = mapped_column(String(253))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    city: Mapped[str | None] = mapped_column(String(120))
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    industry: Mapped[str | None] = mapped_column(String(200))
+    industry_code: Mapped[str | None] = mapped_column(String(40))
+    # Nivel y área deducidos del cargo (filtros como "Seniority" y "Function").
+    level_code: Mapped[str | None] = mapped_column(String(30))
+    area_code: Mapped[str | None] = mapped_column(String(40))
+    # Texto plegado (sin tildes, minúsculas) para buscar por similitud con pg_trgm.
+    title_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    company_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_name: Mapped[str | None] = mapped_column(String(200))
+
+
+UPLOAD_STATUSES = ("queued", "running", "completed", "failed")
+
+
+class ProspectUpload(OrgScopedMixin, Base):
+    """Carga de una base de prospectos. El archivo se guarda solo hasta procesarlo (el disco de
+    Railway es efímero) y se borra al terminar; queda el resumen."""
+
+    __tablename__ = "prospect_uploads"
+    __table_args__ = (CheckConstraint(_in("status", UPLOAD_STATUSES), name="status"),)
+
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[bytes | None] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DomainPattern(OrgScopedMixin, Base):
+    """Patrón de correo real de un dominio, aprendido de correos conocidos de la organización.
+
+    Guarda solo el patrón y conteos, nunca las direcciones.
+    """
+
+    __tablename__ = "domain_patterns"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "domain"),
+        CheckConstraint("agreeing <= people AND agreeing >= 1", name="counts"),
+    )
+
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    pattern: Mapped[str] = mapped_column(String(40), nullable=False)
+    people: Mapped[int] = mapped_column(Integer, nullable=False)
+    agreeing: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 # --- Cola de trabajos ------------------------------------------------------------------------
 
 
@@ -398,7 +501,8 @@ class EnrichmentJob(OrgScopedMixin, Base):
 
     __tablename__ = "enrichment_jobs"
     __table_args__ = (
-        UniqueConstraint("batch_id", "idempotency_key"),
+        # Sin lote (p. ej. carga de una base de prospectos) la clave sigue siendo única.
+        UniqueConstraint("batch_id", "idempotency_key", postgresql_nulls_not_distinct=True),
         CheckConstraint(_in("status", JOB_STATUSES), name="status"),
         CheckConstraint("attempts >= 0 AND max_attempts >= 1", name="attempts"),
         Index(
@@ -413,10 +517,9 @@ class EnrichmentJob(OrgScopedMixin, Base):
         ),
     )
 
-    batch_id: Mapped[uuid.UUID] = mapped_column(
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("enrichment_batches.id", ondelete="CASCADE"),
-        nullable=False,
         index=True,
     )
     company_id: Mapped[uuid.UUID | None] = mapped_column(

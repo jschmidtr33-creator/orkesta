@@ -21,6 +21,7 @@ from orkesta.auth import create_user
 from orkesta.db.models import (
     Contact,
     Domain,
+    DomainPattern,
     EmailCandidate,
     EmailPatternObservation,
     EnrichmentBatch,
@@ -84,11 +85,23 @@ def _drain(factory: sessionmaker[Session]) -> None:
         pass
 
 
-def _enriched_batch(factory: sessionmaker[Session]) -> tuple[uuid.UUID, uuid.UUID]:
+def _enriched_batch(
+    factory: sessionmaker[Session], known_pattern: str | None = None
+) -> tuple[uuid.UUID, uuid.UUID]:
     with factory.begin() as session:
         org = Organization(name="Org", slug=f"org-{uuid.uuid4().hex[:8]}")
         session.add(org)
         session.flush()
+        if known_pattern:
+            session.add(
+                DomainPattern(
+                    organization_id=org.id,
+                    domain=DOMAIN,
+                    pattern=known_pattern,
+                    people=4,
+                    agreeing=4,
+                )
+            )
         batch = create_draft_batch(
             session,
             organization_id=org.id,
@@ -220,3 +233,17 @@ def test_batch_page_shows_emails_and_pattern_summary(
     assert f"ana.lopez@{DOMAIN}" in html
     assert "confianza alta" in html
     assert "publicado" in html
+
+
+def test_known_pattern_from_base_wins_without_visiting_contact_pages(
+    session_factory: sessionmaker[Session], network: FakeFetcher
+) -> None:
+    _enriched_batch(session_factory, known_pattern="flast")
+    assert f"https://{DOMAIN}/contacto" not in network.requested
+    with session_factory() as session:
+        domain = session.scalar(select(Domain).where(Domain.is_selected.is_(True)))
+        assert domain is not None
+        assert domain.email_pattern == "flast"
+        assert domain.pattern_reason_codes == ["PATTERN_FROM_BASE"]
+        ana = _emails(session, "Ana")
+        assert ana[0].address == f"alopez@{DOMAIN}" and ana[0].confidence_level == "high"

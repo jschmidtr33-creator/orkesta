@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Prospectos{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>Base de prospectos</h1>
+  {% if total %}<a class="button button-secondary" href="/prospectos/exportar?{{ query }}">Exportar {{ total | thousands }} (CSV)</a>{% endif %}
+</div>
+
+<section class="card">
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ base_total | thousands }}</span><span class="stat-label">Personas en tu base</span></div>
+    <div class="stat stat-good"><span class="stat-value">{{ patterns | thousands }}</span><span class="stat-label">Empresas con patrón de correo real</span></div>
+  </div>
+  <form method="get" action="/prospectos" class="filters top-gap">
+    <div class="filter-row">
+      <label>Cargo <input type="search" name="cargo" value="{{ filters.title }}" placeholder="gerente compras"></label>
+      <label>Empresa <input type="search" name="empresa" value="{{ filters.company }}" placeholder="bancolombia"></label>
+      <label>Ciudad <input type="search" name="ciudad" value="{{ filters.city }}" placeholder="Monterrey"></label>
+    </div>
+    <div class="filter-row">
+      <details class="filter-group" {% if filters.levels %}open{% endif %}>
+        <summary>Nivel{% if filters.levels %} ({{ filters.levels | length }}){% endif %}</summary>
+        <div class="checks">
+          {% for code, label in levels.items() %}
+          <label class="check"><input type="checkbox" name="nivel" value="{{ code }}" {% if code in filters.levels %}checked{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+      </details>
+      <details class="filter-group" {% if filters.areas %}open{% endif %}>
+        <summary>Área{% if filters.areas %} ({{ filters.areas | length }}){% endif %}</summary>
+        <div class="checks">
+          {% for code, label in areas.items() %}
+          <label class="check"><input type="checkbox" name="area" value="{{ code }}" {% if code in filters.areas %}checked{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+    <div class="filter-row">
+      <details class="filter-group" {% if filters.industries %}open{% endif %}>
+        <summary>Industria{% if filters.industries %} ({{ filters.industries | length }}){% endif %}</summary>
+        <div class="checks">
+          {% for code, label in industries.items() %}
+          <label class="check"><input type="checkbox" name="industria" value="{{ code }}" {% if code in filters.industries %}checked{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+      </details>
+      <details class="filter-group" {% if filters.countries %}open{% endif %}>
+        <summary>País{% if filters.countries %} ({{ filters.countries | length }}){% endif %}</summary>
+        <div class="checks">
+          {% for code, name in countries %}
+          <label class="check"><input type="checkbox" name="pais" value="{{ code }}" {% if code in filters.countries %}checked{% endif %}> {{ name }}</label>
+          {% endfor %}
+        </div>
+      </details>
+      <label class="check"><input type="checkbox" name="con_correo" value="1" {% if filters.with_email %}checked{% endif %}> Solo con correo</label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="button">Buscar</button>
+      {% if filters.active %}<a href="/prospectos" class="link">Quitar filtros</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <p class="muted small">{{ total | thousands }} {% if total == 1 %}persona{% else %}personas{% endif %}{% if filters.active %} con estos filtros{% endif %}.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Nombre</th><th>Cargo</th><th>Empresa</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th><th>País</th><th>Industria</th></tr></thead>
+    <tbody>
+      {% for p in rows %}
+      <tr>
+        <td>{{ p.full_name }}</td>
+        <td>{{ p.title or "—" }}</td>
+        <td>{{ p.company }}</td>
+        <td>{{ p.email or "—" }}</td>
+        <td>{{ p.phone or "—" }}</td>
+        <td>{{ p.city or "—" }}</td>
+        <td>{{ p.country_code or "—" }}</td>
+        <td>{{ industries.get(p.industry_code, p.industry or "—") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted">{% if base_total %}Nadie coincide con estos filtros.{% else %}Tu base está vacía: sube una base de contactos abajo.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page > 1 %}<a href="/prospectos?{{ query }}&pagina={{ page - 1 }}">← Anterior</a>{% endif %}
+    <span class="muted">Página {{ page }} de {{ pages }}</span>
+    {% if page < pages %}<a href="/prospectos?{{ query }}&pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Agregar una base</h2>
+  <p class="muted">Excel (todas las hojas) o CSV de hasta {{ max_mb }} MB: exportaciones de Wiza, registros de eventos,
+    listas de campañas. ORKESTA reconoce las columnas solo y guarda únicamente nombre completo, cargo, empresa, correo,
+    teléfono, ciudad, país e industria. Las personas repetidas se fusionan, y cada correo corporativo enseña el patrón de
+    correo real de su empresa.</p>
+  <form method="post" action="/prospectos/cargar" enctype="multipart/form-data" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="file" name="archivo" accept=".csv,.txt,.xlsx" required>
+    <button type="submit" class="button">Cargar base</button>
+  </form>
+  {% if uploads %}
+  <table class="top-gap">
+    <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Personas</th><th class="num">Nuevas</th><th class="num">Patrones</th></tr></thead>
+    <tbody>
+      {% for u in uploads %}
+      <tr>
+        <td>{{ u.filename }}</td>
+        <td>{% if u.status == "completed" %}<span class="badge badge-valid">cargada</span>{% elif u.status == "failed" %}<span class="badge badge-invalid">error</span><div class="small muted">{{ u.error }}</div>{% else %}<span class="badge badge-queued">procesando</span>{% endif %}</td>
+        <td class="num">{{ (u.summary.get("personas") or 0) | thousands }}</td>
+        <td class="num">{{ (u.summary.get("nuevas") or 0) | thousands }}</td>
+        <td class="num">{{ (u.summary.get("dominios_con_patron") or 0) | thousands }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

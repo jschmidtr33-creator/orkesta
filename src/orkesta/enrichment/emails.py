@@ -19,8 +19,15 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from orkesta.catalog.service import known_pattern
 from orkesta.db.models import Company, Contact, Domain, EmailCandidate, EmailPatternObservation
-from orkesta.engine.email.decide import MODEL_VERSION, PatternDecision, decide, generate_emails
+from orkesta.engine.email.decide import (
+    MODEL_VERSION,
+    PatternDecision,
+    decide,
+    decide_from_known,
+    generate_emails,
+)
 from orkesta.engine.email.harvest import harvest
 from orkesta.engine.email.observe import observe
 from orkesta.engine.net.fetch import RobotsAwareFetcher
@@ -169,13 +176,24 @@ def apply_email_patterns(
     assert now is not None  # noqa: S101 - func.now() siempre devuelve valor
     published: set[str] = set()
 
+    country = next((c.country_code for c in companies if c.country_code), None)
+    known = known_pattern(session, primary.organization_id, primary.domain)
     recent = _recent_decision(session, primary.organization_id, primary.domain)
-    if recent is not None:
+    if known is not None:
+        # Lo aprendido de correos reales manda sobre lo deducido del sitio o del previo.
+        decision = decide_from_known(
+            known.domain,
+            known.pattern,
+            people=known.people,
+            agreeing=known.agreeing,
+            country=country,
+            mx_provider=primary.mx_provider,
+        )
+    elif recent is not None:
         decision = _decision_from(recent)
     else:
         found = harvest(primary.domain, fetcher_factory())
         observations = observe(found.emails)
-        country = next((c.country_code for c in companies if c.country_code), None)
         decision = decide(
             primary.domain,
             observations,
