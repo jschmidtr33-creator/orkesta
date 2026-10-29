@@ -172,7 +172,7 @@
   </form>
   {% if uploads %}
   <table class="top-gap">
-    <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Personas</th><th class="num">Nuevas</th><th class="num">Patrones</th></tr></thead>
+    <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Personas</th><th class="num">Nuevas</th><th class="num">Patrones</th><th class="num">Historial de envíos</th></tr></thead>
     <tbody>
       {% for u in uploads %}
       <tr>
@@ -181,6 +181,7 @@
         <td class="num">{{ (u.summary.get("personas") or 0) | thousands }}</td>
         <td class="num">{{ (u.summary.get("nuevas") or 0) | thousands }}</td>
         <td class="num">{{ (u.summary.get("dominios_con_patron") or 0) | thousands }}</td>
+        <td class="num">{{ (u.summary.get("historial") or 0) | thousands }}</td>
       </tr>
       {% endfor %}
     </tbody>

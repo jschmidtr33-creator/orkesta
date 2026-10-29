@@ -16,6 +16,7 @@ from orkesta.catalog.prospects import (
     ProspectRecord,
     learn_patterns,
     merge,
+    read_sheets,
     records_from_file,
 )
 from orkesta.catalog.titles import classify_title
@@ -79,6 +80,15 @@ def process_upload(session: Session, upload_id: uuid.UUID) -> dict[str, int]:
     )
     summary["dominios_con_patron"] = refresh_domain_patterns(
         session, upload.organization_id, {r.email_domain for r in records if r.email_domain}
+    )
+    # Planillas de envíos anteriores (SENT, FECHAENVIO, REPLIED…): historial de contacto.
+    from orkesta.campaigns.history import history_from_sheets, upsert_history
+
+    summary["historial"] = upsert_history(
+        session,
+        upload.organization_id,
+        history_from_sheets(read_sheets(upload.content, upload.filename)),
+        source=upload.filename,
     )
     upload.summary = summary
     upload.status = "completed"

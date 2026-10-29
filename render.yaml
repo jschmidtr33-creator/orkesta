@@ -39,6 +39,13 @@ services:
         sync: false
       - key: ORKESTA_BOOTSTRAP_ORG_NAME
         value: America Digital
+      # Campañas: URL pública (enlaces de baja y retorno de Google) y OAuth de Gmail (opcional).
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
 
   - type: worker
     name: orkesta-worker
@@ -52,3 +59,10 @@ services:
         fromDatabase:
           name: orkesta-db
           property: connectionString
+      # Campañas: URL pública (enlaces de baja y retorno de Google) y OAuth de Gmail (opcional).
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false

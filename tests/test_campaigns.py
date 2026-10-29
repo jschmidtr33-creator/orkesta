@@ -234,7 +234,7 @@ def test_campaign_sends_followups_stops_on_reply_and_respects_limits(
         campaign = session.get(Campaign, campaign_id)
         assert campaign is not None
         summary = start_campaign(session, campaign)
-    assert summary == {"destinatarios": 2, "excluidos": 1, "sin_correo": 0}
+    assert summary == {"destinatarios": 2, "excluidos": 1, "por_historial": 0, "sin_correo": 0}
 
     transport = FakeTransport()
     assert _tick(session_factory, campaign_id, transport) == "enviado"
@@ -352,3 +352,121 @@ def test_worker_runs_ticks(
             )
         )
         assert pending is not None and pending.run_after > datetime.now(UTC) + timedelta(seconds=50)
+
+
+# --- Historial de contacto ---------------------------------------------------------------------
+
+
+def test_history_from_previous_mailing_sheets() -> None:
+    from orkesta.campaigns.history import history_from_sheets
+    from orkesta.catalog.prospects import Sheet
+
+    sheet = Sheet(
+        "CHILE",
+        [
+            "NOMBRE",
+            "EMAIL",
+            "CARGO",
+            "EMPRESA",
+            "SENT",
+            "OPENED",
+            "REPLIED",
+            "FECHAENVIO",
+            "ETAPAETAPA",
+        ],
+        [
+            [
+                "Ana López",
+                "Ana.Lopez@x.cl",
+                "CFO",
+                "X",
+                "X",
+                "X",
+                "",
+                "2026-07-22",
+                "Seguimiento enviado",
+            ],
+            ["Luis Ruiz", "luis@y.cl", "CEO", "Y", "X", "", "", "2026-07-21", "Respondió"],
+            ["Sin envío", "nadie@z.cl", "CEO", "Z", "", "", "", "", "Contactado"],
+            ["Mal correo", "no-es-correo", "CEO", "Z", "X", "", "", "2026-07-21", ""],
+        ],
+    )
+    v3 = Sheet(
+        "BASE44",
+        ["Nombre", "Email", "Sent", "Replied", "Sent_At"],
+        [["Ana", "ana.lopez@x.cl", "X", "X", "22/07/2026"]],
+    )
+    entries = {e.email: e for e in history_from_sheets([sheet, v3])}
+    assert set(entries) == {"ana.lopez@x.cl", "luis@y.cl"}
+    ana = entries["ana.lopez@x.cl"]
+    assert ana.opened and ana.replied  # respondió en la segunda planilla
+    assert ana.contacted_at == datetime(2026, 7, 22, tzinfo=UTC)
+    assert entries["luis@y.cl"].replied  # la etapa "Respondió" cuenta como respuesta
+
+
+@pytest_db
+def test_campaign_excludes_recent_and_replied_and_records_its_own_sends(
+    session_factory: sessionmaker[Session], setup: tuple[uuid.UUID, uuid.UUID]
+) -> None:
+    from orkesta.campaigns.history import HistoryEntry, upsert_history
+    from orkesta.db.models import ContactHistory
+
+    org_id, campaign_id = setup
+    now = datetime.now(UTC)
+    with session_factory.begin() as session:
+        upsert_history(
+            session,
+            org_id,
+            [
+                HistoryEntry(
+                    "ana.lopez@lacteos.com.mx", now - timedelta(days=10), False, False, None
+                ),
+                HistoryEntry(
+                    "jorge.diaz@lacteos.com.mx", now - timedelta(days=400), True, True, None
+                ),
+                HistoryEntry(
+                    "luis.ruiz@lacteos.com.mx", now - timedelta(days=200), False, False, None
+                ),
+            ],
+            source="planilla anterior",
+        )
+        campaign = session.get(Campaign, campaign_id)
+        assert campaign is not None
+        summary = start_campaign(session, campaign)
+    # Ana: contactada hace 10 días; Jorge: ya respondió. Solo Luis recibe la campaña.
+    assert (summary["destinatarios"], summary["por_historial"]) == (1, 2)
+    transport = FakeTransport()
+    assert _tick(session_factory, campaign_id, transport) == "enviado"
+    with session_factory() as session:
+        luis = session.scalar(
+            select(ContactHistory).where(ContactHistory.email == "luis.ruiz@lacteos.com.mx")
+        )
+        assert luis is not None and luis.last_contacted_at > now - timedelta(minutes=5)
+        assert luis.source == "campaña ORKESTA"
+
+
+@pytest_db
+def test_upload_with_mailing_columns_loads_history(session_factory: sessionmaker[Session]) -> None:
+    from orkesta.catalog.service import create_upload, process_upload
+    from orkesta.db.models import ContactHistory
+
+    content = (
+        b"NOMBRE,EMAIL,CARGO,EMPRESA,SENT,OPENED,REPLIED,FECHAENVIO\n"
+        b"Ana Lopez,ana@x.cl,CFO,Empresa X,X,X,,2026-07-22\n"
+        b"Luis Ruiz,luis@y.cl,CEO,Empresa Y,,,,\n"
+    )
+    with session_factory.begin() as session:
+        org = Organization(name="Org", slug=f"org-{uuid.uuid4().hex[:8]}")
+        session.add(org)
+        session.flush()
+        upload = create_upload(
+            session, organization_id=org.id, user_id=None, filename="campaña.csv", content=content
+        )
+        summary = process_upload(session, upload.id)
+        assert summary["personas"] == 2 and summary["historial"] == 1
+        assert (
+            session.scalar(
+                select(ContactHistory.email).where(ContactHistory.organization_id == org.id)
+            )
+            == "ana@x.cl"
+        )

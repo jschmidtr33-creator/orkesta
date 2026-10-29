@@ -18,8 +18,8 @@ No usa Gemini, OpenAI ni Google Search API. El código corre en Railway y vive e
 | 3B | Patrones de correo y generación de correos | Hecha |
 | 3C | Modelo propio de dominio (LightGBM) y bucle autónomo de mejora | Hecha |
 | 4 | Base de prospectos, filtros tipo Sales Navigator, descubrimiento en la web, catálogo LATAM | Hecha |
-| **5** | **Interfaz operativa: decisores, listas con correo + 2 alternativos, panel** | **Esta entrega** |
-| 6 | Campañas Gmail | Pendiente |
+| 5 | Interfaz operativa: decisores, listas con correo + 2 alternativos, panel | Hecha |
+| **6** | **Campañas por Gmail o correo corporativo, seguimientos, respuestas, bajas, historial** | **Esta entrega** |
 | 7 | SaaS | Pendiente |
 
 Lo que funciona hoy:
@@ -87,6 +87,29 @@ correo. **No hay verificación SMTP**: Railway y GitHub bloquean el puerto 25 y 
 ajenos es intrusivo; la confianza baja indica validar antes de enviar. Solo se guardan patrones
 y conteos de lo publicado, nunca las direcciones de terceros. La exportación añade correo,
 confianza, origen, alternativos, patrón y razones.
+
+### Campañas de correo (Etapa 6)
+
+**Cuentas** (menú Cuentas): Gmail con «Conectar con Google» (requiere `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET` y `PUBLIC_BASE_URL`) o cualquier correo corporativo por SMTP + IMAP, con
+preajustes para Microsoft 365, Google Workspace (contraseña de aplicación) y Zoho. ORKESTA prueba
+la conexión y guarda la contraseña cifrada. Límite diario por cuenta: 50 por defecto (Gmail
+gratuito admite 500 y Workspace 2.000; en frío conviene subir de a poco).
+
+**Campañas** (menú Campañas) sobre una lista: correo inicial y hasta dos seguimientos con
+`{{nombre}}`, `{{apellido}}`, `{{empresa}}` y `{{cargo}}`; firma; horario, días y zona horaria;
+vista previa con datos reales. El worker envía dentro del horario y los límites con pausas de 1-3
+minutos, manda los seguimientos en el mismo hilo y deja de escribir a quien responde (Gmail: por
+la API; SMTP: por IMAP). Rebotes y bajas pasan a la lista de exclusión. Cada correo lleva baja de
+un clic (`List-Unsubscribe`), obligatoria para remitentes masivos en Gmail: sin `PUBLIC_BASE_URL`
+no se puede iniciar una campaña en producción.
+
+**Historial de contacto:** al cargar una planilla de envíos anteriores (columnas SENT, OPENED,
+REPLIED, FECHAENVIO…), ORKESTA registra esos contactos. Cada campaña excluye por defecto a quien
+se contactó hace menos de 90 días y a quien ya respondió. Las campañas propias también alimentan
+el historial.
+
+**Para enviar bien:** el dominio de la cuenta debe tener SPF, DKIM y DMARC configurados.
 
 ### Bucle autónomo de mejora
 

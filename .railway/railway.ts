@@ -18,6 +18,10 @@ export default defineRailway((ctx) => {
     DATABASE_URL: db.env.DATABASE_URL,
     // Se define a mano en Railway (Variables) y nunca se escribe en el repositorio.
     SECRET_KEY: preserve(),
+    // Campañas: URL pública (enlaces de baja, retorno de Google) y OAuth de Gmail (opcional).
+    PUBLIC_BASE_URL: preserve(),
+    GOOGLE_CLIENT_ID: preserve(),
+    GOOGLE_CLIENT_SECRET: preserve(),
   };
 
   const web = service("orkesta-web", {

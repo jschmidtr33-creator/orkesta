@@ -275,6 +275,8 @@ def new_campaign(
     hasta: Annotated[int, Form()] = 18,
     dias: Annotated[list[int] | None, Form()] = None,
     zona: Annotated[str, Form()] = "America/Bogota",
+    excluir_dias: Annotated[int, Form()] = 90,
+    excluir_respondieron: Annotated[str, Form()] = "",
     csrf: CsrfField = None,
 ) -> Response:
     check_csrf(request, csrf)
@@ -290,6 +292,8 @@ def new_campaign(
             signature_text=firma_texto, signature_html=firma_html, daily_limit=limite,
             timezone=zona, window_start_hour=desde, window_end_hour=hasta,
             weekdays=dias or [0, 1, 2, 3, 4],
+            exclude_recent_days=excluir_dias,
+            exclude_replied=excluir_respondieron == "1",
         )  # fmt: skip
     except CampaignError as exc:
         db.rollback()
@@ -379,6 +383,8 @@ def start(
     message = f"Campaña en marcha: {summary['destinatarios']} destinatarios"
     if summary["excluidos"]:
         message += f", {summary['excluidos']} excluidos (bajas, rebotes o repetidos)"
+    if summary["por_historial"]:
+        message += f", {summary['por_historial']} omitidos por contacto reciente o respuesta previa"
     if summary["sin_correo"]:
         message += f", {summary['sin_correo']} sin correo"
     flash(request, message + ".", "success")

@@ -20,6 +20,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from orkesta.campaigns.history import excluded_by_history, record_contact
 from orkesta.campaigns.transports import (
     Transport,
     TransportFactory,
@@ -186,6 +187,8 @@ def create_campaign(
     window_end_hour: int = 18,
     weekdays: list[int] | None = None,
     track_opens: bool = False,
+    exclude_recent_days: int = 90,
+    exclude_replied: bool = True,
 ) -> Campaign:
     target = session.get(ProspectList, list_id)
     if target is None or target.organization_id != organization_id:
@@ -216,6 +219,8 @@ def create_campaign(
         window_end_hour=window_end_hour,
         weekdays=days,
         track_opens=track_opens,
+        exclude_recent_days=max(0, min(exclude_recent_days, 730)),
+        exclude_replied=exclude_replied,
     )
     session.add(campaign)
     session.flush()
@@ -245,9 +250,15 @@ def start_campaign(session: Session, campaign: Campaign) -> dict[str, int]:
         raise CampaignError(
             "Falta PUBLIC_BASE_URL: el enlace de baja de un clic es obligatorio para enviar."
         )
-    summary = {"destinatarios": 0, "excluidos": 0, "sin_correo": 0}
+    summary = {"destinatarios": 0, "excluidos": 0, "por_historial": 0, "sin_correo": 0}
     if campaign.status == "draft":
         excluded = suppressed_emails(session, campaign.organization_id)
+        recent = excluded_by_history(
+            session,
+            campaign.organization_id,
+            recent_days=campaign.exclude_recent_days,
+            exclude_replied=campaign.exclude_replied,
+        )
         existing = set(
             session.scalars(
                 select(CampaignRecipient.email).where(CampaignRecipient.campaign_id == campaign.id)
@@ -266,6 +277,9 @@ def start_campaign(session: Session, campaign: Campaign) -> dict[str, int]:
                 continue
             if email in excluded or email in existing:
                 summary["excluidos"] += 1
+                continue
+            if email in recent:
+                summary["por_historial"] += 1
                 continue
             existing.add(email)
             session.add(
@@ -436,6 +450,7 @@ def _check_events(
             suppress(session, campaign.organization_id, recipient.email, "bounced")
         elif key in events.replied:
             recipient.status, recipient.next_send_at, recipient.replied_at = "replied", None, now
+            record_contact(session, campaign.organization_id, recipient.email, now, replied=True)
 
 
 def _send_next(
@@ -490,6 +505,7 @@ def _send_next(
             sent_at=now,
         )
     )
+    record_contact(session, campaign.organization_id, recipient.email, now)
     recipient.first_message_id = recipient.first_message_id or mail.message_id
     recipient.last_message_id = mail.message_id
     recipient.thread_id = recipient.thread_id or sent.thread_id

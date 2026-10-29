@@ -690,6 +690,14 @@ class Campaign(OrgScopedMixin, Base):
     window_end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=18)
     weekdays: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # 0 = lunes
     track_opens: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Historial: no escribir a quien se contactó hace menos de N días (0 = no excluir) ni a
+    # quien ya respondió (está en conversación).
+    exclude_recent_days: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=90, server_default=text("90")
+    )
+    exclude_replied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -742,6 +750,23 @@ class CampaignMessage(OrgScopedMixin, Base):
     message_id: Mapped[str] = mapped_column(String(300), nullable=False)
     provider_id: Mapped[str | None] = mapped_column(String(200))
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ContactHistory(OrgScopedMixin, Base):
+    """Último contacto por correo: de campañas de ORKESTA o importado de envíos anteriores."""
+
+    __tablename__ = "contact_history"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+    )
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    replied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    stage: Mapped[str | None] = mapped_column(String(60))
+    source: Mapped[str | None] = mapped_column(String(200))
 
 
 class Suppression(OrgScopedMixin, Base):

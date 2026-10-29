@@ -41,6 +41,7 @@ PROSPECTING_TABLES = {
     "campaign_recipients",
     "campaign_messages",
     "suppressions",
+    "contact_history",
 }
 
 pytestmark = pytest.mark.db
