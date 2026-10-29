@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.db.models import EnrichmentBatch, EnrichmentJob
@@ -140,3 +141,34 @@ def test_run_forever_stops_cleanly_and_drains_queue(
     thread.join(timeout=5)
     assert not thread.is_alive()
     assert _reload(session_factory, job).status == "succeeded"
+
+
+def test_worker_runs_inside_web_process_when_enabled(
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    batch: EnrichmentBatch,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time
+
+    from fastapi.testclient import TestClient
+
+    import orkesta.worker.__main__ as worker_main
+    from orkesta.api.main import create_app
+    from orkesta.config import get_settings
+
+    done: list[int] = []
+    monkeypatch.setitem(worker_main.HANDLERS, "prueba_web", lambda s, job: done.append(1))
+    monkeypatch.setenv("RUN_WORKER_IN_WEB", "true")
+    monkeypatch.setenv("WORKER_POLL_INTERVAL_SECONDS", "0.05")
+    get_settings.cache_clear()
+    try:
+        job = _enqueue(session_factory, batch, "prueba_web")
+        with TestClient(create_app(engine_provider=lambda: engine)):
+            deadline = time.monotonic() + 10
+            while _reload(session_factory, job).status != "succeeded":
+                assert time.monotonic() < deadline, "el worker integrado no procesó el trabajo"
+                time.sleep(0.05)
+        assert done == [1]
+    finally:
+        get_settings.cache_clear()

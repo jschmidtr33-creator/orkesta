@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy.orm import Session, sessionmaker
+
 from orkesta.campaigns.jobs import handle_campaign_tick
 from orkesta.campaigns.service import TICK_JOB_KIND
 from orkesta.catalog.discovery import DISCOVERY_JOB_KIND
@@ -37,10 +39,10 @@ FAILURE_HOOKS: dict[str, FailureHook] = {
 }
 
 
-def build_worker() -> Worker:
+def build_worker(session_factory: sessionmaker[Session] | None = None) -> Worker:
     settings = get_settings()
     return Worker(
-        get_session_factory(),
+        session_factory or get_session_factory(),
         HANDLERS,
         retry_policy=RetryPolicy(settings.job_retry_base_seconds, settings.job_retry_max_seconds),
         poll_interval_seconds=settings.worker_poll_interval_seconds,
