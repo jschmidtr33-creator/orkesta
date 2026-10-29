@@ -1,0 +1,15 @@
+Variables: 8776 candidatos → work/wikidata/features.csv.gz
+{
+  "empresas": 1031,
+  "etiquetadas": 1031,
+  "con_dominio": 759,
+  "aciertos": 601,
+  "exactitud_pct": 79.2,
+  "exactitud_marca_pct": 87.0,
+  "cobertura_pct": 73.6,
+  "top3_pct": 66.3,
+  "exactitud_confirmados_pct": 85.9,
+  "confirmados": 448,
+  "linea_base_exactitud_pct": 25.1,
+  "errores_red": 0
+}
