@@ -31,6 +31,7 @@ from orkesta.config import get_settings
 from orkesta.db.migrations_state import current_heads, expected_heads
 from orkesta.db.session import get_engine
 from orkesta.logs import configure_logging
+from orkesta.web.campaigns import router as campaigns_router
 from orkesta.web.deps import STATIC_DIR, LoginRequired, render
 from orkesta.web.lists import router as lists_router
 from orkesta.web.prospects import router as prospects_router
@@ -144,4 +145,5 @@ def create_app(engine_provider: Callable[[], Engine] = get_engine) -> FastAPI:
     app.include_router(web_router)
     app.include_router(prospects_router)
     app.include_router(lists_router)
+    app.include_router(campaigns_router)
     return app

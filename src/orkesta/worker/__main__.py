@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from orkesta.campaigns.jobs import handle_campaign_tick
+from orkesta.campaigns.service import TICK_JOB_KIND
 from orkesta.catalog.discovery import DISCOVERY_JOB_KIND
 from orkesta.catalog.jobs import (
     handle_discover_people,
@@ -25,6 +27,7 @@ HANDLERS: dict[str, JobHandler] = {
     DOMAIN_JOB_KIND: handle_resolve_domain,
     UPLOAD_JOB_KIND: handle_import_prospects,
     DISCOVERY_JOB_KIND: handle_discover_people,
+    TICK_JOB_KIND: handle_campaign_tick,
 }
 FAILURE_HOOKS: dict[str, FailureHook] = {
     IMPORT_JOB_KIND: on_import_failed,

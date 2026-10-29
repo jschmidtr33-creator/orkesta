@@ -618,6 +618,148 @@ class ProspectListMember(OrgScopedMixin, Base):
     email_pattern: Mapped[str | None] = mapped_column(String(40))
 
 
+# --- Campañas de correo ---------------------------------------------------------------------
+
+MAIL_PROVIDERS = ("gmail", "smtp")
+SMTP_SECURITY = ("ssl", "starttls")
+CAMPAIGN_STATUSES = ("draft", "running", "paused", "completed")
+RECIPIENT_STATUSES = (
+    "pending", "active", "replied", "bounced", "unsubscribed", "completed", "failed", "skipped",
+)  # fmt: skip
+SUPPRESSION_REASONS = ("unsubscribed", "bounced", "manual", "contacted")
+
+
+class MailAccount(OrgScopedMixin, Base):
+    """Cuenta de envío: Gmail (OAuth) o cualquier correo corporativo (SMTP + IMAP).
+
+    ``secret`` guarda cifrado el token de Google o la contraseña SMTP/IMAP (``secrets_box``).
+    """
+
+    __tablename__ = "mail_accounts"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint(_in("provider", MAIL_PROVIDERS), name="provider"),
+        CheckConstraint(
+            "smtp_security IS NULL OR " + _in("smtp_security", SMTP_SECURITY), name="smtp_security"
+        ),
+        CheckConstraint("daily_limit BETWEEN 1 AND 2000", name="daily_limit"),
+    )
+
+    provider: Mapped[str] = mapped_column(String(10), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    from_name: Mapped[str | None] = mapped_column(String(120))
+    smtp_host: Mapped[str | None] = mapped_column(String(253))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_security: Mapped[str | None] = mapped_column(String(10))
+    imap_host: Mapped[str | None] = mapped_column(String(253))
+    imap_port: Mapped[int | None] = mapped_column(Integer)
+    username: Mapped[str | None] = mapped_column(String(320))
+    secret: Mapped[bytes | None] = mapped_column(LargeBinary)
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Campaign(OrgScopedMixin, Base):
+    """Campaña sobre una lista: hasta 3 pasos (inicial y dos seguimientos) desde una cuenta."""
+
+    __tablename__ = "campaigns"
+    __table_args__ = (
+        CheckConstraint(_in("status", CAMPAIGN_STATUSES), name="status"),
+        CheckConstraint("daily_limit BETWEEN 1 AND 2000", name="daily_limit"),
+        CheckConstraint("window_start_hour BETWEEN 0 AND 23", name="window_start"),
+        CheckConstraint("window_end_hour BETWEEN 1 AND 24", name="window_end"),
+    )
+
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    list_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prospect_lists.id", ondelete="RESTRICT"), nullable=False
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mail_accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    # [{"subject": ..., "body": ..., "delay_days": ...}] — el paso 1 tiene delay 0.
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    signature_html: Mapped[str | None] = mapped_column(Text)
+    signature_text: Mapped[str | None] = mapped_column(Text)
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="America/Bogota")
+    window_start_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=8)
+    window_end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=18)
+    weekdays: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # 0 = lunes
+    track_opens: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CampaignRecipient(OrgScopedMixin, Base):
+    __tablename__ = "campaign_recipients"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "email"),
+        CheckConstraint(_in("status", RECIPIENT_STATUSES), name="status"),
+        Index("ix_campaign_recipients_due", "campaign_id", "status", "next_send_at"),
+    )
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    prospect_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prospects.id", ondelete="SET NULL")
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    # Variables congeladas al iniciar la campaña (nombre, apellido, empresa, cargo).
+    variables: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    next_step: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    next_send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    thread_id: Mapped[str | None] = mapped_column(String(200))  # Gmail threadId
+    first_message_id: Mapped[str | None] = mapped_column(String(300))  # Message-ID para hilo
+    last_message_id: Mapped[str | None] = mapped_column(String(300))
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class CampaignMessage(OrgScopedMixin, Base):
+    __tablename__ = "campaign_messages"
+
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaign_recipients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mail_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    step: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    provider_id: Mapped[str | None] = mapped_column(String(200))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Suppression(OrgScopedMixin, Base):
+    """Correos que nunca deben recibir campañas: bajas, rebotes, exclusión manual o ya
+    contactados (historial)."""
+
+    __tablename__ = "suppressions"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint(_in("reason", SUPPRESSION_REASONS), name="reason"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+    )
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(300))
+
+
 # --- Cola de trabajos ------------------------------------------------------------------------
 
 

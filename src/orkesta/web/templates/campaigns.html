@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Campañas{% endblock %}
+{% block content %}
+<h1>Campañas</h1>
+<section class="card">
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Campaña</th><th>Estado</th><th class="num">Enviados</th><th class="num">Respondieron</th><th class="num">Rebotes</th><th class="num">Bajas</th></tr></thead>
+    <tbody>
+      {% for c in campaigns %}{% set s = stats[c.id] %}
+      <tr>
+        <td><a href="/campanas/{{ c.id }}">{{ c.name }}</a></td>
+        <td><span class="badge badge-{% if c.status == 'running' %}queued{% elif c.status == 'completed' %}valid{% else %}duplicate{% endif %}">{{ labels[c.status] }}</span></td>
+        <td class="num">{{ s.get("enviados", 0) | thousands }}</td>
+        <td class="num">{{ s.get("replied", 0) | thousands }}</td>
+        <td class="num">{{ s.get("bounced", 0) | thousands }}</td>
+        <td class="num">{{ s.get("unsubscribed", 0) | thousands }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">Aún no hay campañas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Nueva campaña</h2>
+  {% if not lists or not accounts %}
+  <p class="muted">Necesitas al menos una <a href="/listas">lista</a> y una <a href="/cuentas">cuenta de envío</a> activa.</p>
+  {% else %}
+  <form method="post" action="/campanas" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="filter-row">
+      <label>Nombre <input type="text" name="nombre" required maxlength="120" placeholder="Congreso 2027 · CIOs banca"></label>
+      <label>Lista <select name="lista">{% for l in lists %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select></label>
+      <label>Enviar desde <select name="cuenta">{% for a in accounts %}<option value="{{ a.id }}">{{ a.email }} ({{ a.daily_limit }}/día)</option>{% endfor %}</select></label>
+    </div>
+    <p class="muted small">Variables: <code>{{ "{{nombre}}" }}</code>, <code>{{ "{{apellido}}" }}</code>, <code>{{ "{{empresa}}" }}</code>, <code>{{ "{{cargo}}" }}</code>.
+      Los seguimientos van en el mismo hilo y se detienen si la persona responde.</p>
+    {% for n in [1, 2, 3] %}
+    <fieldset class="filter-group">
+      <legend><strong>Correo {{ n }}</strong>{% if n == 1 %} (inicial){% else %} — seguimiento {{ n - 1 }} (opcional){% endif %}</legend>
+      <div class="filter-row">
+        <label>Asunto <input type="text" name="asunto_{{ n }}" maxlength="300" {% if n == 1 %}required placeholder="{{ '{{nombre}}' }}, invitación para {{ '{{empresa}}' }}"{% else %}placeholder="Vacío = responde en el mismo hilo"{% endif %}></label>
+        {% if n > 1 %}<label>Días después del anterior <input type="number" name="dias_{{ n }}" value="{{ 3 if n == 2 else 5 }}" min="1" max="60"></label>{% endif %}
+      </div>
+      <label>Texto <textarea name="cuerpo_{{ n }}" rows="6" {% if n == 1 %}required{% endif %}></textarea></label>
+    </fieldset>
+    {% endfor %}
+    <div class="filter-row">
+      <label>Firma (texto) <textarea name="firma_texto" rows="3" placeholder="Jenn&#10;BDR · America Digital"></textarea></label>
+      <label>Firma (HTML, opcional) <textarea name="firma_html" rows="3"></textarea></label>
+    </div>
+    <div class="filter-row">
+      <label>Máximo por día <input type="number" name="limite" value="50" min="1" max="2000"></label>
+      <label>Desde (hora) <input type="number" name="desde" value="8" min="0" max="23"></label>
+      <label>Hasta (hora) <input type="number" name="hasta" value="18" min="1" max="24"></label>
+      <label>Zona horaria <input type="text" name="zona" value="America/Bogota"></label>
+    </div>
+    <div class="filter-row">
+      {% for d in weekdays %}<label class="check"><input type="checkbox" name="dias" value="{{ loop.index0 }}" {% if loop.index0 < 5 %}checked{% endif %}> {{ d }}</label>{% endfor %}
+    </div>
+    <div class="actions"><button type="submit" class="button">Crear borrador</button></div>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Cuentas de envío{% endblock %}
+{% block content %}
+<h1>Cuentas de envío</h1>
+<section class="card">
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Cuenta</th><th>Tipo</th><th>Estado</th><th class="num">Límite diario</th><th></th></tr></thead>
+    <tbody>
+      {% for a in accounts %}
+      <tr>
+        <td>{{ a.email }}{% if a.from_name %}<div class="muted small">{{ a.from_name }}</div>{% endif %}{% if a.last_error %}<div class="small notice-error">{{ a.last_error }}</div>{% endif %}</td>
+        <td>{% if a.provider == "gmail" %}Gmail{% else %}SMTP · {{ a.smtp_host }}{% if not a.imap_host %}<div class="muted small">sin IMAP: no detecta respuestas</div>{% endif %}{% endif %}</td>
+        <td>{% if a.active %}<span class="badge badge-valid">activa</span>{% else %}<span class="badge badge-invalid">inactiva</span>{% endif %}</td>
+        <td class="num">
+          <form method="post" action="/cuentas/{{ a.id }}/limite" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="number" name="limite" value="{{ a.daily_limit }}" min="1" max="2000" style="width:6em" aria-label="Límite diario">
+            <button type="submit" class="button button-small button-secondary">Guardar</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/cuentas/{{ a.id }}/estado" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="link">{% if a.active %}Desactivar{% else %}Activar{% endif %}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">Aún no hay cuentas. Conecta Gmail o tu correo corporativo.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small">Límites de los proveedores: Gmail gratuito 500 correos al día, Google Workspace 2.000.
+    Para prospección en frío conviene empezar con 30-50 al día por cuenta y subir de a poco.</p>
+</section>
+
+<section class="card">
+  <h2>Conectar Gmail</h2>
+  {% if google_ready %}
+  <p>Inicia sesión con tu cuenta de Google: ORKESTA solo pide permiso para enviar y para ver si respondieron.</p>
+  <a class="button" href="/cuentas/google/conectar">Conectar con Google</a>
+  {% else %}
+  <p class="muted">Para conectar Gmail hay que configurar una credencial OAuth de Google Cloud
+    (variables <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> y <code>PUBLIC_BASE_URL</code>).
+    Mientras tanto puedes usar Gmail o Workspace por SMTP con una contraseña de aplicación.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Conectar correo corporativo (SMTP)</h2>
+  <form method="post" action="/cuentas/smtp" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="filter-row">
+      <label>Correo <input type="email" name="correo" required placeholder="tu@empresa.com"></label>
+      <label>Nombre del remitente <input type="text" name="nombre" maxlength="120" placeholder="Jenn | America Digital"></label>
+      <label>Contraseña (o contraseña de aplicación) <input type="password" name="contrasena" required autocomplete="new-password"></label>
+    </div>
+    <div class="filter-row">
+      <label>Proveedor
+        <select name="preajuste">
+          {% for code, p in presets.items() %}<option value="{{ code }}">{{ p[0] }}</option>{% endfor %}
+          <option value="">Otro (completar servidores)</option>
+        </select>
+      </label>
+      <label>Límite diario <input type="number" name="limite" value="{{ default_limit }}" min="1" max="2000"></label>
+    </div>
+    <details class="filter-group">
+      <summary>Otro proveedor: servidores</summary>
+      <div class="filter-row top-gap">
+        <label>Servidor SMTP <input type="text" name="smtp_host" placeholder="mail.empresa.com"></label>
+        <label>Puerto <input type="number" name="smtp_port" value="587"></label>
+        <label>Seguridad <select name="seguridad"><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL (465)</option></select></label>
+        <label>Servidor IMAP (respuestas) <input type="text" name="imap_host" placeholder="mail.empresa.com"></label>
+        <label>Puerto IMAP <input type="number" name="imap_port" value="993"></label>
+        <label>Usuario (si no es el correo) <input type="text" name="usuario"></label>
+      </div>
+    </details>
+    <div class="actions"><button type="submit" class="button">Probar y conectar</button></div>
+  </form>
+  <p class="muted small">ORKESTA prueba la conexión antes de guardar. La contraseña se guarda cifrada.</p>
+</section>
+{% endblock %}

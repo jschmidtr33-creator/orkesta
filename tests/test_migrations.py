@@ -36,6 +36,11 @@ PROSPECTING_TABLES = {
     "catalog_companies",
     "prospect_lists",
     "prospect_list_members",
+    "mail_accounts",
+    "campaigns",
+    "campaign_recipients",
+    "campaign_messages",
+    "suppressions",
 }
 
 pytestmark = pytest.mark.db

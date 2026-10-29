@@ -197,3 +197,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .check { display: flex; gap: 6px; align-items: center; font-weight: normal; }
 .list-bar { align-items: flex-end; padding: 8px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .list-bar select { min-width: 200px; }
+.preview { white-space: pre-wrap; font-family: inherit; background: var(--surface-2, transparent); margin: 0; }
+fieldset.filter-group { margin: 0 0 12px; }
+textarea { width: 100%; }
