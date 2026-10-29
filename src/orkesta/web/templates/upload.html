@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Nueva importación{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Nueva importación</h1>
+  <p class="muted">Archivo .csv o .xlsx de hasta {{ max_mb }} MB y {{ max_rows | thousands }} filas.
+    La primera fila debe tener los encabezados. Columnas esperadas: Nombre, Apellido, Cargo, Empresa y Ubicación;
+    en el siguiente paso podrás ajustar qué columna corresponde a cada campo.</p>
+  {% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/lotes" enctype="multipart/form-data" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Archivo
+      <input type="file" name="archivo" accept=".csv,.txt,.tsv,.xlsx" required>
+    </label>
+    <button type="submit" class="button">Subir y revisar</button>
+  </form>
+</section>
+{% endblock %}

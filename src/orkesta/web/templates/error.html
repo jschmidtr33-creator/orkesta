@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Error {{ status }}{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>{% if status == 404 %}No encontrado{% elif status == 403 %}Acceso denegado{% else %}Algo salió mal{% endif %}</h1>
+  <p>{{ detail }}</p>
+  <a href="/lotes" class="button">Volver a los lotes</a>
+</section>
+{% endblock %}

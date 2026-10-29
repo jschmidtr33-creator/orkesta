@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesión{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Iniciar sesión</h1>
+  {% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Correo
+      <input type="email" name="email" value="{{ email }}" autocomplete="username" required autofocus>
+    </label>
+    <label>Contraseña
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="button">Entrar</button>
+  </form>
+</section>
+{% endblock %}

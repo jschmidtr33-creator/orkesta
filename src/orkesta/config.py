@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     job_retry_max_seconds: int = Field(default=3600, ge=1)
     job_default_max_attempts: int = Field(default=3, ge=1, le=20)
 
+    max_upload_mb: int = Field(default=10, ge=1, le=100)
+    max_import_rows: int = Field(default=50_000, ge=1, le=500_000)
+
+    session_max_age_hours: int = Field(default=12, ge=1, le=24 * 30)
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)
+
+    @property
+    def is_deployed(self) -> bool:
+        return self.environment in ("staging", "production")
+
     @field_validator("database_url")
     @classmethod
     def _normalize_database_url(cls, value: str) -> str:

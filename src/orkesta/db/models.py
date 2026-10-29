@@ -37,7 +37,17 @@ def _in(column: str, values: tuple[str, ...]) -> str:
 
 
 USER_ROLES = ("admin", "operator")
-BATCH_STATUSES = ("draft", "queued", "running", "completed", "failed", "cancelled")
+BATCH_STATUSES = (
+    "draft",
+    "importing",
+    "imported",
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+)
+IMPORT_ROW_STATUSES = ("pending", "valid", "invalid", "duplicate")
 DOMAIN_STATUSES = ("candidate", "probable", "confirmed", "rejected", "unknown")
 CONFIDENCE_LEVELS = ("high", "medium", "low")
 PATTERN_ORIGINS = ("observed", "learned")
@@ -101,6 +111,16 @@ class EnrichmentBatch(OrgScopedMixin, Base):
     )
     source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_format: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="csv", server_default="csv"
+    )
+    headers: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    import_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
     column_mapping: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
@@ -124,10 +144,15 @@ class EnrichmentBatch(OrgScopedMixin, Base):
 
 
 class ImportRow(OrgScopedMixin, Base):
-    """Fila original del archivo importado. Nunca se modifica después de crearse."""
+    """Fila del archivo importado. ``raw`` es el original y nunca se modifica; los resultados
+    de la validación y la normalización se guardan en columnas aparte."""
 
     __tablename__ = "import_rows"
-    __table_args__ = (UniqueConstraint("batch_id", "row_number"),)
+    __table_args__ = (
+        UniqueConstraint("batch_id", "row_number"),
+        CheckConstraint(_in("status", IMPORT_ROW_STATUSES), name="status"),
+        Index("ix_import_rows_batch_status", "batch_id", "status"),
+    )
 
     batch_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -137,6 +162,14 @@ class ImportRow(OrgScopedMixin, Base):
     )
     row_number: Mapped[int] = mapped_column(Integer, nullable=False)
     raw: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    issues: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    normalized: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    duplicate_of_row: Mapped[int | None] = mapped_column(Integer)
     contact_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL"), index=True
     )
@@ -164,7 +197,18 @@ class Company(OrgScopedMixin, Base):
 
 
 class Contact(OrgScopedMixin, Base):
+    """Persona única por empresa: el mismo nombre normalizado en la misma empresa es el mismo
+    contacto aunque llegue en varios lotes."""
+
     __tablename__ = "contacts"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "first_name_normalized",
+            "last_name_normalized",
+            name="uq_contacts_company_person",
+        ),
+    )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

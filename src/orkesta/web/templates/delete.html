@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Eliminar {{ batch.source_filename }}{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Eliminar lote</h1>
+  <p>Vas a eliminar <strong>{{ batch.source_filename }}</strong> ({{ batch.total_rows | thousands }} filas).</p>
+  <p class="muted">Se borran el lote, sus filas y los contactos que solo existían por este lote. Las empresas se
+    conservan para reutilizar su historial. Esta acción no se puede deshacer.</p>
+  <form method="post" action="/lotes/{{ batch.id }}/eliminar" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button button-danger">Eliminar definitivamente</button>
+    <a href="/lotes/{{ batch.id }}">Cancelar</a>
+  </form>
+</section>
+{% endblock %}
