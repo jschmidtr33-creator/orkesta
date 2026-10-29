@@ -11,7 +11,7 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 
@@ -28,6 +28,12 @@ ORKESTA_COLUMNS: tuple[tuple[str, str], ...] = (
     ("country", "ORKESTA país"),
     ("city", "ORKESTA ciudad"),
     ("location_confidence", "ORKESTA confianza ubicación"),
+    ("domain", "ORKESTA dominio"),
+    ("domain_status", "ORKESTA estado dominio"),
+    ("domain_score", "ORKESTA puntuación dominio"),
+    ("has_mx", "ORKESTA recibe correo (MX)"),
+    ("mx_provider", "ORKESTA proveedor de correo"),
+    ("domain_reasons", "ORKESTA razones dominio"),
 )
 
 STATUS_LABELS = {
@@ -47,6 +53,7 @@ class ExportRow:
     issues: Sequence[str]
     duplicate_of: int | None
     normalized: dict[str, str | None]
+    domain: dict[str, str] = field(default_factory=dict)
 
 
 def sanitize_cell(value: object) -> str:
@@ -67,6 +74,7 @@ def _orkesta_values(row: ExportRow, issue_messages: dict[str, str]) -> list[str]
             values[key] = CONFIDENCE_LABELS.get(value or "", "")
         else:
             values[key] = value or ""
+    values.update(row.domain)
     return [values.get(key, "") for key, _ in ORKESTA_COLUMNS]
 
 

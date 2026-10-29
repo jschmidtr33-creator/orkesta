@@ -21,7 +21,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from orkesta.audit import audit
-from orkesta.db.models import Company, Contact, EnrichmentBatch, EnrichmentJob, ImportRow
+from orkesta.db.models import Company, Contact, Domain, EnrichmentBatch, EnrichmentJob, ImportRow
+from orkesta.engine.domain.reasons import DOMAIN_STATUS_LABELS, describe_reasons
 from orkesta.imports.export import ExportRow
 from orkesta.imports.mapping import FIELDS, Field, propose_mapping, validate_mapping
 from orkesta.imports.reader import ReadLimits, read_table
@@ -193,6 +194,7 @@ def _upsert_companies(
                 "organization_id": organization_id,
                 "name_original": row.company.display[:300],
                 "name_normalized": row.company.normalized[:300],
+                "match_key": row.company.match_key[:300],
                 "country_code": row.location.country_code,
                 "city": row.location.city,
             },
@@ -205,6 +207,7 @@ def _upsert_companies(
             constraint="uq_companies_organization_id_name_normalized_country_code",
             set_={
                 "city": func.coalesce(Company.city, statement.excluded.city),
+                "match_key": func.coalesce(Company.match_key, statement.excluded.match_key),
                 "updated_at": func.now(),
             },
         ).returning(Company.id, Company.name_normalized, Company.country_code)
@@ -355,13 +358,19 @@ ExportFilter = Literal["all", "valid", "issues"]
 def export_rows(
     session: Session, batch: EnrichmentBatch, which: ExportFilter = "all"
 ) -> Iterator[ExportRow]:
-    query = select(ImportRow).where(ImportRow.batch_id == batch.id)
+    query = (
+        select(ImportRow, Company.domain_status, Domain)
+        .outerjoin(Contact, Contact.id == ImportRow.contact_id)
+        .outerjoin(Company, Company.id == Contact.company_id)
+        .outerjoin(Domain, (Domain.company_id == Company.id) & Domain.is_selected.is_(True))
+        .where(ImportRow.batch_id == batch.id)
+    )
     if which == "valid":
         query = query.where(ImportRow.status == "valid")
     elif which == "issues":
         query = query.where(ImportRow.status.in_(("invalid", "duplicate")))
     query = query.order_by(ImportRow.row_number).execution_options(yield_per=2000)
-    for row in session.scalars(query):
+    for row, company_status, domain in session.execute(query):
         yield ExportRow(
             row_number=row.row_number,
             raw=row.raw,
@@ -369,7 +378,25 @@ def export_rows(
             issues=row.issues,
             duplicate_of=row.duplicate_of_row,
             normalized=row.normalized or {},
+            domain=domain_export_values(company_status, domain),
         )
+
+
+def domain_export_values(company_status: str | None, domain: Domain | None) -> dict[str, str]:
+    """Columnas de dominio de la exportación; vacías si la empresa nunca se investigó."""
+    if domain is None:
+        label = DOMAIN_STATUS_LABELS.get(company_status or "", "")
+        return {"domain_status": label} if label else {}
+    return {
+        "domain": domain.domain,
+        "domain_status": DOMAIN_STATUS_LABELS.get(domain.status, domain.status),
+        "domain_score": str(domain.confidence_score),
+        "has_mx": {True: "sí", False: "no"}.get(domain.has_mx, "")
+        if domain.has_mx is not None
+        else "",
+        "mx_provider": domain.mx_provider or "",
+        "domain_reasons": describe_reasons(domain.reason_codes),
+    }
 
 
 def delete_batch(session: Session, batch: EnrichmentBatch, *, user_id: uuid.UUID | None) -> int:

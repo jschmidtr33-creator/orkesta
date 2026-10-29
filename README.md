@@ -13,8 +13,10 @@ No usa Gemini, OpenAI ni Google Search API. El código corre en Railway y vive e
 | --- | --- | --- |
 | 0 | Propuesta arquitectónica | Aprobada |
 | 1 | Base ejecutable: API, PostgreSQL, migraciones, worker, CI, Railway | Hecha |
-| **2** | **Acceso, importación CSV/XLSX, mapeo, normalización, deduplicación, exportación** | **Esta entrega** |
-| 3 | Motor: señales, DNS/MX, evidencia, modelos ML de dominio y patrón | Pendiente |
+| 2 | Acceso, importación CSV/XLSX, mapeo, normalización, deduplicación, exportación | Hecha |
+| **3A** | **Dominios: unificación de empresas, DNS/MX, sitios, Wikidata, puntuación `rules-v1`** | **Esta entrega** |
+| 3B | Patrones de correo y generación de correos | Pendiente |
+| 3C | Modelos ML (LightGBM) de dominio y patrón | Pendiente |
 | 4 | Evaluación con conjunto etiquetado | Pendiente |
 | 5 | Interfaz operativa | Pendiente |
 | 6 | Campañas Gmail | Pendiente |
@@ -44,6 +46,36 @@ Lo que funciona hoy:
 La importación corre en el worker: la vista previa de 50.000 filas tarda unos 3 s y la
 importación completa unos 25 s en segundo plano.
 
+### Búsqueda de dominios (3A)
+
+En la página de un lote importado, **Buscar dominios** encola un trabajo por empresa y país. Las
+variantes de nombre de una misma empresa ("Laboratorios Sanfer" / "Sanfer S.A. de C.V.") se
+investigan una sola vez. Para cada empresa el motor:
+
+1. Genera dominios candidatos con las extensiones del país (`.com.mx`, `.com`, `.mx`...), los
+   dominios escritos en el nombre ("Kavak.com") y el sitio oficial que registra Wikidata.
+2. Comprueba DNS y MX, y visita la portada de forma segura (bloqueo de direcciones privadas,
+   redirecciones verificadas, robots.txt, límites de tamaño y tiempo).
+3. Puntúa cada candidato de 0 a 100 con razones explicables: nombre o marca en el título,
+   señales del país, Wikidata, extensión del país, redirecciones, dominios aparcados.
+4. Selecciona el mejor si es **confirmado** (≥ 70 y con evidencia de identidad) o **probable**
+   (≥ 50). Si no, la empresa queda como **no encontrado**.
+
+Las empresas investigadas en los últimos 30 días reutilizan su resultado sin volver a la red.
+La exportación añade dominio, estado, puntuación, MX, proveedor de correo y razones.
+
+### Evaluación en vivo
+
+Este entorno de desarrollo no tiene internet; GitHub Actions sí. En GitHub: **Actions →
+Evaluación en vivo → Run workflow**. Ejecuta el motor real contra `data/eval/empresas_mx.csv`
+(empresas, nunca personas) y publica el informe en el resumen del flujo y como archivo
+descargable: exactitud, cobertura, comparación con la línea base, fallos y dominios propuestos
+para las empresas aún sin etiqueta.
+
+```bash
+python -m orkesta.evaluation.domains data/eval/empresas_mx.csv --out reporte --limit 10
+```
+
 ## Estructura
 
 ```
@@ -56,6 +88,10 @@ src/orkesta/
   api/main.py          App FastAPI: /health, /ready, sesión, cabeceras de seguridad
   web/                 Interfaz: rutas, plantillas Jinja2 y CSS
   engine/normalize/    Normalización de nombres, empresas y ubicaciones
+  engine/net/          DNS/MX, descarga segura (SSRF, robots.txt), dominios registrables
+  engine/domain/       Candidatos, Wikidata, señales de página, puntuación rules-v1, resolución
+  enrichment/          Búsqueda de dominios por lote en el worker
+  evaluation/          Evaluación en vivo contra data/eval/
   imports/             Lectura, mapeo, validación, servicio, exportación y trabajo del worker
   db/base.py           Base declarativa, UUID, timestamps, organization_id
   db/models.py         Las 16 tablas del MVP

@@ -4,14 +4,22 @@ from __future__ import annotations
 
 from orkesta.config import get_settings
 from orkesta.db.session import get_session_factory
+from orkesta.enrichment.jobs import handle_resolve_domain, on_resolve_domain_failed
+from orkesta.enrichment.service import DOMAIN_JOB_KIND
 from orkesta.imports.jobs import handle_import_batch, on_import_failed
 from orkesta.imports.service import IMPORT_JOB_KIND
 from orkesta.logs import configure_logging
 from orkesta.worker.queue import RetryPolicy
 from orkesta.worker.runner import FailureHook, JobHandler, Worker
 
-HANDLERS: dict[str, JobHandler] = {IMPORT_JOB_KIND: handle_import_batch}
-FAILURE_HOOKS: dict[str, FailureHook] = {IMPORT_JOB_KIND: on_import_failed}
+HANDLERS: dict[str, JobHandler] = {
+    IMPORT_JOB_KIND: handle_import_batch,
+    DOMAIN_JOB_KIND: handle_resolve_domain,
+}
+FAILURE_HOOKS: dict[str, FailureHook] = {
+    IMPORT_JOB_KIND: on_import_failed,
+    DOMAIN_JOB_KIND: on_resolve_domain_failed,
+}
 
 
 def build_worker() -> Worker:

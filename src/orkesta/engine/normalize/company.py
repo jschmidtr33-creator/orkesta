@@ -218,6 +218,19 @@ NOT_A_COMPANY = frozenset(
 )
 
 
+# Calificativos que no distinguen a una empresa de sus variantes de nombre: "Laboratorios
+# Sanfer" = "Sanfer", "Mabe Global" = "Mabe Corporativo", "Linde Latam Norte" = "Linde México".
+# No incluye "grupo": "Grupo Modelo" y "Modelo X" pueden ser empresas distintas.
+MATCH_QUALIFIERS = frozenset(
+    """laboratorios laboratorio farmaceutica farmaceuticos farmaceutico pharma pharmaceutical
+    pharmaceuticals productos motors motor auto autos automotriz electronics brands corporativo
+    corporativa corporacion corporation global latam latin latina latinoamerica latinoamericana
+    america americas norte sur north south centro centroamerica caribe region andina cluster
+    division oficial official internacional international holding holdings mexico mexicana
+    mexicano colombia peru chile argentina ecuador de del la las los y and the of com""".split()
+)
+
+
 @dataclass(frozen=True)
 class CompanyName:
     original: str
@@ -230,6 +243,12 @@ class CompanyName:
     @property
     def is_valid(self) -> bool:
         return bool(self.normalized) and self.normalized not in NOT_A_COMPANY
+
+    @property
+    def match_key(self) -> str:
+        """Clave para reconocer variantes de la misma empresa dentro de un país."""
+        core = [t for t in self.tokens if t not in MATCH_QUALIFIERS]
+        return " ".join(core) if core else self.normalized
 
 
 def _suffix_pattern(suffixes: tuple[str, ...]) -> re.Pattern[str]:

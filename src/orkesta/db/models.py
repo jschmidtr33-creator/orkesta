@@ -120,6 +120,9 @@ class EnrichmentBatch(OrgScopedMixin, Base):
     import_summary: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    enrichment_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     column_mapping: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -188,10 +191,21 @@ class Company(OrgScopedMixin, Base):
             postgresql_nulls_not_distinct=True,
         ),
         CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_companies_org_match", "organization_id", "match_key", "country_code"),
+        CheckConstraint(
+            "domain_status IS NULL OR " + _in("domain_status", (*DOMAIN_STATUSES, "error")),
+            name="domain_status",
+        ),
     )
 
     name_original: Mapped[str] = mapped_column(String(300), nullable=False)
     name_normalized: Mapped[str] = mapped_column(String(300), nullable=False)
+    # Variantes de nombre de una misma empresa comparten clave ("Sanfer" / "Laboratorios Sanfer")
+    # y se investigan una sola vez por país.
+    match_key: Mapped[str | None] = mapped_column(String(300))
+    # Resultado de la última búsqueda de dominio: NULL = nunca buscado.
+    domain_status: Mapped[str | None] = mapped_column(String(20))
+    domain_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     country_code: Mapped[str | None] = mapped_column(String(2))
     city: Mapped[str | None] = mapped_column(String(120))
 
@@ -237,6 +251,12 @@ class Domain(OrgScopedMixin, Base):
         ),
         CheckConstraint("confidence_score BETWEEN 0 AND 100", name="confidence_score"),
         CheckConstraint("domain = lower(domain)", name="domain_lowercase"),
+        Index(
+            "uq_domains_one_selected",
+            "company_id",
+            unique=True,
+            postgresql_where=text("is_selected"),
+        ),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
@@ -260,6 +280,11 @@ class Domain(OrgScopedMixin, Base):
     mx_provider: Mapped[str | None] = mapped_column(String(80))
     discovery_method: Mapped[str] = mapped_column(String(40), nullable=False)
     model_version: Mapped[str | None] = mapped_column(String(40))
+    is_selected: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    final_url: Mapped[str | None] = mapped_column(Text)
+    site_title: Mapped[str | None] = mapped_column(String(300))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
