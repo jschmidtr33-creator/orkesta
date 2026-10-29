@@ -26,9 +26,8 @@ services:
     plan: 0.5c-512mb
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    preDeployCommand: >-
-      alembic upgrade head && python -m orkesta.cli bootstrap-admin &&
-      python -m orkesta.cli catalog-load
+    # Un solo comando: Render no lo ejecuta en una consola, así que no admite "&&".
+    preDeployCommand: python -m orkesta.cli release
     envVars:
       - fromGroup: orkesta-shared
       - key: DATABASE_URL
