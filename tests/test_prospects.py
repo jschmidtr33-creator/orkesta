@@ -409,13 +409,12 @@ def test_decision_makers() -> None:
         is_decision_maker(t)
         for t in ("CEO", "Cofundador", "Dueño", "VP Sales", "Directora de Compras", "Jefe de TI")
     )
-    assert not any(is_decision_maker(t) for t in ("Gerente de Compras", "Analista", "", None))
+    assert is_decision_maker("Gerente de Compras")
+    assert not any(is_decision_maker(t) for t in ("Analista", "Coordinador de TI", "", None))
 
 
 @pytest_db
 def test_first_visit_shows_only_decision_makers(client: TestClient) -> None:
     first = client.get("/prospectos").text
-    # Ana (gerente) no es decisora; Jorge (director) y María (jefe) sí.
-    assert "Jorge Díaz" in first and "María Pérez" in first and "Ana López" not in first
-    everyone = client.get("/prospectos", params={"cargo": ""}).text
-    assert "Ana López" in everyone
+    # Gerente, director y jefe son decisores.
+    assert "Ana López" in first and "Jorge Díaz" in first and "María Pérez" in first

@@ -478,7 +478,7 @@ FALLBACK_AREAS: dict[str, tuple[str, ...]] = {
 LOW_PRIORITY_AREAS = frozenset({"direccion", "operaciones"})
 
 # Decisores: los cargos que importan para prospectar con ORKESTA.
-DECISION_LEVELS: tuple[str, ...] = ("c_level", "duenio_socio", "vp", "director", "jefe")
+DECISION_LEVELS: tuple[str, ...] = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
 
 LEVEL_LABELS = {code: label for code, (label, _) in LEVELS.items()}
 AREA_LABELS = {code: label for code, (label, _) in AREAS.items()}
@@ -540,6 +540,6 @@ def classify_title(title: str | None) -> tuple[str | None, str | None]:
 
 
 def is_decision_maker(title: str | None) -> bool:
-    """C-Level, dueño/socio/fundador, vicepresidente, director o jefe."""
+    """C-Level, dueño/socio/fundador, vicepresidente, director, gerente o jefe."""
     level, _ = classify_title(title)
     return level in DECISION_LEVELS

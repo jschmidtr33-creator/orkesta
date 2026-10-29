@@ -177,7 +177,7 @@ def run_discovery_job(
     existing = _existing_names(session, organization_id, company_key)
     rows: list[dict[str, Any]] = []
     for person in harvest.people:
-        # Solo decisores: C-Level, dueños y fundadores, VP, directores y jefes.
+        # Solo decisores: C-Level, dueños y fundadores, VP, directores, gerentes y jefes.
         if fold(person.full_name) in existing or not is_decision_maker(person.title):
             continue
         name = normalize_person(person.first_name, person.last_name)

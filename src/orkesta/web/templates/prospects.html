@@ -52,7 +52,7 @@
           {% endfor %}
         </div>
       </details>
-      <label class="check"><input type="checkbox" name="decisores" value="1" {% if only_decision_makers %}checked{% endif %}> <strong>Solo decisores</strong> (C-Level, dueños y fundadores, VP, directores, jefes)</label>
+      <label class="check"><input type="checkbox" name="decisores" value="1" {% if only_decision_makers %}checked{% endif %}> <strong>Solo decisores</strong> (C-Level, dueños y fundadores, VP, directores, gerentes, jefes)</label>
       <label class="check"><input type="checkbox" name="con_correo" value="1" {% if filters.with_email %}checked{% endif %}> Solo con correo</label>
       <label class="check"><input type="checkbox" name="web" value="1" {% if filters.only_web %}checked{% endif %}> Solo encontrados en la web</label>
     </div>
@@ -126,7 +126,7 @@
 <section class="card">
   <h2>Buscar personas nuevas en la web</h2>
   <p class="muted">ORKESTA visita las páginas públicas de equipo, directivos y prensa de las empresas que cumplen los filtros de
-    <strong>empresa, industria y país</strong> de arriba, guarda solo a los <strong>decisores</strong> (C-Level, dueños y fundadores, VP, directores y jefes) con su cargo, y deduce el correo (con el patrón real de la empresa
+    <strong>empresa, industria y país</strong> de arriba, guarda solo a los <strong>decisores</strong> (C-Level, dueños y fundadores, VP, directores, gerentes y jefes) con su cargo, y deduce el correo (con el patrón real de la empresa
     si ya lo conoce). Cada persona guarda la página donde se publicó. Las empresas exploradas en los últimos 30 días no se repiten.</p>
   <p class="muted small">Empresas a explorar: las de tu base con dominio corporativo y {{ catalog_total | thousands }} del catálogo público LATAM.</p>
   <form method="post" action="/prospectos/descubrir" class="actions">
