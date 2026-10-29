@@ -136,6 +136,8 @@ def resolve_domain(
     for domain, (result, blocked) in visits.items():
         item = evidence[domain]
         item.robots_blocked = blocked
+        if result is not None and not result.ok:
+            item.http_status, item.fetch_error = result.status, result.error
         if result is None or not result.ok:
             continue
         final_root = registrable_domain(result.final_url) or domain

@@ -145,6 +145,8 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
                     if scored.rules_score is None
                     else scored.rules_score,
                     "label": int(scored.domain in accepted),
+                    "fetch_note": scored.evidence.fetch_error
+                    or (scored.evidence.http_status or ""),
                     **candidate_features(scored.evidence, names, country),
                 }
             )
@@ -274,7 +276,9 @@ def run(
 
 def write_features(outcomes: list[Outcome], path: Path) -> int:
     """Una fila por candidato: variables, puntuación de reglas y etiqueta. CSV comprimido."""
-    columns = ["case_id", "country", "domain", "rules_score", "label", *FEATURE_NAMES]
+    columns = [
+        "case_id", "country", "domain", "rules_score", "label", "fetch_note", *FEATURE_NAMES,
+    ]  # fmt: skip
     count = 0
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wt", newline="", encoding="utf-8") as handle:

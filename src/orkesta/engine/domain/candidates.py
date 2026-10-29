@@ -6,7 +6,15 @@ import re
 from dataclasses import dataclass
 
 from orkesta.engine.net.domains import is_non_corporate, normalize_host, registrable_domain
-from orkesta.engine.normalize.company import CompanyName
+from orkesta.engine.normalize.company import MATCH_QUALIFIERS, CompanyName
+
+# Palabras que por sí solas no identifican a una empresa: nunca son dominio de un token suelto.
+GENERIC_TOKENS = MATCH_QUALIFIERS | frozenset(
+    """general grupo group company compania empresa empresas servicios services solutions
+    soluciones industrial industrias industries sistemas systems tecnologia technology
+    technologies consultores consulting comercial comercializadora distribuidora nacional
+    national elevator""".split()
+)
 
 # Extensiones por país, de la más probable a la menos probable para una empresa local.
 COUNTRY_TLDS: dict[str, tuple[str, ...]] = {
@@ -32,7 +40,7 @@ COUNTRY_TLDS: dict[str, tuple[str, ...]] = {
     "US": ("com",),
 }
 DEFAULT_TLDS = ("com",)
-MAX_CANDIDATES = 14
+MAX_CANDIDATES = 18
 
 _EMBEDDED_DOMAIN = re.compile(
     r"\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|mx)(?:\.[a-z]{2})?)\b"
@@ -60,13 +68,16 @@ def _labels(company: CompanyName) -> list[tuple[str, str]]:
         out.append(("".join(match_tokens), "match_key"))
     if distinctive:
         out.append(("".join(distinctive), "full_name"))
-    if all_tokens and len(all_tokens) <= 4:
-        out.append(("".join(all_tokens), "full_name"))
     if len(distinctive) > 1:
         out.append(("-".join(distinctive), "hyphenated"))
+    # Siglas de las palabras distintivas ("General Motors" → gm): marcas que usan sus iniciales.
+    if 2 <= len(distinctive) <= 4:
+        out.append(("".join(t[0] for t in distinctive), "acronym"))
     for token in distinctive[:3]:
-        if len(token) >= 4:
+        if len(token) >= 4 and token not in GENERIC_TOKENS:
             out.append((token, "token"))
+    if all_tokens and len(all_tokens) <= 4:
+        out.append(("".join(all_tokens), "full_name"))
     if len(all_tokens) >= 3:
         out.append(("".join(t[0] for t in all_tokens), "acronym"))
 

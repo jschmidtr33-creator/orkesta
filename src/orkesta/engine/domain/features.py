@@ -24,6 +24,9 @@ FEATURE_NAMES: tuple[str, ...] = (
     "mx_google_or_microsoft",
     "site_ok",
     "robots_blocked",
+    "site_protected",
+    "site_http_error",
+    "fetch_failed",
     "rejected_redirect",
     "rejected_parked",
     "via_redirect",
@@ -62,6 +65,14 @@ def candidate_features(
         ),
         "site_ok": float(site),
         "robots_blocked": float(evidence.robots_blocked),
+        "site_protected": float(not site and evidence.site_protected),
+        "site_http_error": float(
+            not site
+            and evidence.http_status is not None
+            and not evidence.site_protected
+            and not 200 <= evidence.http_status < 300
+        ),
+        "fetch_failed": float(not site and evidence.fetch_error is not None),
         "rejected_redirect": float(rejected.startswith("REDIRECTS_TO")),
         "rejected_parked": float(rejected == "PARKED_DOMAIN"),
         "via_redirect": float(method == "redirect"),

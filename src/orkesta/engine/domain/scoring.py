@@ -33,9 +33,11 @@ WEIGHTS: dict[str, int] = {
     "EMBEDDED_IN_NAME": 30,
     "SHORT_GENERIC_NAME": -10,
     "OTHER_COUNTRY_TLD": -10,
+    "SITE_PROTECTED": 10,
 }
 
 CONFIRMED, PROBABLE, CANDIDATE = 70, 50, 30
+PROTECTED_STATUSES = frozenset({401, 403, 406, 429, 503})
 
 
 @dataclass
@@ -52,6 +54,13 @@ class CandidateEvidence:
     wikidata_country_match: bool = False
     robots_blocked: bool = False
     rejected_reason: str | None = None
+    http_status: int | None = None  # último estado HTTP si la portada no cargó
+    fetch_error: str | None = None  # tiempo agotado, TLS, conexión…
+
+    @property
+    def site_protected(self) -> bool:
+        """Hay un servidor web vivo que rechaza visitas automáticas (403, 429, 503…)."""
+        return self.robots_blocked or self.http_status in PROTECTED_STATUSES
 
 
 @dataclass(frozen=True)
@@ -148,6 +157,8 @@ def score(
         reasons.append("SHORT_GENERIC_NAME")
     if evidence.robots_blocked:
         reasons.append("ROBOTS_BLOCKED")
+    if not (evidence.site_ok and page is not None) and evidence.site_protected:
+        reasons.append("SITE_PROTECTED")
 
     total = max(0, min(100, sum(WEIGHTS.get(code, 0) for code in reasons)))
     # Confirmado exige evidencia de identidad, no solo que el dominio exista y se parezca.

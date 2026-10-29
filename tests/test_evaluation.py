@@ -74,7 +74,7 @@ def test_features_dump_has_one_labeled_row_per_candidate(tmp_path: Path) -> None
         rows = list(_csv.DictReader(handle))
     assert count == len(rows) > 0
     positives = {r["domain"]: r for r in rows if r["label"] == "1"}
-    assert set(positives) == {"lacteosinventados.com.mx", "fantasma.pe"}
+    assert set(positives) == {"lacteosinventados.com.mx", "li.mx", "fantasma.pe"}
     assert positives["lacteosinventados.com.mx"]["name_in_header"] == "1.0"
     # fantasma.pe es el dominio esperado aunque no resuelva: ejemplo positivo difícil.
     assert positives["fantasma.pe"]["resolves"] == "0.0"

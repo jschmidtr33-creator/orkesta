@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from fakes import FakeFetcher, FakeResolver, page
-from orkesta.engine.domain.candidates import generate_candidates
+from orkesta.engine.domain.candidates import MAX_CANDIDATES, generate_candidates
 from orkesta.engine.domain.resolver import TransientResolutionError, resolve_domain
 from orkesta.engine.domain.scoring import CandidateEvidence, score
 from orkesta.engine.domain.signals import analyze_page
@@ -54,7 +54,7 @@ def test_candidate_limit() -> None:
     candidates = generate_candidates(
         _names("Compañía Uno Dos Tres Cuatro", "Otra Variante Larga Del Nombre"), "MX"
     )
-    assert len(candidates) <= 14
+    assert len(candidates) <= MAX_CANDIDATES
 
 
 # --- señales de página ---------------------------------------------------------------------

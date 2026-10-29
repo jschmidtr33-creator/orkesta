@@ -55,7 +55,8 @@ def load_rows(paths: list[Path]) -> list[Row]:
                         domain=record["domain"],
                         label=int(record["label"]),
                         rules_score=float(record["rules_score"]),
-                        features={name: float(record[name]) for name in FEATURE_NAMES},
+                        # Variables nuevas ausentes en informes antiguos: desconocidas (NaN).
+                        features={name: float(record.get(name) or "nan") for name in FEATURE_NAMES},
                     )
                 )
     return rows
