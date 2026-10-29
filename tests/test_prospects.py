@@ -400,3 +400,22 @@ def test_search_by_level_and_area(
         assert {r.full_name for r in rows} == {"Ana López"}
         rows, _ = search_prospects(session, org_id, ProspectFilters(areas=["tecnologia"]))
         assert {r.full_name for r in rows} == {"Jorge Díaz"}
+
+
+def test_decision_makers() -> None:
+    from orkesta.catalog.titles import is_decision_maker
+
+    assert all(
+        is_decision_maker(t)
+        for t in ("CEO", "Cofundador", "Dueño", "VP Sales", "Directora de Compras", "Jefe de TI")
+    )
+    assert not any(is_decision_maker(t) for t in ("Gerente de Compras", "Analista", "", None))
+
+
+@pytest_db
+def test_first_visit_shows_only_decision_makers(client: TestClient) -> None:
+    first = client.get("/prospectos").text
+    # Ana (gerente) no es decisora; Jorge (director) y María (jefe) sí.
+    assert "Jorge Díaz" in first and "María Pérez" in first and "Ana López" not in first
+    everyone = client.get("/prospectos", params={"cargo": ""}).text
+    assert "Ana López" in everyone

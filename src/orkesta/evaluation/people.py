@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from statistics import mean, median
 
-from orkesta.catalog.titles import classify_title
+from orkesta.catalog.titles import classify_title, is_decision_maker
 from orkesta.engine.people.discover import discover_people
 from orkesta.enrichment.service import default_engine
 from orkesta.evaluation.domains import load_cases
@@ -32,6 +32,7 @@ def measure(domains: list[str], workers: int) -> dict[str, object]:
         except Exception:  # un sitio problemático no detiene la medición
             return 0, 0, False, Counter(), Counter(), Counter()
         methods = Counter(p.method for p in result.people)
+        methods["decisores"] = sum(1 for p in result.people if is_decision_maker(p.title))
         levels: Counter[str] = Counter()
         areas: Counter[str] = Counter()
         for person in result.people:

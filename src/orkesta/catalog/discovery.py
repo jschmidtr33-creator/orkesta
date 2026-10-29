@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from orkesta.catalog.companies import catalog_candidates
 from orkesta.catalog.prospects import FREEMAIL_DOMAINS
 from orkesta.catalog.service import ProspectFilters, known_pattern
-from orkesta.catalog.titles import classify_title
+from orkesta.catalog.titles import classify_title, is_decision_maker
 from orkesta.db.models import DiscoveryRun, Prospect, WebDiscovery
 from orkesta.engine.email.decide import decide, decide_from_known, generate_emails
 from orkesta.engine.net.fetch import RobotsAwareFetcher
@@ -177,7 +177,8 @@ def run_discovery_job(
     existing = _existing_names(session, organization_id, company_key)
     rows: list[dict[str, Any]] = []
     for person in harvest.people:
-        if fold(person.full_name) in existing:
+        # Solo decisores: C-Level, dueños y fundadores, VP, directores y jefes.
+        if fold(person.full_name) in existing or not is_decision_maker(person.title):
             continue
         name = normalize_person(person.first_name, person.last_name)
         emails = generate_emails(name, decision, limit=1) if name.is_valid else []

@@ -18,7 +18,7 @@ from orkesta.catalog.discovery import DiscoveryError, start_discovery
 from orkesta.catalog.industries import INDUSTRY_LABELS, SIZE_BANDS
 from orkesta.catalog.prospects import MAX_BYTES
 from orkesta.catalog.service import ProspectFilters, create_upload, iter_search, search_prospects
-from orkesta.catalog.titles import AREA_LABELS, LEVEL_LABELS
+from orkesta.catalog.titles import AREA_LABELS, DECISION_LEVELS, LEVEL_LABELS
 from orkesta.db.models import (
     CatalogCompany,
     DiscoveryRun,
@@ -100,8 +100,14 @@ def prospects_page(
     nivel: Annotated[list[str] | None, Query()] = None,
     area: Annotated[list[str] | None, Query()] = None,
     web: str = "",
+    decisores: str = "",
     pagina: Annotated[int, Query(ge=1)] = 1,
 ) -> Response:
+    # Sin parámetros (primera visita) se muestran solo decisores.
+    if not request.query_params:
+        decisores = "1"
+    if decisores == "1" and not nivel:
+        nivel = list(DECISION_LEVELS)
     filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web)
     rows, total = search_prospects(
         db, user.organization_id, filters, page=pagina, page_size=PAGE_SIZE
@@ -148,6 +154,8 @@ def prospects_page(
             "runs": runs,
             "catalog_total": catalog_total,
             "sizes": SIZE_LABELS,
+            "decision_levels": DECISION_LEVELS,
+            "only_decision_makers": sorted(filters.levels) == sorted(DECISION_LEVELS),
             "filters": filters,
             "query": _query_string(filters),
             "page": min(pagina, max(1, math.ceil(total / PAGE_SIZE))),
