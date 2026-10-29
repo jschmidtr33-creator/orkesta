@@ -65,6 +65,15 @@ jobs:
             --workers 16 --features work/lista/features.csv.gz \
             2>&1 | tail -n 200 | tee work/logs/medir_lista.log
 
+      - name: Medir patrones de correo y aprender previos (solo agregados, sin direcciones)
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          DATASETS="data/eval/empresas_mx.csv"
+          [ -f work/wikidata.csv ] && DATASETS="work/wikidata.csv $DATASETS"
+          python -m orkesta.evaluation.patterns $DATASETS --out work/patrones --workers 16 \
+            2>&1 | tail -n 200 | tee work/logs/patrones.log
+
       - name: Entrenar modelo candidato (empresas nunca vistas deciden la promoción)
         continue-on-error: true
         run: |
