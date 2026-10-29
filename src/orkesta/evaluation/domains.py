@@ -11,20 +11,28 @@ Definiciones (fijadas antes de medir, ver propuesta Etapa 0, sección 9):
 - Cobertura: empresas etiquetadas con dominio seleccionado / empresas etiquetadas.
 - Top 3: el dominio esperado está entre los 3 mejores candidatos no descartados.
 - Línea base: nombre sin forma jurídica ni espacios + ".com".
+- Equivalencia por redirección: si el dominio esperado redirige hoy a otro (sitio renovado), el
+  destino también cuenta como correcto. Se comprueba visitando el dominio esperado.
+- Sin fuga: con ``--no-wikidata`` el motor no consulta Wikidata. Es obligatorio cuando las
+  etiquetas vienen de Wikidata.
+- ``--features`` vuelca una fila por candidato con sus variables y la etiqueta (0/1): son los
+  datos de entrenamiento del modelo de dominio.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from orkesta.engine.domain.features import FEATURE_NAMES, candidate_features
 from orkesta.engine.domain.reasons import DOMAIN_STATUS_LABELS, describe_reasons
 from orkesta.engine.domain.resolver import (
     DomainResolution,
@@ -56,6 +64,8 @@ class Outcome:
     top3: tuple[str, ...]
     seconds: float
     error: str | None = None
+    accepted: tuple[str, ...] = ()  # esperado + destinos de redirección del esperado
+    feature_rows: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def labeled(self) -> bool:
@@ -63,11 +73,11 @@ class Outcome:
 
     @property
     def correct(self) -> bool:
-        return self.selected is not None and self.selected in self.case.expected
+        return self.selected is not None and self.selected in (self.accepted or self.case.expected)
 
     @property
     def in_top3(self) -> bool:
-        return any(d in self.case.expected for d in self.top3)
+        return any(d in (self.accepted or self.case.expected) for d in self.top3)
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -91,12 +101,24 @@ def baseline(case: Case) -> str:
     return normalize_company(case.company).normalized.replace(" ", "") + ".com"
 
 
+def accepted_domains(case: Case, engine: EngineDeps) -> tuple[str, ...]:
+    """Dominios esperados más aquellos a los que redirigen hoy."""
+    accepted = list(case.expected)
+    for domain in case.expected[:2]:
+        result = engine.fetcher.get(f"https://{domain}/")
+        final = registrable_domain(result.final_url) if result.ok else None
+        if final and final not in accepted:
+            accepted.append(final)
+    return tuple(accepted)
+
+
 def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
     country = parse_location(case.location).country_code
     started = time.monotonic()
+    names = [normalize_company(case.company)]
     try:
         result: DomainResolution = resolve_domain(
-            [normalize_company(case.company)],
+            names,
             country,
             resolver=engine.resolver,
             fetcher=engine.fetcher,
@@ -108,6 +130,20 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
         )
     top3 = tuple(c.domain for c in result.candidates if c.status != "rejected")[:3]
     selected = result.selected
+    accepted = accepted_domains(case, engine) if case.expected else ()
+    rows: list[dict[str, object]] = []
+    if case.expected:
+        for scored in result.candidates:
+            rows.append(
+                {
+                    "case_id": case.source or case.company,
+                    "country": country or "",
+                    "domain": scored.domain,
+                    "rules_score": scored.score,
+                    "label": int(scored.domain in accepted),
+                    **candidate_features(scored.evidence, names, country),
+                }
+            )
     return Outcome(
         case=case,
         country=country,
@@ -117,6 +153,8 @@ def evaluate_case(case: Case, engine: EngineDeps) -> Outcome:
         reasons=describe_reasons(selected.reasons) if selected else "",
         top3=top3,
         seconds=time.monotonic() - started,
+        accepted=accepted,
+        feature_rows=rows,
     )
 
 
@@ -211,10 +249,33 @@ def write_report(outcomes: list[Outcome], out: Path) -> dict[str, float | int]:
     return metrics
 
 
-def run(cases: list[Case], engine_factory: EngineFactory, workers: int = 4) -> list[Outcome]:
+def run(
+    cases: list[Case],
+    engine_factory: EngineFactory,
+    workers: int = 4,
+    *,
+    use_wikidata: bool = True,
+) -> list[Outcome]:
     engine = engine_factory()
+    if not use_wikidata:
+        engine = replace(engine, wikidata=None)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda c: evaluate_case(c, engine), cases))
+
+
+def write_features(outcomes: list[Outcome], path: Path) -> int:
+    """Una fila por candidato: variables, puntuación de reglas y etiqueta. CSV comprimido."""
+    columns = ["case_id", "country", "domain", "rules_score", "label", *FEATURE_NAMES]
+    count = 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for outcome in outcomes:
+            for row in outcome.feature_rows:
+                writer.writerow(row)
+                count += 1
+    return count
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,13 +284,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=Path("reporte"))
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--limit", type=int, default=0, help="Solo las primeras N empresas")
+    parser.add_argument("--no-wikidata", action="store_true", help="No consultar Wikidata")
+    parser.add_argument("--features", type=Path, help="Volcar variables por candidato (.csv.gz)")
     args = parser.parse_args(argv)
 
     cases = load_cases(args.dataset)
     if args.limit:
         cases = cases[: args.limit]
-    outcomes = run(cases, default_engine, args.workers)
+    outcomes = run(cases, default_engine, args.workers, use_wikidata=not args.no_wikidata)
     metrics = write_report(outcomes, args.out)
+    if args.features:
+        print(f"Variables: {write_features(outcomes, args.features)} candidatos → {args.features}")
     print(json.dumps(metrics, ensure_ascii=False, indent=2))
     return 0
 

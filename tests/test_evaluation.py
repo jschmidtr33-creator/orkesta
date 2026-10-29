@@ -59,3 +59,39 @@ def test_metrics_and_report(tmp_path: Path) -> None:
     report = (tmp_path / "out" / "reporte.md").read_text(encoding="utf-8")
     assert "Empresa Fantasma" in report and "Sin Etiqueta Demo" in report
     assert (tmp_path / "out" / "resultados.csv").exists()
+
+
+def test_features_dump_has_one_labeled_row_per_candidate(tmp_path: Path) -> None:
+    import csv as _csv
+    import gzip
+
+    from orkesta.evaluation.domains import write_features
+
+    outcomes = run(load_cases(_dataset(tmp_path)), _engine, workers=1, use_wikidata=False)
+    path = tmp_path / "features.csv.gz"
+    count = write_features(outcomes, path)
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        rows = list(_csv.DictReader(handle))
+    assert count == len(rows) > 0
+    positives = {r["domain"]: r for r in rows if r["label"] == "1"}
+    assert set(positives) == {"lacteosinventados.com.mx", "fantasma.pe"}
+    assert positives["lacteosinventados.com.mx"]["name_in_header"] == "1.0"
+    # fantasma.pe es el dominio esperado aunque no resuelva: ejemplo positivo difícil.
+    assert positives["fantasma.pe"]["resolves"] == "0.0"
+    # Las empresas sin etiqueta no aportan filas de entrenamiento.
+    assert all(not r["case_id"].startswith("Sin Etiqueta") for r in rows)
+
+
+def test_redirected_expected_domain_counts_as_correct(tmp_path: Path) -> None:
+    path = tmp_path / "eval.csv"
+    path.write_text(
+        "empresa,ubicacion,dominio_esperado,fuente\n"
+        'Lácteos Inventados,"Ciudad de México, México",lacteos-viejo.mx,prueba\n',
+        encoding="utf-8",
+    )
+    engine = _engine()
+    engine.fetcher.pages["https://lacteos-viejo.mx/"] = page(  # type: ignore[attr-defined]
+        "https://lacteos-viejo.mx/", "", final_url="https://lacteosinventados.com.mx/"
+    )
+    outcomes = run(load_cases(path), lambda: engine, workers=1)
+    assert outcomes[0].selected == "lacteosinventados.com.mx" and outcomes[0].correct
