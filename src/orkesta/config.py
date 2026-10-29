@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=10, ge=1, le=100)
     max_import_rows: int = Field(default=50_000, ge=1, le=500_000)
 
+    # URL pública de ORKESTA (enlaces de baja y retorno de OAuth). Ej.: https://orkesta.midominio.com
+    public_base_url: str = ""
+    # Credencial OAuth de Google Cloud para enviar por Gmail (opcional).
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    mail_default_daily_limit: int = Field(default=50, ge=1, le=2000)
+
     session_max_age_hours: int = Field(default=12, ge=1, le=24 * 30)
     login_max_failures: int = Field(default=5, ge=1, le=100)
     login_lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)

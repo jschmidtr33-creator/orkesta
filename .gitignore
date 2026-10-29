@@ -19,6 +19,8 @@ dist/
 *.csv
 *.xlsx
 !tests/fixtures/**/*.csv
+# Conjuntos de evaluación: datos de empresas, nunca de personas.
+!data/eval/*.csv
 !tests/fixtures/**/*.xlsx
 *.dump
 *.sql.gz

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }}{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>{{ campaign.name }}</h1>
+  <div class="actions">
+    {% if campaign.status in ("draft", "paused") %}
+    <form method="post" action="/campanas/{{ campaign.id }}/iniciar" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="button">{% if campaign.status == "draft" %}Iniciar campaña{% else %}Reanudar{% endif %}</button>
+    </form>
+    {% elif campaign.status == "running" %}
+    <form method="post" action="/campanas/{{ campaign.id }}/pausar" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="button button-secondary">Pausar</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% if public_url_missing %}<div class="notice notice-error">Falta configurar PUBLIC_BASE_URL: sin enlace de baja no se puede iniciar.</div>{% endif %}
+<section class="card">
+  <p>Estado: <strong>{{ labels[campaign.status] }}</strong> · desde {{ account.email if account else "—" }} ·
+    máximo {{ campaign.daily_limit }} al día · {{ campaign.window_start_hour }}:00–{{ campaign.window_end_hour }}:00
+    ({{ campaign.timezone }}) · {% if campaign.exclude_recent_days %}excluye contactados hace menos de {{ campaign.exclude_recent_days }} días · {% endif %}{% if campaign.exclude_replied %}excluye a quienes ya respondieron · {% endif %}{% for d in campaign.weekdays %}{{ weekdays[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ stats.get("enviados", 0) | thousands }}</span><span class="stat-label">Correos enviados</span></div>
+    <div class="stat"><span class="stat-value">{{ (stats.get("pending", 0) + stats.get("active", 0)) | thousands }}</span><span class="stat-label">En secuencia</span></div>
+    <div class="stat stat-good"><span class="stat-value">{{ stats.get("replied", 0) | thousands }}</span><span class="stat-label">Respondieron</span></div>
+    <div class="stat stat-warn"><span class="stat-value">{{ stats.get("bounced", 0) | thousands }}</span><span class="stat-label">Rebotes</span></div>
+    <div class="stat"><span class="stat-value">{{ stats.get("unsubscribed", 0) | thousands }}</span><span class="stat-label">Bajas</span></div>
+  </div>
+</section>
+<section class="card">
+  <h2>Vista previa</h2>
+  {% for m in previews %}
+  <div class="filter-group top-gap">
+    <p class="small muted">Correo {{ loop.index }}{% if loop.index > 1 %} · {{ campaign.steps[loop.index0].delay_days }} días después{% endif %}</p>
+    <p><strong>{{ m.subject }}</strong></p>
+    <pre class="preview">{{ m.text }}</pre>
+  </div>
+  {% endfor %}
+</section>
+<section class="card">
+  <h2>Destinatarios</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Correo</th><th>Empresa</th><th>Estado</th><th class="num">Siguiente paso</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for r in recipients %}
+      <tr>
+        <td>{{ r.email }}</td>
+        <td>{{ r.variables.get("empresa", "") }}</td>
+        <td>{{ labels.get(r.status, r.status) }}</td>
+        <td class="num">{% if r.status in ("pending", "active") %}{{ r.next_step + 1 }}{% else %}—{% endif %}</td>
+        <td class="small">{{ r.last_error or "" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">Los destinatarios se fijan al iniciar la campaña (personas de la lista con correo, sin bajas ni rebotes).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

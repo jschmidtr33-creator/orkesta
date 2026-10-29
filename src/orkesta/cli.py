@@ -14,6 +14,7 @@ import argparse
 import getpass
 import os
 import sys
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -21,6 +22,8 @@ from orkesta.audit import audit
 from orkesta.auth import AuthError, create_user, get_or_create_organization
 from orkesta.db.models import User
 from orkesta.db.session import session_scope
+
+DEFAULT_CATALOG = Path(__file__).parent / "catalog" / "data" / "empresas_latam.csv.gz"
 
 
 def _create_admin(email: str, password: str, org_name: str) -> str:
@@ -76,6 +79,21 @@ def cmd_bootstrap_admin(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_catalog_load(args: argparse.Namespace) -> int:
+    from orkesta.catalog.companies import load_catalog
+    from orkesta.catalog.wikidata_catalog import read_catalog
+
+    path = Path(args.path) if args.path else DEFAULT_CATALOG
+    if not path.exists():
+        print(f"catalog-load: no existe {path}, nada que hacer.")
+        return 0
+    rows = read_catalog(path)
+    with session_scope() as session:
+        loaded = load_catalog(session, rows)
+    print(f"catalog-load: {loaded} empresas cargadas desde {path.name}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orkesta")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -87,6 +105,10 @@ def main(argv: list[str] | None = None) -> int:
 
     bootstrap = sub.add_parser("bootstrap-admin", help="Crea el primer admin desde variables")
     bootstrap.set_defaults(func=cmd_bootstrap_admin)
+
+    catalog = sub.add_parser("catalog-load", help="Carga el catálogo público de empresas")
+    catalog.add_argument("path", nargs="?", help="Archivo .csv.gz (por defecto, el incluido)")
+    catalog.set_defaults(func=cmd_catalog_load)
 
     args = parser.parse_args(argv)
     result: int = args.func(args)

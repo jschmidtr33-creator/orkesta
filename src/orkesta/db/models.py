@@ -120,6 +120,9 @@ class EnrichmentBatch(OrgScopedMixin, Base):
     import_summary: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    enrichment_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     column_mapping: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -188,10 +191,21 @@ class Company(OrgScopedMixin, Base):
             postgresql_nulls_not_distinct=True,
         ),
         CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_companies_org_match", "organization_id", "match_key", "country_code"),
+        CheckConstraint(
+            "domain_status IS NULL OR " + _in("domain_status", (*DOMAIN_STATUSES, "error")),
+            name="domain_status",
+        ),
     )
 
     name_original: Mapped[str] = mapped_column(String(300), nullable=False)
     name_normalized: Mapped[str] = mapped_column(String(300), nullable=False)
+    # Variantes de nombre de una misma empresa comparten clave ("Sanfer" / "Laboratorios Sanfer")
+    # y se investigan una sola vez por país.
+    match_key: Mapped[str | None] = mapped_column(String(300))
+    # Resultado de la última búsqueda de dominio: NULL = nunca buscado.
+    domain_status: Mapped[str | None] = mapped_column(String(20))
+    domain_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     country_code: Mapped[str | None] = mapped_column(String(2))
     city: Mapped[str | None] = mapped_column(String(120))
 
@@ -237,6 +251,22 @@ class Domain(OrgScopedMixin, Base):
         ),
         CheckConstraint("confidence_score BETWEEN 0 AND 100", name="confidence_score"),
         CheckConstraint("domain = lower(domain)", name="domain_lowercase"),
+        CheckConstraint(
+            "pattern_confidence_level IS NULL OR "
+            + _in("pattern_confidence_level", CONFIDENCE_LEVELS),
+            name="pattern_confidence_level",
+        ),
+        CheckConstraint(
+            "pattern_confidence_score IS NULL OR pattern_confidence_score BETWEEN 0 AND 100",
+            name="pattern_confidence_score",
+        ),
+        Index("ix_domains_org_domain", "organization_id", "domain"),
+        Index(
+            "uq_domains_one_selected",
+            "company_id",
+            unique=True,
+            postgresql_where=text("is_selected"),
+        ),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
@@ -260,7 +290,26 @@ class Domain(OrgScopedMixin, Base):
     mx_provider: Mapped[str | None] = mapped_column(String(80))
     discovery_method: Mapped[str] = mapped_column(String(40), nullable=False)
     model_version: Mapped[str | None] = mapped_column(String(40))
+    is_selected: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    final_url: Mapped[str | None] = mapped_column(Text)
+    site_title: Mapped[str | None] = mapped_column(String(300))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Decisión de patrón de correo (solo en el dominio seleccionado). El dominio de correo puede
+    # diferir del sitio (samsung.com.mx → @samsung.com). NULL = patrón aún no investigado.
+    email_domain: Mapped[str | None] = mapped_column(String(253))
+    email_pattern: Mapped[str | None] = mapped_column(String(40))
+    pattern_ranked: Mapped[list[list[Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    pattern_confidence_score: Mapped[int | None] = mapped_column(SmallInteger)
+    pattern_confidence_level: Mapped[str | None] = mapped_column(String(10))
+    pattern_reason_codes: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    pattern_model_version: Mapped[str | None] = mapped_column(String(40))
+    pattern_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EvidenceRecord(OrgScopedMixin, Base):
@@ -341,6 +390,401 @@ class EmailCandidate(OrgScopedMixin, Base):
     )
 
 
+# --- Base de prospectos ---------------------------------------------------------------------
+
+PROSPECT_SOURCES = ("base", "web", "wikidata")
+EMAIL_STATUSES = ("known", "inferred")
+
+
+class Prospect(OrgScopedMixin, Base):
+    """Persona de la base de prospectos de la organización, buscable por filtros.
+
+    Solo los campos necesarios para prospectar: nombre, cargo, empresa, correo, teléfono,
+    ciudad, país e industria. ``dedup_key`` es el correo o, sin correo, nombre + empresa.
+    """
+
+    __tablename__ = "prospects"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "dedup_key"),
+        CheckConstraint(_in("source", PROSPECT_SOURCES), name="source"),
+        CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
+        CheckConstraint(
+            "email_status IS NULL OR " + _in("email_status", EMAIL_STATUSES), name="email_status"
+        ),
+        CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_prospects_org_country", "organization_id", "country_code"),
+        Index("ix_prospects_org_industry", "organization_id", "industry_code"),
+        Index("ix_prospects_org_company", "organization_id", "company_key"),
+        Index("ix_prospects_org_email_domain", "organization_id", "email_domain"),
+        Index("ix_prospects_org_level", "organization_id", "level_code"),
+        Index("ix_prospects_org_area", "organization_id", "area_code"),
+        Index(
+            "ix_prospects_title_trgm",
+            "title_search",
+            postgresql_using="gin",
+            postgresql_ops={"title_search": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_prospects_company_trgm",
+            "company_search",
+            postgresql_using="gin",
+            postgresql_ops={"company_search": "gin_trgm_ops"},
+        ),
+    )
+
+    dedup_key: Mapped[str] = mapped_column(String(400), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    title: Mapped[str | None] = mapped_column(String(300))
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    company_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_domain: Mapped[str | None] = mapped_column(String(253))
+    # "known": correo real de una base; "inferred": deducido del patrón (nunca enseña patrones).
+    email_status: Mapped[str | None] = mapped_column(String(10))
+    email_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    phone: Mapped[str | None] = mapped_column(String(40))
+    city: Mapped[str | None] = mapped_column(String(120))
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    industry: Mapped[str | None] = mapped_column(String(200))
+    industry_code: Mapped[str | None] = mapped_column(String(40))
+    # Nivel y área deducidos del cargo (filtros como "Seniority" y "Function").
+    level_code: Mapped[str | None] = mapped_column(String(30))
+    area_code: Mapped[str | None] = mapped_column(String(40))
+    # Texto plegado (sin tildes, minúsculas) para buscar por similitud con pg_trgm.
+    title_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    company_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_name: Mapped[str | None] = mapped_column(String(200))
+
+
+UPLOAD_STATUSES = ("queued", "running", "completed", "failed")
+
+
+class ProspectUpload(OrgScopedMixin, Base):
+    """Carga de una base de prospectos. El archivo se guarda solo hasta procesarlo (el disco de
+    Railway es efímero) y se borra al terminar; queda el resumen."""
+
+    __tablename__ = "prospect_uploads"
+    __table_args__ = (CheckConstraint(_in("status", UPLOAD_STATUSES), name="status"),)
+
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[bytes | None] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+DISCOVERY_STATUSES = ("queued", "running", "completed", "failed")
+
+
+class DiscoveryRun(OrgScopedMixin, Base):
+    """Búsqueda de personas en la web para un conjunto de empresas (filtros de la interfaz)."""
+
+    __tablename__ = "discovery_runs"
+    __table_args__ = (CheckConstraint(_in("status", DISCOVERY_STATUSES), name="status"),)
+
+    filters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    people_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebDiscovery(OrgScopedMixin, Base):
+    """Última exploración del sitio de un dominio: evita repetirla durante 30 días."""
+
+    __tablename__ = "web_discoveries"
+    __table_args__ = (UniqueConstraint("organization_id", "domain"),)
+
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    people_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pages_visited: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class DomainPattern(OrgScopedMixin, Base):
+    """Patrón de correo real de un dominio, aprendido de correos conocidos de la organización.
+
+    Guarda solo el patrón y conteos, nunca las direcciones.
+    """
+
+    __tablename__ = "domain_patterns"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "domain"),
+        CheckConstraint("agreeing <= people AND agreeing >= 1", name="counts"),
+    )
+
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    pattern: Mapped[str] = mapped_column(String(40), nullable=False)
+    people: Mapped[int] = mapped_column(Integer, nullable=False)
+    agreeing: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class CatalogCompany(IdMixin, Base):
+    """Empresa del catálogo público LATAM (Wikidata, CC0), compartido por todas las
+    organizaciones: no contiene datos de personas ni de clientes."""
+
+    __tablename__ = "catalog_companies"
+    __table_args__ = (
+        UniqueConstraint("qid"),
+        CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_catalog_companies_country_industry", "country_code", "industry_code"),
+        Index("ix_catalog_companies_domain", "domain"),
+        Index(
+            "ix_catalog_companies_name_trgm",
+            "name_search",
+            postgresql_using="gin",
+            postgresql_ops={"name_search": "gin_trgm_ops"},
+        ),
+    )
+
+    qid: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    name_search: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    company_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    city: Mapped[str | None] = mapped_column(String(120))
+    domain: Mapped[str | None] = mapped_column(String(253))
+    industry_code: Mapped[str | None] = mapped_column(String(40))
+    industry_labels: Mapped[str | None] = mapped_column(String(400))
+    employees: Mapped[int | None] = mapped_column(Integer)
+    size_band: Mapped[str | None] = mapped_column(String(20))
+
+
+EMAIL_SOURCES = ("known", "real_pattern", "country_prior")
+
+
+class ProspectList(OrgScopedMixin, Base):
+    """Lista de prospección: personas elegidas de la base para trabajar (y luego campañas)."""
+
+    __tablename__ = "prospect_lists"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+class ProspectListMember(OrgScopedMixin, Base):
+    """Persona en una lista, con correo principal y dos alternativos calculados al agregarla."""
+
+    __tablename__ = "prospect_list_members"
+    __table_args__ = (
+        UniqueConstraint("list_id", "prospect_id"),
+        CheckConstraint(
+            "email_source IS NULL OR " + _in("email_source", EMAIL_SOURCES), name="email_source"
+        ),
+        CheckConstraint(
+            "email_confidence IS NULL OR email_confidence BETWEEN 0 AND 100",
+            name="email_confidence",
+        ),
+    )
+
+    list_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prospect_lists.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    prospect_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prospects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    email_source: Mapped[str | None] = mapped_column(String(20))
+    alt_email_1: Mapped[str | None] = mapped_column(String(320))
+    alt_email_1_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    alt_email_2: Mapped[str | None] = mapped_column(String(320))
+    alt_email_2_confidence: Mapped[int | None] = mapped_column(SmallInteger)
+    email_pattern: Mapped[str | None] = mapped_column(String(40))
+
+
+# --- Campañas de correo ---------------------------------------------------------------------
+
+MAIL_PROVIDERS = ("gmail", "smtp")
+SMTP_SECURITY = ("ssl", "starttls")
+CAMPAIGN_STATUSES = ("draft", "running", "paused", "completed")
+RECIPIENT_STATUSES = (
+    "pending", "active", "replied", "bounced", "unsubscribed", "completed", "failed", "skipped",
+)  # fmt: skip
+SUPPRESSION_REASONS = ("unsubscribed", "bounced", "manual", "contacted")
+
+
+class MailAccount(OrgScopedMixin, Base):
+    """Cuenta de envío: Gmail (OAuth) o cualquier correo corporativo (SMTP + IMAP).
+
+    ``secret`` guarda cifrado el token de Google o la contraseña SMTP/IMAP (``secrets_box``).
+    """
+
+    __tablename__ = "mail_accounts"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint(_in("provider", MAIL_PROVIDERS), name="provider"),
+        CheckConstraint(
+            "smtp_security IS NULL OR " + _in("smtp_security", SMTP_SECURITY), name="smtp_security"
+        ),
+        CheckConstraint("daily_limit BETWEEN 1 AND 2000", name="daily_limit"),
+    )
+
+    provider: Mapped[str] = mapped_column(String(10), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    from_name: Mapped[str | None] = mapped_column(String(120))
+    smtp_host: Mapped[str | None] = mapped_column(String(253))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_security: Mapped[str | None] = mapped_column(String(10))
+    imap_host: Mapped[str | None] = mapped_column(String(253))
+    imap_port: Mapped[int | None] = mapped_column(Integer)
+    username: Mapped[str | None] = mapped_column(String(320))
+    secret: Mapped[bytes | None] = mapped_column(LargeBinary)
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Campaign(OrgScopedMixin, Base):
+    """Campaña sobre una lista: hasta 3 pasos (inicial y dos seguimientos) desde una cuenta."""
+
+    __tablename__ = "campaigns"
+    __table_args__ = (
+        CheckConstraint(_in("status", CAMPAIGN_STATUSES), name="status"),
+        CheckConstraint("daily_limit BETWEEN 1 AND 2000", name="daily_limit"),
+        CheckConstraint("window_start_hour BETWEEN 0 AND 23", name="window_start"),
+        CheckConstraint("window_end_hour BETWEEN 1 AND 24", name="window_end"),
+    )
+
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    list_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prospect_lists.id", ondelete="RESTRICT"), nullable=False
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mail_accounts.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    # [{"subject": ..., "body": ..., "delay_days": ...}] — el paso 1 tiene delay 0.
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    signature_html: Mapped[str | None] = mapped_column(Text)
+    signature_text: Mapped[str | None] = mapped_column(Text)
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="America/Bogota")
+    window_start_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=8)
+    window_end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=18)
+    weekdays: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # 0 = lunes
+    track_opens: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Historial (opcional, lo decide cada usuario por campaña): no escribir a quien se contactó
+    # hace menos de N días (0 = no excluir) ni a quien ya respondió.
+    exclude_recent_days: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default=text("0")
+    )
+    exclude_replied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CampaignRecipient(OrgScopedMixin, Base):
+    __tablename__ = "campaign_recipients"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "email"),
+        CheckConstraint(_in("status", RECIPIENT_STATUSES), name="status"),
+        Index("ix_campaign_recipients_due", "campaign_id", "status", "next_send_at"),
+    )
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    prospect_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("prospects.id", ondelete="SET NULL")
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    # Variables congeladas al iniciar la campaña (nombre, apellido, empresa, cargo).
+    variables: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    next_step: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    next_send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    thread_id: Mapped[str | None] = mapped_column(String(200))  # Gmail threadId
+    first_message_id: Mapped[str | None] = mapped_column(String(300))  # Message-ID para hilo
+    last_message_id: Mapped[str | None] = mapped_column(String(300))
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class CampaignMessage(OrgScopedMixin, Base):
+    __tablename__ = "campaign_messages"
+
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaign_recipients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mail_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    step: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    provider_id: Mapped[str | None] = mapped_column(String(200))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ContactHistory(OrgScopedMixin, Base):
+    """Último contacto por correo: de campañas de ORKESTA o importado de envíos anteriores."""
+
+    __tablename__ = "contact_history"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+    )
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opened: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    replied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    stage: Mapped[str | None] = mapped_column(String(60))
+    source: Mapped[str | None] = mapped_column(String(200))
+
+
+class Suppression(OrgScopedMixin, Base):
+    """Correos que nunca deben recibir campañas: bajas, rebotes, exclusión manual o ya
+    contactados (historial)."""
+
+    __tablename__ = "suppressions"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email"),
+        CheckConstraint(_in("reason", SUPPRESSION_REASONS), name="reason"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+    )
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    reason: Mapped[str] = mapped_column(String(20), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(300))
+
+
 # --- Cola de trabajos ------------------------------------------------------------------------
 
 
@@ -349,7 +793,8 @@ class EnrichmentJob(OrgScopedMixin, Base):
 
     __tablename__ = "enrichment_jobs"
     __table_args__ = (
-        UniqueConstraint("batch_id", "idempotency_key"),
+        # Sin lote (p. ej. carga de una base de prospectos) la clave sigue siendo única.
+        UniqueConstraint("batch_id", "idempotency_key", postgresql_nulls_not_distinct=True),
         CheckConstraint(_in("status", JOB_STATUSES), name="status"),
         CheckConstraint("attempts >= 0 AND max_attempts >= 1", name="attempts"),
         Index(
@@ -364,10 +809,9 @@ class EnrichmentJob(OrgScopedMixin, Base):
         ),
     )
 
-    batch_id: Mapped[uuid.UUID] = mapped_column(
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("enrichment_batches.id", ondelete="CASCADE"),
-        nullable=False,
         index=True,
     )
     company_id: Mapped[uuid.UUID | None] = mapped_column(

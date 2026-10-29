@@ -54,7 +54,7 @@ def enqueue_job(
     session: Session,
     *,
     organization_id: uuid.UUID,
-    batch_id: uuid.UUID,
+    batch_id: uuid.UUID | None,
     kind: str,
     idempotency_key: str,
     payload: dict[str, Any] | None = None,
@@ -64,7 +64,9 @@ def enqueue_job(
     """Encola un trabajo. Si ya existe uno con la misma clave en el lote, devuelve el existente."""
     existing = session.scalar(
         select(EnrichmentJob).where(
-            EnrichmentJob.batch_id == batch_id,
+            EnrichmentJob.batch_id.is_(None)
+            if batch_id is None
+            else EnrichmentJob.batch_id == batch_id,
             EnrichmentJob.idempotency_key == idempotency_key,
         )
     )

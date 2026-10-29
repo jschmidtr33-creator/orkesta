@@ -17,11 +17,22 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from sqlalchemy import Boolean, delete, func, insert, literal_column, select, update
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from orkesta.audit import audit
-from orkesta.db.models import Company, Contact, EnrichmentBatch, EnrichmentJob, ImportRow
+from orkesta.db.models import (
+    Company,
+    Contact,
+    Domain,
+    EmailCandidate,
+    EnrichmentBatch,
+    EnrichmentJob,
+    ImportRow,
+)
+from orkesta.engine.domain.reasons import DOMAIN_STATUS_LABELS, describe_reasons
+from orkesta.engine.email.patterns import PATTERN_LABELS
 from orkesta.imports.export import ExportRow
 from orkesta.imports.mapping import FIELDS, Field, propose_mapping, validate_mapping
 from orkesta.imports.reader import ReadLimits, read_table
@@ -193,6 +204,7 @@ def _upsert_companies(
                 "organization_id": organization_id,
                 "name_original": row.company.display[:300],
                 "name_normalized": row.company.normalized[:300],
+                "match_key": row.company.match_key[:300],
                 "country_code": row.location.country_code,
                 "city": row.location.city,
             },
@@ -205,6 +217,7 @@ def _upsert_companies(
             constraint="uq_companies_organization_id_name_normalized_country_code",
             set_={
                 "city": func.coalesce(Company.city, statement.excluded.city),
+                "match_key": func.coalesce(Company.match_key, statement.excluded.match_key),
                 "updated_at": func.now(),
             },
         ).returning(Company.id, Company.name_normalized, Company.country_code)
@@ -355,13 +368,34 @@ ExportFilter = Literal["all", "valid", "issues"]
 def export_rows(
     session: Session, batch: EnrichmentBatch, which: ExportFilter = "all"
 ) -> Iterator[ExportRow]:
-    query = select(ImportRow).where(ImportRow.batch_id == batch.id)
+    alternatives = (
+        select(
+            func.string_agg(
+                EmailCandidate.address,
+                aggregate_order_by(literal_column("' | '"), EmailCandidate.rank),
+            )
+        )
+        .where(EmailCandidate.contact_id == Contact.id, EmailCandidate.rank > 0)
+        .correlate(Contact)
+        .scalar_subquery()
+    )
+    query = (
+        select(ImportRow, Company.domain_status, Domain, EmailCandidate, alternatives)
+        .outerjoin(Contact, Contact.id == ImportRow.contact_id)
+        .outerjoin(Company, Company.id == Contact.company_id)
+        .outerjoin(Domain, (Domain.company_id == Company.id) & Domain.is_selected.is_(True))
+        .outerjoin(
+            EmailCandidate,
+            (EmailCandidate.contact_id == Contact.id) & (EmailCandidate.rank == 0),
+        )
+        .where(ImportRow.batch_id == batch.id)
+    )
     if which == "valid":
         query = query.where(ImportRow.status == "valid")
     elif which == "issues":
         query = query.where(ImportRow.status.in_(("invalid", "duplicate")))
     query = query.order_by(ImportRow.row_number).execution_options(yield_per=2000)
-    for row in session.scalars(query):
+    for row, company_status, domain, email, alternates in session.execute(query):
         yield ExportRow(
             row_number=row.row_number,
             raw=row.raw,
@@ -369,7 +403,55 @@ def export_rows(
             issues=row.issues,
             duplicate_of=row.duplicate_of_row,
             normalized=row.normalized or {},
+            domain={
+                **domain_export_values(company_status, domain),
+                **email_export_values(domain, email, alternates),
+            },
         )
+
+
+def domain_export_values(company_status: str | None, domain: Domain | None) -> dict[str, str]:
+    """Columnas de dominio de la exportación; vacías si la empresa nunca se investigó."""
+    if domain is None:
+        label = DOMAIN_STATUS_LABELS.get(company_status or "", "")
+        return {"domain_status": label} if label else {}
+    return {
+        "domain": domain.domain,
+        "domain_status": DOMAIN_STATUS_LABELS.get(domain.status, domain.status),
+        "domain_score": str(domain.confidence_score),
+        "has_mx": {True: "sí", False: "no"}.get(domain.has_mx, "")
+        if domain.has_mx is not None
+        else "",
+        "mx_provider": domain.mx_provider or "",
+        "domain_reasons": describe_reasons(domain.reason_codes),
+    }
+
+
+CONFIDENCE_LABELS = {"high": "alta", "medium": "media", "low": "baja"}
+EMAIL_SOURCE_LABELS = {
+    "publicly_found": "publicado por la persona",
+    "inferred": "deducido del patrón",
+    "verified_by_provider": "verificado",
+}
+
+
+def email_export_values(
+    domain: Domain | None, email: EmailCandidate | None, alternates: str | None
+) -> dict[str, str]:
+    """Columnas de correo; vacías si no hay patrón decidido para el dominio."""
+    values: dict[str, str] = {}
+    if domain is not None and domain.email_pattern:
+        values["email_pattern"] = PATTERN_LABELS.get(domain.email_pattern, domain.email_pattern)
+        values["email_reasons"] = describe_reasons(domain.pattern_reason_codes)
+    if email is not None:
+        values["email"] = email.address
+        values["email_confidence"] = (
+            f"{CONFIDENCE_LABELS.get(email.confidence_level, email.confidence_level)} "
+            f"({email.confidence_score})"
+        )
+        values["email_source"] = EMAIL_SOURCE_LABELS.get(email.label, email.label)
+        values["email_alternatives"] = alternates or ""
+    return values
 
 
 def delete_batch(session: Session, batch: EnrichmentBatch, *, user_id: uuid.UUID | None) -> int:

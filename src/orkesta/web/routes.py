@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -16,7 +16,16 @@ from sqlalchemy.orm import Session
 from orkesta.audit import audit
 from orkesta.auth import LoginThrottle, authenticate
 from orkesta.config import get_settings
-from orkesta.db.models import EnrichmentBatch, ImportRow, User
+from orkesta.db.models import (
+    Company,
+    Contact,
+    Domain,
+    EmailCandidate,
+    EnrichmentBatch,
+    ImportRow,
+    User,
+)
+from orkesta.enrichment.service import EnrichmentStateError, start_domain_enrichment
 from orkesta.imports.export import to_csv, to_xlsx
 from orkesta.imports.mapping import FIELDS, propose_mapping
 from orkesta.imports.reader import ImportFileError, ReadLimits
@@ -117,8 +126,61 @@ def logout(request: Request, csrf: CsrfField = None) -> Response:
 
 
 @router.get("/")
-def home() -> Response:
-    return _redirect("/lotes")
+def home(request: Request, db: DbSession, user: CurrentUser) -> Response:
+    """Panel de inicio: estado de la base de prospectos y accesos a las tareas habituales."""
+    from orkesta.catalog.lists import list_counts
+    from orkesta.catalog.titles import DECISION_LEVELS
+    from orkesta.db.models import (
+        CatalogCompany,
+        DiscoveryRun,
+        DomainPattern,
+        Prospect,
+        ProspectList,
+    )
+
+    org = user.organization_id
+
+    def count(query: Any) -> int:
+        return int(db.scalar(query) or 0)
+
+    prospects = select(func.count()).select_from(Prospect).where(Prospect.organization_id == org)
+    stats = {
+        "personas": count(prospects),
+        "decisores": count(prospects.where(Prospect.level_code.in_(DECISION_LEVELS))),
+        "decisores_con_correo": count(
+            prospects.where(Prospect.level_code.in_(DECISION_LEVELS), Prospect.email.is_not(None))
+        ),
+        "web": count(prospects.where(Prospect.source == "web")),
+        "patrones": count(
+            select(func.count())
+            .select_from(DomainPattern)
+            .where(DomainPattern.organization_id == org)
+        ),
+        "catalogo": count(select(func.count()).select_from(CatalogCompany)),
+    }
+    lists = db.scalars(
+        select(ProspectList)
+        .where(ProspectList.organization_id == org)
+        .order_by(ProspectList.created_at.desc())
+        .limit(5)
+    ).all()
+    runs = db.scalars(
+        select(DiscoveryRun)
+        .where(DiscoveryRun.organization_id == org)
+        .order_by(DiscoveryRun.created_at.desc())
+        .limit(3)
+    ).all()
+    return render(
+        request,
+        "home.html",
+        {
+            "user": user,
+            "stats": stats,
+            "lists": lists,
+            "counts": list_counts(db, org),
+            "runs": runs,
+        },
+    )
 
 
 @router.get("/lotes")
@@ -273,6 +335,26 @@ def batch_detail(
     rows = db.scalars(
         query.order_by(ImportRow.row_number).offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE)
     ).all()
+    contact_ids = [r.contact_id for r in rows if r.contact_id]
+    domains: dict[uuid.UUID, dict[str, str]] = {}
+    if contact_ids:
+        for contact_id, company_status, domain, email in db.execute(
+            select(Contact.id, Company.domain_status, Domain, EmailCandidate)
+            .join(Company, Company.id == Contact.company_id)
+            .outerjoin(Domain, (Domain.company_id == Company.id) & Domain.is_selected.is_(True))
+            .outerjoin(
+                EmailCandidate,
+                (EmailCandidate.contact_id == Contact.id) & (EmailCandidate.rank == 0),
+            )
+            .where(Contact.id.in_(contact_ids))
+        ):
+            domains[contact_id] = {
+                "domain": domain.domain if domain else "",
+                "status": domain.status if domain else (company_status or ""),
+                "email": email.address if email else "",
+                "email_level": email.confidence_level if email else "",
+                "email_published": "1" if email and email.label == "publicly_found" else "",
+            }
     return render(
         request,
         "batch.html",
@@ -284,9 +366,31 @@ def batch_detail(
             "page": page,
             "pages": pages,
             "total_filtered": total,
-            "refresh": batch.status == "importing",
+            "domains": domains,
+            "refresh": batch.status in ("importing", "queued", "running"),
         },
     )
+
+
+@router.post("/lotes/{batch_id}/enriquecer")
+def enrich(
+    request: Request,
+    batch_id: uuid.UUID,
+    db: DbSession,
+    user: CurrentUser,
+    csrf: CsrfField = None,
+) -> Response:
+    check_csrf(request, csrf)
+    batch = _get_batch(db, user, batch_id)
+    try:
+        companies = start_domain_enrichment(
+            db, batch, user_id=user.id, max_attempts=get_settings().job_default_max_attempts
+        )
+    except EnrichmentStateError as exc:
+        flash(request, str(exc), "error")
+        return _redirect(f"/lotes/{batch.id}")
+    flash(request, f"Buscando el dominio de {companies} empresas. La página se actualiza sola.")
+    return _redirect(f"/lotes/{batch.id}")
 
 
 @router.get("/lotes/{batch_id}/exportar")
@@ -298,7 +402,7 @@ def export(
     filas: Annotated[Literal["all", "valid", "issues"], Query()] = "all",
 ) -> Response:
     batch = _get_batch(db, user, batch_id)
-    if batch.status not in ("imported", "completed"):
+    if batch.status not in ("imported", "queued", "running", "completed"):
         raise HTTPException(status_code=409, detail="El lote todavía no está importado.")
     which: ExportFilter = filas
     rows = export_rows(db, batch, which)
@@ -343,8 +447,8 @@ def delete(
 ) -> Response:
     check_csrf(request, csrf)
     batch = _get_batch(db, user, batch_id)
-    if batch.status == "importing":
-        flash(request, "No se puede eliminar un lote mientras se importa.", "error")
+    if batch.status in ("importing", "queued", "running"):
+        flash(request, "No se puede eliminar un lote mientras se procesa.", "error")
         return _redirect(f"/lotes/{batch.id}")
     name = batch.source_filename
     removed = delete_batch(db, batch, user_id=user.id)

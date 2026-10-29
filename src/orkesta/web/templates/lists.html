@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Listas{% endblock %}
+{% block content %}
+<h1>Listas de prospección</h1>
+<section class="card">
+  <form method="post" action="/listas" class="filter-row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Nombre <input type="text" name="nombre" required maxlength="120" placeholder="CIOs banca Colombia Q1"></label>
+    <label>Descripción <input type="text" name="descripcion" maxlength="500" placeholder="Opcional"></label>
+    <div class="actions"><button type="submit" class="button">Crear lista</button></div>
+  </form>
+  <p class="muted small">También puedes crear una lista directamente desde Prospectos al agregar personas.</p>
+</section>
+<section class="card">
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Lista</th><th class="num">Personas</th><th class="num">Con correo</th><th>Creada</th></tr></thead>
+    <tbody>
+      {% for l in lists %}
+      {% set c = counts.get(l.id, (0, 0)) %}
+      <tr>
+        <td><a href="/listas/{{ l.id }}">{{ l.name }}</a>{% if l.description %}<div class="muted small">{{ l.description }}</div>{% endif %}</td>
+        <td class="num">{{ c[0] | thousands }}</td>
+        <td class="num">{{ c[1] | thousands }}</td>
+        <td class="small">{{ l.created_at.astimezone().strftime("%d/%m/%Y") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">Todavía no hay listas. Busca decisores en Prospectos y agrégalos a una lista.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

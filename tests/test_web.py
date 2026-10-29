@@ -250,3 +250,55 @@ def test_db_session_commits_before_response_is_sent() -> None:
 
     dependency = get_args(deps.DbSession)[1]
     assert dependency.scope == "function"
+
+
+def test_enrich_button_shows_progress_then_domains(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    from fakes import FakeFetcher, FakeResolver, page
+    from orkesta.enrichment import jobs
+    from orkesta.enrichment.service import EngineDeps
+
+    resolver = FakeResolver(ips={"bancolombia.com.co": ["93.184.216.34"]})
+    fetcher = FakeFetcher(
+        pages={
+            "https://bancolombia.com.co/": page(
+                "https://bancolombia.com.co/", "<title>Bancolombia</title><body>Colombia</body>"
+            )
+        }
+    )
+    previous = jobs.engine_factory
+    jobs.engine_factory = lambda: EngineDeps(resolver, fetcher, None)
+    try:
+        _login(client, "jenn@ejemplo.com")
+        batch_id = _upload(client)
+        _confirm(client, batch_id)
+        _run_worker(session_factory)
+        assert "Buscar dominios" in client.get(f"/lotes/{batch_id}").text
+
+        token = _csrf(client, f"/lotes/{batch_id}")
+        response = client.post(f"/lotes/{batch_id}/enriquecer", data={"csrf_token": token})
+        assert response.status_code == 303
+        running = client.get(f"/lotes/{batch_id}").text
+        assert "Buscando dominios" in running and 'http-equiv="refresh"' in running
+        assert "Eliminar lote" not in running
+
+        worker = Worker(
+            session_factory,
+            HANDLERS,
+            retry_policy=RetryPolicy(1, 1),
+            poll_interval_seconds=0.01,
+            lock_timeout_seconds=600,
+            failure_hooks=FAILURE_HOOKS,
+        )
+        while worker.run_once():
+            pass
+        done = client.get(f"/lotes/{batch_id}").text
+        assert "Volver a buscar" in done and "bancolombia.com.co" in done
+        xlsx = client.get(f"/lotes/{batch_id}/exportar?formato=xlsx")
+        sheet = load_workbook(io.BytesIO(xlsx.content)).active
+        assert sheet is not None
+        header = [c.value for c in sheet[1]]
+        assert "ORKESTA dominio" in header
+    finally:
+        jobs.engine_factory = previous

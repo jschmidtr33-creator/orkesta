@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.db.models import User
+from orkesta.engine.domain.reasons import DOMAIN_STATUS_LABELS
 from orkesta.imports.export import CONFIDENCE_LABELS, STATUS_LABELS
 from orkesta.imports.mapping import FIELD_LABELS, FIELDS, REQUIRED_FIELDS
 from orkesta.imports.rows import ISSUES
@@ -26,8 +27,8 @@ BATCH_STATUS_LABELS = {
     "importing": "Importando",
     "imported": "Importado",
     "queued": "En cola",
-    "running": "Enriqueciendo",
-    "completed": "Completado",
+    "running": "Buscando dominios",
+    "completed": "Enriquecido",
     "failed": "Falló",
     "cancelled": "Cancelado",
 }
@@ -41,6 +42,7 @@ templates.env.globals.update(
     ROW_STATUS_LABELS=STATUS_LABELS,
     CONFIDENCE_LABELS=CONFIDENCE_LABELS,
     BATCH_STATUS_LABELS=BATCH_STATUS_LABELS,
+    DOMAIN_STATUS_LABELS=DOMAIN_STATUS_LABELS,
 )
 
 

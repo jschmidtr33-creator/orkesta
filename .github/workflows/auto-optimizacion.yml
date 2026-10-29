@@ -1,0 +1,144 @@
+name: Optimización autónoma
+
+# Bucle de medición sin intervención humana:
+# 1. Construye un conjunto de empresas LATAM con sitio oficial desde Wikidata.
+# 2. Mide el motor de dominios con internet real (sin Wikidata como fuente, para no copiar la
+#    respuesta) y contra la lista de empresas de data/eval/.
+# 3. Publica métricas, fallos y variables de entrenamiento en la rama "informes".
+# Solo maneja datos de empresas, nunca de personas.
+on:
+  push:
+    branches: ["auto/**"]
+    paths-ignore: ["**.md", "docs/**"]
+  schedule:
+    - cron: "17 9 * * 1"  # lunes 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-${{ github.ref }}
+  cancel-in-progress: false  # una medición nueva espera a la anterior; no se pierden
+
+jobs:
+  medir:
+    name: Medir y publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      DATABASE_URL: postgresql://sin-base@127.0.0.1:1/ninguna
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          pip install --require-hashes -r requirements.txt
+          pip install --no-deps -e .
+
+      - name: Conjunto automático desde Wikidata
+        id: dataset
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          python -m orkesta.evaluation.wikidata_dataset --out work/wikidata.csv \
+            --per-country "MX=400,CO=200,PE=120,CL=200,AR=200,EC=80,UY=60,PA=50,CR=50,GT=40,DO=40" 2>&1 | tee work/logs/wikidata_dataset.log
+
+      - name: Catálogo de empresas LATAM desde Wikidata (datos públicos de empresas)
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs work/catalogo
+          python -m orkesta.catalog.wikidata_catalog --out work/catalogo/empresas_latam.csv.gz \
+            2>&1 | tail -n 100 | tee work/logs/catalogo.log
+
+      - name: Medir con etiquetas de Wikidata (sin Wikidata como fuente)
+        if: steps.dataset.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          python -m orkesta.evaluation.domains work/wikidata.csv --out work/wikidata \
+            --no-wikidata --workers 16 --features work/wikidata/features.csv.gz \
+            2>&1 | tail -n 200 | tee work/logs/medir_wikidata.log
+
+      - name: Medir con la lista de empresas
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          python -m orkesta.evaluation.domains data/eval/empresas_mx.csv --out work/lista \
+            --workers 16 --features work/lista/features.csv.gz \
+            2>&1 | tail -n 200 | tee work/logs/medir_lista.log
+
+      - name: Medir patrones de correo y aprender previos (solo agregados, sin direcciones)
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          DATASETS="data/eval/empresas_mx.csv"
+          [ -f work/wikidata.csv ] && DATASETS="work/wikidata.csv $DATASETS"
+          python -m orkesta.evaluation.patterns $DATASETS --out work/patrones --workers 16 \
+            2>&1 | tail -n 200 | tee work/logs/patrones.log
+
+      - name: Medir descubrimiento de personas (solo conteos, sin nombres)
+        continue-on-error: true
+        run: |
+          set -o pipefail; mkdir -p work/logs
+          DATASETS="data/eval/empresas_mx.csv"
+          [ -f work/wikidata.csv ] && DATASETS="work/wikidata.csv $DATASETS"
+          python -m orkesta.evaluation.people $DATASETS --out work/personas --limit 400 \
+            --workers 16 2>&1 | tail -n 200 | tee work/logs/personas.log
+
+      - name: Entrenar modelo candidato (empresas nunca vistas deciden la promoción)
+        continue-on-error: true
+        run: |
+          pip install --require-hashes -r requirements-train.txt
+          FEATURES=$(ls work/*/features.csv.gz 2>/dev/null || true)
+          [ -n "$FEATURES" ] || { echo "Sin variables para entrenar"; exit 0; }
+          mkdir -p work/modelo
+          set -o pipefail; mkdir -p work/logs
+          python -m orkesta.evaluation.train_domain $FEATURES \
+            --out work/modelo/domain-model.json --report work/modelo/informe_modelo.json \
+            2>&1 | tail -n 200 | tee work/logs/entrenar.log
+
+      - name: Publicar en la rama informes
+        if: always()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCH="${GITHUB_REF_NAME//\//-}"
+          SHORT="${GITHUB_SHA::12}"
+          DEST="reports/${BRANCH}/${SHORT}"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin informes >/dev/null; then
+            git clone --depth 1 --branch informes "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub
+          else
+            mkdir pub && cd pub && git init -q -b informes && \
+              git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" && cd ..
+          fi
+          mkdir -p "pub/${DEST}"
+          [ -d work ] && cp -r work/. "pub/${DEST}/" || true
+          printf '{"sha":"%s","branch":"%s","run":"%s","date":"%s"}\n' \
+            "$GITHUB_SHA" "$GITHUB_REF_NAME" "$RUN_URL" "$(date -u +%FT%TZ)" > "pub/${DEST}/meta.json"
+          echo "${SHORT}" > "pub/reports/${BRANCH}/ULTIMO.txt"
+          cd pub
+          git add -A
+          git commit -q -m "informe ${GITHUB_REF_NAME}@${SHORT}"
+          for attempt in 1 2 3; do
+            git push -q origin informes && break
+            git pull -q --rebase origin informes || true
+            sleep 5
+          done
+          for f in "${DEST}"/*/reporte.md; do [ -f "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY"; done
+
+      - name: Guardar artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimizacion-${{ github.run_id }}
+          path: work/
+          retention-days: 30

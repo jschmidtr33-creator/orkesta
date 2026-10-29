@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>{{ item.name }}</h1>
+  <div class="actions">
+    <a class="button button-secondary" href="/listas/{{ item.id }}/exportar?formato=xlsx">Exportar Excel</a>
+    <a class="button button-secondary" href="/listas/{{ item.id }}/exportar?formato=csv">Exportar CSV</a>
+  </div>
+</div>
+{% if item.description %}<p class="muted">{{ item.description }}</p>{% endif %}
+<section class="card">
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ total | thousands }}</span><span class="stat-label">Personas</span></div>
+    <div class="stat stat-good"><span class="stat-value">{{ with_email | thousands }}</span><span class="stat-label">Con correo</span></div>
+  </div>
+  <p class="muted small">Correo principal y dos alternativos por persona. Origen: <strong>conocido</strong> (venía en tu base),
+    <strong>patrón real de la empresa</strong> (aprendido de correos reales de colegas) o <strong>patrón más probable del país</strong>
+    (sin correos conocidos de la empresa: conviene validar antes de enviar).</p>
+  <form method="post" action="/listas/{{ item.id }}/actualizar-correos" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button button-small button-secondary">Recalcular correos</button>
+  </form>
+</section>
+<section class="card">
+  <form method="post" action="/listas/{{ item.id }}/quitar">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th></th><th>Nombre</th><th>Cargo</th><th>Empresa</th><th>Correo</th><th>Alternativos</th><th>Teléfono</th><th>País</th></tr></thead>
+      <tbody>
+        {% for m, p in rows %}
+        <tr>
+          <td><input type="checkbox" name="ids" value="{{ m.id }}" aria-label="Seleccionar {{ p.full_name }}"></td>
+          <td>{{ p.full_name }}</td>
+          <td>{{ p.title or "—" }}</td>
+          <td>{{ p.company }}</td>
+          <td>{% if m.email %}{{ m.email }}<div><span class="badge badge-email-{% if (m.email_confidence or 0) >= 70 %}high{% elif (m.email_confidence or 0) >= 50 %}medium{% else %}low{% endif %}">{{ sources.get(m.email_source, "") }} · {{ m.email_confidence }}</span></div>{% else %}<span class="muted">sin dominio conocido</span>{% endif %}</td>
+          <td class="small">{% if m.alt_email_1 %}<div>{{ m.alt_email_1 }}</div>{% endif %}{% if m.alt_email_2 %}<div>{{ m.alt_email_2 }}</div>{% endif %}{% if not m.alt_email_1 and not m.alt_email_2 %}—{% endif %}</td>
+          <td>{{ p.phone or "—" }}</td>
+          <td>{{ p.country_code or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">La lista está vacía. Agrega personas desde <a href="/prospectos">Prospectos</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if rows %}<div class="actions top-gap"><button type="submit" class="button button-small button-danger">Quitar seleccionados</button></div>{% endif %}
+  </form>
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page > 1 %}<a href="/listas/{{ item.id }}?pagina={{ page - 1 }}">← Anterior</a>{% endif %}
+    <span class="muted">Página {{ page }} de {{ pages }}</span>
+    {% if page < pages %}<a href="/listas/{{ item.id }}?pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+<section class="card">
+  <form method="post" action="/listas/{{ item.id }}/eliminar" class="actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button button-small button-danger">Eliminar lista</button>
+    <span class="muted small">Las personas siguen en tu base.</span>
+  </form>
+</section>
+{% endblock %}

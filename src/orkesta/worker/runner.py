@@ -12,6 +12,7 @@ import os
 import signal
 import socket
 import threading
+import uuid
 from collections.abc import Callable
 from types import FrameType
 
@@ -40,6 +41,13 @@ class RetryableJobError(Exception):
 
 class PermanentJobError(Exception):
     """Fallo que no se arregla reintentando (datos inválidos): el trabajo falla de inmediato."""
+
+
+def batch_of(job: EnrichmentJob) -> uuid.UUID:
+    """Lote del trabajo; los trabajos de lote sin lote son un error permanente."""
+    if job.batch_id is None:
+        raise PermanentJobError(f"El trabajo {job.kind} no tiene lote")
+    return job.batch_id
 
 
 def default_worker_id() -> str:

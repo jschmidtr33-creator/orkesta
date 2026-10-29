@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Exclusiones{% endblock %}
+{% block content %}
+<h1>Lista de exclusión</h1>
+<section class="card">
+  <p class="muted">Estos correos nunca reciben campañas: bajas, rebotes, exclusiones manuales e historial de contacto.</p>
+  <form method="post" action="/exclusiones" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Agregar correos (uno por línea o separados por coma) <textarea name="correos" rows="3"></textarea></label>
+    <div class="actions"><button type="submit" class="button">Agregar</button></div>
+  </form>
+</section>
+<section class="card">
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Correo</th><th>Motivo</th><th>Desde</th></tr></thead>
+    <tbody>
+      {% set reasons = {"unsubscribed": "se dio de baja", "bounced": "rebotó", "manual": "manual", "contacted": "ya contactado"} %}
+      {% for s in rows %}
+      <tr><td>{{ s.email }}</td><td>{{ reasons.get(s.reason, s.reason) }}{% if s.note %} <span class="muted small">· {{ s.note }}</span>{% endif %}</td><td class="small">{{ s.created_at.astimezone().strftime("%d/%m/%Y") }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">Sin exclusiones.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

@@ -18,6 +18,10 @@ export default defineRailway((ctx) => {
     DATABASE_URL: db.env.DATABASE_URL,
     // Se define a mano en Railway (Variables) y nunca se escribe en el repositorio.
     SECRET_KEY: preserve(),
+    // Campañas: URL pública (enlaces de baja, retorno de Google) y OAuth de Gmail (opcional).
+    PUBLIC_BASE_URL: preserve(),
+    GOOGLE_CLIENT_ID: preserve(),
+    GOOGLE_CLIENT_SECRET: preserve(),
   };
 
   const web = service("orkesta-web", {
@@ -25,7 +29,8 @@ export default defineRailway((ctx) => {
       "uvicorn --factory orkesta.api.main:create_app --host 0.0.0.0 --port ${PORT:-8000} " +
       "--proxy-headers --forwarded-allow-ips='*'",
     // Las migraciones corren antes de cada despliegue; si fallan, el despliegue se detiene.
-    preDeploy: "alembic upgrade head && python -m orkesta.cli bootstrap-admin",
+    preDeploy:
+      "alembic upgrade head && python -m orkesta.cli bootstrap-admin && python -m orkesta.cli catalog-load",
     healthcheck: "/health",
     healthcheckTimeout: 60,
     env: {

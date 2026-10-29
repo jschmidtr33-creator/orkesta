@@ -8,7 +8,7 @@
     <p class="muted"><span class="badge badge-{{ batch.status }}">{{ BATCH_STATUS_LABELS.get(batch.status, batch.status) }}</span>
       · subido {{ batch.created_at | fecha }}{% if batch.finished_at %} · terminado {{ batch.finished_at | fecha }}{% endif %}</p>
   </div>
-  {% if batch.status != "importing" %}<a class="link-danger" href="/lotes/{{ batch.id }}/eliminar">Eliminar lote</a>{% endif %}
+  {% if batch.status not in ("importing", "queued", "running") %}<a class="link-danger" href="/lotes/{{ batch.id }}/eliminar">Eliminar lote</a>{% endif %}
 </div>
 
 {% if batch.status == "importing" %}
@@ -41,6 +41,45 @@
   {% endif %}
 </section>
 
+{% set e = batch.enrichment_summary or {} %}
+<section class="card">
+  <h2>Dominios corporativos</h2>
+  {% if batch.status in ("queued", "running") %}
+  <p>Buscando dominios: <strong>{{ (e.get("done", 0) + e.get("failed", 0)) | thousands }}</strong> de {{ e.get("total", 0) | thousands }} empresas.</p>
+  <progress class="progress" max="{{ e.get('total', 1) or 1 }}" value="{{ e.get('done', 0) + e.get('failed', 0) }}"></progress>
+  <p class="muted small">Cada empresa se investiga una vez aunque tenga varios contactos. Si no avanza, comprueba que el worker está en marcha.</p>
+  {% else %}
+    {% if e.get("total") %}
+    <div class="stats">
+      {% for key in ["confirmed", "probable", "unknown"] %}
+      <div class="stat {% if key == 'confirmed' %}stat-good{% elif key == 'unknown' %}stat-warn{% endif %}"><span class="stat-value">{{ e.get("statuses", {}).get(key, 0) | thousands }}</span><span class="stat-label">{{ DOMAIN_STATUS_LABELS[key] | capitalize }}</span></div>
+      {% endfor %}
+      <div class="stat stat-bad"><span class="stat-value">{{ e.get("failed", 0) | thousands }}</span><span class="stat-label">Con error</span></div>
+    </div>
+    {% set p = e.get("patterns", {}) %}
+    {% if p %}
+    <h3 class="top-gap">Patrón de correo por empresa</h3>
+    <div class="stats">
+      <div class="stat stat-good"><span class="stat-value">{{ p.get("high", 0) | thousands }}</span><span class="stat-label">Confianza alta</span></div>
+      <div class="stat"><span class="stat-value">{{ p.get("medium", 0) | thousands }}</span><span class="stat-label">Confianza media</span></div>
+      <div class="stat stat-warn"><span class="stat-value">{{ p.get("low", 0) | thousands }}</span><span class="stat-label">Confianza baja</span></div>
+      <div class="stat"><span class="stat-value">{{ p.get("none", 0) | thousands }}</span><span class="stat-label">Sin correo</span></div>
+    </div>
+    <p class="muted small">Alta: varios correos publicados de personas siguen el patrón. Baja: sin correos públicos, se usa el patrón más frecuente en empresas similares; conviene validar antes de enviar.</p>
+    {% endif %}
+    {% else %}
+    <p class="muted">ORKESTA busca el sitio oficial de cada empresa con su nombre y país (DNS, correo MX, Wikidata y la
+      portada del sitio), deduce el patrón de correo de los correos publicados en el sitio y genera el correo de
+      cada persona. Cada resultado incluye su nivel de confianza y las razones.</p>
+    {% endif %}
+  <form method="post" action="/lotes/{{ batch.id }}/enriquecer" class="actions top-gap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="button">{% if e.get("total") %}Volver a buscar{% else %}Buscar dominios y correos{% endif %}</button>
+    {% if e.get("total") %}<span class="muted small">Las empresas investigadas en los últimos 30 días reutilizan su resultado.</span>{% endif %}
+  </form>
+  {% endif %}
+</section>
+
 <section class="card">
   <nav class="tabs">
     {% for key, label in [("todas", "Todas"), ("valid", "Válidas"), ("invalid", "Con errores"), ("duplicate", "Duplicadas")] %}
@@ -49,7 +88,7 @@
   </nav>
   <div class="table-wrap">
   <table>
-    <thead><tr><th class="num">Fila</th><th>Estado</th><th>Nombre</th><th>Apellido</th><th>Empresa</th><th>País</th><th>Ciudad</th><th>Cargo</th><th>Incidencias</th></tr></thead>
+    <thead><tr><th class="num">Fila</th><th>Estado</th><th>Nombre</th><th>Apellido</th><th>Empresa</th><th>País</th><th>Ciudad</th><th>Dominio</th><th>Correo</th><th>Cargo</th><th>Incidencias</th></tr></thead>
     <tbody>
       {% for r in rows %}
       {% set n = r.normalized or {} %}
@@ -61,11 +100,14 @@
         <td>{{ n.get("company") or "—" }}</td>
         <td>{{ n.get("country") or "—" }}</td>
         <td>{{ n.get("city") or "—" }}</td>
+        {% set d = domains.get(r.contact_id, {}) %}
+        <td>{% if d.get("domain") %}{{ d["domain"] }}<div><span class="badge badge-domain-{{ d['status'] }}">{{ DOMAIN_STATUS_LABELS.get(d["status"], d["status"]) }}</span></div>{% elif d.get("status") %}<span class="badge badge-domain-{{ d['status'] }}">{{ DOMAIN_STATUS_LABELS.get(d["status"], d["status"]) }}</span>{% else %}—{% endif %}</td>
+        <td>{% if d.get("email") %}{{ d["email"] }}<div><span class="badge badge-email-{{ d['email_level'] }}">{% if d.get("email_published") %}publicado{% else %}confianza {{ {"high": "alta", "medium": "media", "low": "baja"}.get(d["email_level"], d["email_level"]) }}{% endif %}</span></div>{% else %}—{% endif %}</td>
         <td>{{ n.get("title") or "—" }}</td>
         <td class="small">{% for code in r.issues %}<div>{{ ISSUES[code][1] if code in ISSUES else code }}</div>{% endfor %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="9" class="muted">No hay filas con este filtro.</td></tr>
+      <tr><td colspan="11" class="muted">No hay filas con este filtro.</td></tr>
       {% endfor %}
     </tbody>
   </table>
