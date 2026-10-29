@@ -275,7 +275,7 @@ def new_campaign(
     hasta: Annotated[int, Form()] = 18,
     dias: Annotated[list[int] | None, Form()] = None,
     zona: Annotated[str, Form()] = "America/Bogota",
-    excluir_dias: Annotated[int, Form()] = 90,
+    excluir_dias: Annotated[int, Form()] = 0,
     excluir_respondieron: Annotated[str, Form()] = "",
     csrf: CsrfField = None,
 ) -> Response:

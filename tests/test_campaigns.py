@@ -432,6 +432,9 @@ def test_campaign_excludes_recent_and_replied_and_records_its_own_sends(
         )
         campaign = session.get(Campaign, campaign_id)
         assert campaign is not None
+        # Por defecto el historial no excluye a nadie: cada usuario lo decide por campaña.
+        assert (campaign.exclude_recent_days, campaign.exclude_replied) == (0, False)
+        campaign.exclude_recent_days, campaign.exclude_replied = 90, True
         summary = start_campaign(session, campaign)
     # Ana: contactada hace 10 días; Jorge: ya respondió. Solo Luis recibe la campaña.
     assert (summary["destinatarios"], summary["por_historial"]) == (1, 2)

@@ -81,7 +81,8 @@ def process_upload(session: Session, upload_id: uuid.UUID) -> dict[str, int]:
     summary["dominios_con_patron"] = refresh_domain_patterns(
         session, upload.organization_id, {r.email_domain for r in records if r.email_domain}
     )
-    # Planillas de envíos anteriores (SENT, FECHAENVIO, REPLIED…): historial de contacto.
+    # Si la planilla trae columnas de envíos anteriores (SENT, FECHAENVIO, REPLIED…), se
+    # registra el historial; usarlo para excluir es opcional en cada campaña.
     from orkesta.campaigns.history import history_from_sheets, upsert_history
 
     summary["historial"] = upsert_history(

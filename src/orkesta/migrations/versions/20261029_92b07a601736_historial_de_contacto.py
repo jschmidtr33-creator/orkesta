@@ -63,12 +63,12 @@ def upgrade() -> None:
     op.add_column(
         "campaigns",
         sa.Column(
-            "exclude_recent_days", sa.SmallInteger(), server_default=sa.text("90"), nullable=False
+            "exclude_recent_days", sa.SmallInteger(), server_default=sa.text("0"), nullable=False
         ),
     )
     op.add_column(
         "campaigns",
-        sa.Column("exclude_replied", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column("exclude_replied", sa.Boolean(), server_default=sa.text("false"), nullable=False),
     )
 
 

@@ -104,10 +104,10 @@ la API; SMTP: por IMAP). Rebotes y bajas pasan a la lista de exclusión. Cada co
 un clic (`List-Unsubscribe`), obligatoria para remitentes masivos en Gmail: sin `PUBLIC_BASE_URL`
 no se puede iniciar una campaña en producción.
 
-**Historial de contacto:** al cargar una planilla de envíos anteriores (columnas SENT, OPENED,
-REPLIED, FECHAENVIO…), ORKESTA registra esos contactos. Cada campaña excluye por defecto a quien
-se contactó hace menos de 90 días y a quien ya respondió. Las campañas propias también alimentan
-el historial.
+**Historial de contacto (opcional):** si una planilla cargada trae columnas de envíos anteriores
+(SENT, OPENED, REPLIED, FECHAENVIO…), ORKESTA registra esos contactos, igual que los envíos de
+sus propias campañas. Cada usuario decide por campaña si excluye a quienes se contactó hace menos
+de N días o a quienes ya respondieron; por defecto no se excluye a nadie.
 
 **Para enviar bien:** el dominio de la cuenta debe tener SPF, DKIM y DMARC configurados.
 

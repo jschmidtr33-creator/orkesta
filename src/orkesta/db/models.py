@@ -690,13 +690,13 @@ class Campaign(OrgScopedMixin, Base):
     window_end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=18)
     weekdays: Mapped[list[int]] = mapped_column(JSONB, nullable=False)  # 0 = lunes
     track_opens: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Historial: no escribir a quien se contactó hace menos de N días (0 = no excluir) ni a
-    # quien ya respondió (está en conversación).
+    # Historial (opcional, lo decide cada usuario por campaña): no escribir a quien se contactó
+    # hace menos de N días (0 = no excluir) ni a quien ya respondió.
     exclude_recent_days: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, default=90, server_default=text("90")
+        SmallInteger, nullable=False, default=0, server_default=text("0")
     )
     exclude_replied: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true")
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")

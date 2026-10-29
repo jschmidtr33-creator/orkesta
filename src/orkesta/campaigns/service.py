@@ -187,8 +187,8 @@ def create_campaign(
     window_end_hour: int = 18,
     weekdays: list[int] | None = None,
     track_opens: bool = False,
-    exclude_recent_days: int = 90,
-    exclude_replied: bool = True,
+    exclude_recent_days: int = 0,
+    exclude_replied: bool = False,
 ) -> Campaign:
     target = session.get(ProspectList, list_id)
     if target is None or target.organization_id != organization_id:

@@ -21,7 +21,7 @@
 <section class="card">
   <p>Estado: <strong>{{ labels[campaign.status] }}</strong> · desde {{ account.email if account else "—" }} ·
     máximo {{ campaign.daily_limit }} al día · {{ campaign.window_start_hour }}:00–{{ campaign.window_end_hour }}:00
-    ({{ campaign.timezone }}) · excluye contactados hace menos de {{ campaign.exclude_recent_days }} días{% if campaign.exclude_replied %} y a quienes ya respondieron{% endif %} · {% for d in campaign.weekdays %}{{ weekdays[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    ({{ campaign.timezone }}) · {% if campaign.exclude_recent_days %}excluye contactados hace menos de {{ campaign.exclude_recent_days }} días · {% endif %}{% if campaign.exclude_replied %}excluye a quienes ya respondieron · {% endif %}{% for d in campaign.weekdays %}{{ weekdays[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
   <div class="stats">
     <div class="stat"><span class="stat-value">{{ stats.get("enviados", 0) | thousands }}</span><span class="stat-label">Correos enviados</span></div>
     <div class="stat"><span class="stat-value">{{ (stats.get("pending", 0) + stats.get("active", 0)) | thousands }}</span><span class="stat-label">En secuencia</span></div>

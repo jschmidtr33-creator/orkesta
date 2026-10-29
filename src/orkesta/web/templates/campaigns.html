@@ -59,8 +59,8 @@
       <label>Zona horaria <input type="text" name="zona" value="America/Bogota"></label>
     </div>
     <div class="filter-row">
-      <label>No escribir a quien se contactó hace menos de (días) <input type="number" name="excluir_dias" value="90" min="0" max="730"></label>
-      <label class="check"><input type="checkbox" name="excluir_respondieron" value="1" checked> Excluir a quienes ya respondieron</label>
+      <label>Opcional: no escribir a quien se contactó hace menos de (días, 0 = no excluir) <input type="number" name="excluir_dias" value="0" min="0" max="730"></label>
+      <label class="check"><input type="checkbox" name="excluir_respondieron" value="1"> Opcional: excluir a quienes ya respondieron</label>
     </div>
     <div class="filter-row">
       {% for d in weekdays %}<label class="check"><input type="checkbox" name="dias" value="{{ loop.index0 }}" {% if loop.index0 < 5 %}checked{% endif %}> {{ d }}</label>{% endfor %}
