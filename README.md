@@ -14,10 +14,10 @@ No usa Gemini, OpenAI ni Google Search API. El código corre en Railway y vive e
 | 0 | Propuesta arquitectónica | Aprobada |
 | 1 | Base ejecutable: API, PostgreSQL, migraciones, worker, CI, Railway | Hecha |
 | 2 | Acceso, importación CSV/XLSX, mapeo, normalización, deduplicación, exportación | Hecha |
-| **3A** | **Dominios: unificación de empresas, DNS/MX, sitios, Wikidata, puntuación `rules-v1`** | **Esta entrega** |
-| 3B | Patrones de correo y generación de correos | Pendiente |
-| 3C | Modelos ML (LightGBM) de dominio y patrón | Pendiente |
-| 4 | Evaluación con conjunto etiquetado | Pendiente |
+| 3A | Dominios: unificación de empresas, DNS/MX, sitios, Wikidata, puntuación `rules-v1` | Hecha |
+| **3B** | **Patrones de correo y generación de correos** | **Esta entrega** |
+| 3C | Modelo propio de dominio (LightGBM) y bucle autónomo de mejora | Hecho (dominio); patrón en curso |
+| 4 | Evaluación con conjunto etiquetado | Automatizada (Wikidata + lista propia) |
 | 5 | Interfaz operativa | Pendiente |
 | 6 | Campañas Gmail | Pendiente |
 | 7 | SaaS | Pendiente |
@@ -58,11 +58,42 @@ investigan una sola vez. Para cada empresa el motor:
    redirecciones verificadas, robots.txt, límites de tamaño y tiempo).
 3. Puntúa cada candidato de 0 a 100 con razones explicables: nombre o marca en el título,
    señales del país, Wikidata, extensión del país, redirecciones, dominios aparcados.
-4. Selecciona el mejor si es **confirmado** (≥ 70 y con evidencia de identidad) o **probable**
-   (≥ 50). Si no, la empresa queda como **no encontrado**.
+4. Decide el **modelo propio** (LightGBM entrenado sin revisión humana, ver ADR 0006) con las
+   reglas como respaldo: **confirmado** cuando reglas con evidencia de identidad y modelo
+   coinciden, **probable** sobre el umbral del modelo; si no, **no encontrado**.
 
 Las empresas investigadas en los últimos 30 días reutilizan su resultado sin volver a la red.
 La exportación añade dominio, estado, puntuación, MX, proveedor de correo y razones.
+
+### Patrones de correo y correos por persona (3B)
+
+En el mismo trabajo de cada empresa, con el dominio ya elegido, el motor:
+
+1. Visita la portada y hasta 6 páginas donde las empresas publican correos (contacto, aviso de
+   privacidad, equipo, prensa), respetando robots.txt. Reconoce correos ofuscados
+   ("juan [arroba] empresa [punto] com").
+2. Descarta buzones genéricos (ventas@, info@, rh@) y asocia cada correo personal a un nombre
+   escrito cerca ("Mariana Torres, Gerente: mariana.torres@…") para confirmar su patrón; sin
+   nombre cerca, deduce el patrón por la forma.
+3. Decide el patrón (16 posibles: nombre.apellido, inicial+apellido, inicial+apellido+inicial
+   del segundo…) combinando lo observado con lo aprendido por país y proveedor de correo. Si el
+   sitio publica correos con otro dominio (samsung.com.mx → @samsung.com), usa ese.
+4. Genera hasta 3 correos por persona con confianza **alta** (varios correos publicados de
+   personas siguen el patrón), **media** o **baja** (sin evidencia: patrón más frecuente en
+   empresas similares). Si el correo exacto de la persona está publicado, va primero.
+
+No se generan correos cuando el apellido es solo una inicial ni cuando el dominio no recibe
+correo. **No hay verificación SMTP**: Railway y GitHub bloquean el puerto 25 y sondear buzones
+ajenos es intrusivo; la confianza baja indica validar antes de enviar. Solo se guardan patrones
+y conteos de lo publicado, nunca las direcciones de terceros. La exportación añade correo,
+confianza, origen, alternativos, patrón y razones.
+
+### Bucle autónomo de mejora
+
+`auto-optimizacion.yml` corre cada lunes y con cada push a `auto/**`: arma ~1.200 empresas con
+sitio oficial desde Wikidata, mide dominios y patrones con internet real, entrena un modelo
+candidato y publica métricas, registros y variables en la rama `informes` (solo datos de
+empresas). Un modelo se promueve solo si supera a las reglas en empresas que nunca vio.
 
 ### Evaluación en vivo
 
