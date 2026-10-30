@@ -1,0 +1,71 @@
+{
+  "version": "lgbm-20261030",
+  "filas": 8832,
+  "empresas_entrenamiento": 729,
+  "empresas_prueba": 277,
+  "umbral_confirmado": 0.99,
+  "umbral_probable": 0.67,
+  "modelo_prueba": {
+    "empresas": 277,
+    "con_dominio": 208,
+    "aciertos": 153,
+    "exactitud": 0.7356,
+    "cobertura": 0.7509
+  },
+  "reglas_prueba": {
+    "empresas": 277,
+    "con_dominio": 206,
+    "aciertos": 127,
+    "exactitud": 0.6165,
+    "cobertura": 0.7437
+  },
+  "modelo_prueba_marca": {
+    "empresas": 277,
+    "con_dominio": 208,
+    "aciertos": 173,
+    "exactitud": 0.8317,
+    "cobertura": 0.7509
+  },
+  "reglas_prueba_marca": {
+    "empresas": 277,
+    "con_dominio": 206,
+    "aciertos": 146,
+    "exactitud": 0.7087,
+    "cobertura": 0.7437
+  },
+  "promover": true,
+  "importancia": {
+    "resolves": 20397.4,
+    "name_in_body": 18692.9,
+    "label_similarity": 15557.5,
+    "has_mx": 11715.7,
+    "name_in_header": 9394.2,
+    "label_length": 9159.8,
+    "country_markers": 4146.3,
+    "name_tokens": 2822.3,
+    "method_match_key": 2113.8,
+    "method_token": 2047.2,
+    "country_tld": 2023.9,
+    "mx_google_or_microsoft": 1963.7,
+    "common_word_label": 1137.6,
+    "method_acronym": 1090.0,
+    "dot_com": 1006.6,
+    "rejected_redirect": 913.8,
+    "robots_blocked": 641.7,
+    "site_protected": 632.9,
+    "method_hyphenated": 626.6,
+    "method_full_name": 625.0,
+    "short_generic_name": 604.1,
+    "site_ok": 359.3,
+    "via_redirect": 214.2,
+    "rejected_parked": 128.2,
+    "brand_in_title": 58.1,
+    "other_country_tld": 51.5,
+    "site_http_error": 27.6,
+    "fetch_failed": 7.1,
+    "wikidata": 0.0,
+    "wikidata_country_match": 0.0,
+    "method_wikidata": 0.0,
+    "method_embedded": 0.0
+  }
+}
