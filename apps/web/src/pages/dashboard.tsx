@@ -7,6 +7,7 @@ import { useSession } from "../lib/session";
 
 type Summary = {
   team: { members: number; pending_invitations: number };
+  contacts: number;
   kpis: Record<"contacts_found" | "emails_validated" | "open_opportunities" | "conversion_rate", number | null>;
   integrations: { google_sign_in: boolean };
 };
@@ -14,7 +15,6 @@ type Summary = {
 type AuditItem = { id: string; at: string; actor: string; label: string };
 
 const KPIS: { key: keyof Summary["kpis"]; label: string; stage: number }[] = [
-  { key: "contacts_found", label: "Contactos encontrados", stage: 4 },
   { key: "emails_validated", label: "Correos validados", stage: 2 },
   { key: "open_opportunities", label: "Oportunidades abiertas", stage: 6 },
   { key: "conversion_rate", label: "Tasa de conversión", stage: 6 },
@@ -54,7 +54,13 @@ export function DashboardPage() {
       to: "/configuracion/integraciones",
       action: "Ver integraciones",
     },
-    { done: false, title: "Importa tus contactos", text: "Llega en la Etapa 1: tus bases como referencia, con 8 campos.", stage: 1 },
+    {
+      done: (data?.contacts ?? 0) > 0,
+      title: "Importa tus contactos",
+      text: "Excel o CSV: se guardan 8 campos y cada dato conserva su fuente.",
+      to: "/contactos/importar",
+      action: "Importar",
+    },
     { done: false, title: "Conecta tu correo", text: "Llega en la Etapa 5: Gmail, Microsoft 365 o SMTP.", stage: 5 },
   ];
 
@@ -65,6 +71,13 @@ export function DashboardPage() {
         description={`Espacio de trabajo ${session?.workspace?.name}. Los indicadores se calculan solo con datos reales de ORKESTA.`}
       />
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <Card className="flex flex-col gap-3">
+          <p className="text-[13px] font-medium text-ork-mist">Contactos en tu base</p>
+          <p className="text-[28px] font-bold leading-none text-ork-ink">{(data?.contacts ?? 0).toLocaleString("es")}</p>
+          <Link to="/contactos" className="self-start text-[12.5px] font-semibold text-ork-blue hover:underline">
+            Ver contactos
+          </Link>
+        </Card>
         {KPIS.map(({ key, label, stage }) => {
           const value = data?.kpis[key];
           return (

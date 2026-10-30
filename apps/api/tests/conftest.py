@@ -68,7 +68,9 @@ def session_factory(engine: Engine, database: tuple[str, str]) -> Iterator[sessi
     yield sessionmaker(bind=engine, expire_on_commit=False)
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE orkesta.audit_logs, orkesta.invitations, orkesta.memberships, "
+            "TRUNCATE orkesta.jobs, orkesta.data_points, orkesta.list_members, "
+            "orkesta.contact_lists, orkesta.imports, orkesta.contacts, orkesta.companies, "
+            "orkesta.audit_logs, orkesta.invitations, orkesta.memberships, "
             "orkesta.sessions, orkesta.login_attempts, orkesta.demo_requests, orkesta.users, "
             "orkesta.tenants CASCADE"
         )

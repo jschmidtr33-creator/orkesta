@@ -7,7 +7,8 @@ terceros) y un solo servicio que pagar.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.core.config import get_settings
 from orkesta.core.db import get_session_factory
+from orkesta.data.router import router as data_router
 from orkesta.models import load_all
 from orkesta.platform.router import router as platform_router
 
@@ -43,13 +45,31 @@ def _same_origin(request: Request) -> bool:
 def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     load_all()
     settings = get_settings()
+    factory = session_factory or get_session_factory()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        workers = []
+        if settings.run_worker:
+            from orkesta.core.jobs import Worker
+
+            workers = [Worker(factory, i) for i in range(settings.worker_threads)]
+            for worker in workers:
+                worker.start()
+        yield
+        for worker in workers:
+            worker.stop()
+        for worker in workers:
+            worker.join(timeout=30)
+
     app = FastAPI(
         title="ORKESTA",
+        lifespan=lifespan,
         docs_url=None if settings.is_deployed else "/api/docs",
         redoc_url=None,
         openapi_url=None if settings.is_deployed else "/api/openapi.json",
     )
-    app.state.session_factory = session_factory or get_session_factory()
+    app.state.session_factory = factory
 
     @app.middleware("http")
     async def security(
@@ -82,6 +102,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(platform_router)
+    app.include_router(data_router)
     _mount_frontends(app)
     return app
 

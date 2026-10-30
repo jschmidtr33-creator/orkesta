@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     login_max_failures: int = Field(default=8, ge=3, le=50)
     login_window_minutes: int = Field(default=15, ge=1, le=120)
 
+    # Worker de trabajos en segundo plano dentro del proceso web (un solo servicio).
+    run_worker: bool = False
+    worker_threads: int = Field(default=2, ge=1, le=8)
+
     # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).
     google_client_id: str = ""
     google_client_secret: str = ""

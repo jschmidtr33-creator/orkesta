@@ -13,8 +13,10 @@ select = ["E", "F", "I", "UP", "B", "S", "A", "SIM", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003", "S105", "S106"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106"]
+"tests/*" = ["S101", "S105", "S106", "E501"]
 "migrations/*" = ["E501"]
+# Listas de vocabulario del motor (nombres, ciudades, industrias): líneas largas a propósito.
+"orkesta/engine/*" = ["E501", "RUF012", "SIM102", "B905", "UP", "RUF005", "RUF015", "S"]
 
 [tool.mypy]
 python_version = "3.12"
