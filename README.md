@@ -8,8 +8,8 @@ La propuesta técnica completa (análisis, arquitectura, tecnología, estructura
 
 | Etapa | Contenido | Estado |
 | --- | --- | --- |
-| 0 | Fundaciones: multiempresa con aislamiento RLS, registro, sesiones, roles, invitaciones, auditoría, sistema de diseño, app y sitio público | Esta entrega |
-| 1 | Datos comerciales: empresas, contactos, importación, deduplicación | Siguiente |
+| 0 | Fundaciones: multiempresa con aislamiento RLS, registro, sesiones, roles, invitaciones, auditoría, sistema de diseño, app y sitio público | Entregada |
+| 1 | Datos comerciales: importación Excel/CSV con mapeo de columnas, deduplicación, procedencia por dato, contactos, listas y exportación | Esta entrega |
 | 2–6 | Validación, enriquecimiento, prospección, campañas, CRM | MVP |
 | 7–10 | Propuestas, inteligencia comercial, analítica, SaaS comercial | Después del MVP |
 

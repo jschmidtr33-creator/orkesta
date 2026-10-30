@@ -2,4 +2,5 @@
 
 
 def load_all() -> None:
+    import orkesta.data.models
     import orkesta.platform.models  # noqa: F401

@@ -26,6 +26,7 @@ from orkesta.core.web import (
     require_roles,
     set_auth_cookies,
 )
+from orkesta.data import service as data_service
 from orkesta.platform import google
 from orkesta.platform import service as svc
 from orkesta.platform.models import (
@@ -458,6 +459,11 @@ ACTION_LABELS = {
     "member.updated": "cambió el rol o el acceso de un miembro",
     "invitation.accepted": "aceptó una invitación",
     "invitation.revoked": "anuló una invitación",
+    "contacts.imported": "importó una base de contactos",
+    "contacts.exported": "exportó contactos",
+    "contacts.deleted": "eliminó contactos",
+    "contact.created": "creó un contacto",
+    "contact.updated": "editó un contacto",
 }
 
 
@@ -504,6 +510,7 @@ def dashboard(principal: Member, db: Db) -> dict[str, Any]:
     # Indicadores comerciales: ``None`` = el módulo todavía no existe (no se inventan cifras).
     return {
         "team": {"members": members or 0, "pending_invitations": pending or 0},
+        "contacts": data_service.contacts_total(db, tid),
         "kpis": {
             "contacts_found": None,
             "emails_validated": None,

@@ -8,6 +8,8 @@ import { ApiError } from "./lib/api";
 import { SessionProvider } from "./lib/session";
 import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
+import { ContactsPage, ListsPage } from "./pages/contacts";
+import { ImportPage } from "./pages/importer";
 import { ModulePage } from "./pages/modules";
 import { SettingsPage } from "./pages/settings";
 
@@ -33,7 +35,9 @@ createRoot(document.getElementById("root")!).render(
             <Route element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="/prospeccion" element={<ModulePage slug="prospeccion" />} />
-              <Route path="/contactos" element={<ModulePage slug="contactos" />} />
+              <Route path="/contactos" element={<ContactsPage />} />
+              <Route path="/contactos/importar" element={<ImportPage />} />
+              <Route path="/contactos/listas" element={<ListsPage />} />
               <Route path="/campanas" element={<ModulePage slug="campanas" />} />
               <Route path="/automatizacion" element={<ModulePage slug="automatizacion" />} />
               <Route path="/crm" element={<ModulePage slug="crm" />} />
