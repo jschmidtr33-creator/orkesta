@@ -1,0 +1,12 @@
+---
+import Logo from "../components/Logo.astro";
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Página no encontrada · ORKESTA" description="La página que buscas no existe.">
+  <main class="flex min-h-dvh flex-col items-center justify-center gap-5 px-5 text-center">
+    <Logo size={36} />
+    <h1 class="text-[28px] font-bold">No encontramos esta página</h1>
+    <a href="/" class="ork-gradient rounded-xl px-5 py-2.5 font-semibold text-white">Volver al inicio</a>
+  </main>
+</Base>
