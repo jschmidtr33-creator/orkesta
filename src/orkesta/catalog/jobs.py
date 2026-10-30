@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 from sqlalchemy.orm import Session
 
 from orkesta.catalog.discovery import advance_run, run_discovery_job
@@ -11,7 +12,7 @@ from orkesta.catalog.service import ProspectUploadError, mark_upload_failed, pro
 from orkesta.db.models import EnrichmentJob
 from orkesta.enrichment.service import EngineFactory, default_engine
 from orkesta.imports.reader import ImportFileError
-from orkesta.worker.runner import PermanentJobError
+from orkesta.worker.runner import PermanentJobError, RetryableJobError
 
 # Se puede sustituir en pruebas por un motor con red simulada.
 engine_factory: EngineFactory = default_engine
@@ -55,3 +56,21 @@ def handle_discover_people(session: Session, job: EnrichmentJob) -> None:
 
 def on_discover_people_failed(session: Session, job: EnrichmentJob) -> None:
     advance_run(session, _run_id(job), 0, failed=True)
+
+
+def handle_public_companies(session: Session, job: EnrichmentJob) -> None:
+    from orkesta.catalog.public_data import run_companies_job
+
+    try:
+        run_companies_job(session, job.payload)
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RetryableJobError(f"Wikidata no respondió: {exc}") from exc
+
+
+def handle_public_people(session: Session, job: EnrichmentJob) -> None:
+    from orkesta.catalog.public_data import run_people_job
+
+    try:
+        run_people_job(session, job.payload)
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RetryableJobError(f"Wikidata no respondió: {exc}") from exc

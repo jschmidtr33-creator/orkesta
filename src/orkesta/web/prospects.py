@@ -5,22 +5,28 @@ from __future__ import annotations
 import csv
 import io
 import math
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 
 from orkesta.audit import audit
-from orkesta.catalog.discovery import DiscoveryError, start_discovery
+from orkesta.catalog.discovery import (
+    AUTO_COMPANIES,
+    DiscoveryError,
+    ensure_discovery,
+    start_discovery,
+    wants_web_search,
+)
 from orkesta.catalog.industries import INDUSTRY_LABELS, SIZE_BANDS
 from orkesta.catalog.prospects import MAX_BYTES
 from orkesta.catalog.service import ProspectFilters, create_upload, iter_search, search_prospects
 from orkesta.catalog.titles import AREA_LABELS, DECISION_LEVELS, LEVEL_LABELS
 from orkesta.db.models import (
-    CatalogCompany,
     DiscoveryRun,
     DomainPattern,
     Prospect,
@@ -62,8 +68,10 @@ def _filters(
     nivel: list[str] | None = None,
     area: list[str] | None = None,
     web: str = "",
+    tamano: list[str] | None = None,
 ) -> ProspectFilters:
     return ProspectFilters(
+        sizes=[t for t in (tamano or []) if t in SIZE_LABELS],
         only_web=web == "1",
         levels=[n for n in (nivel or []) if n in LEVEL_LABELS],
         areas=[a for a in (area or []) if a in AREA_LABELS],
@@ -76,15 +84,20 @@ def _filters(
     )
 
 
-def _query_string(f: ProspectFilters) -> str:
+def _query_pairs(f: ProspectFilters) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = [("cargo", f.title), ("empresa", f.company), ("ciudad", f.city)]
     pairs += [("industria", i) for i in f.industries] + [("pais", p) for p in f.countries]
     pairs += [("nivel", n) for n in f.levels] + [("area", a) for a in f.areas]
+    pairs += [("tamano", t) for t in f.sizes]
     if f.with_email:
         pairs.append(("con_correo", "1"))
     if f.only_web:
         pairs.append(("web", "1"))
-    return urlencode([(k, v) for k, v in pairs if v])
+    return [("buscar", "1")] + [(k, v) for k, v in pairs if v]
+
+
+def _query_string(f: ProspectFilters) -> str:
+    return urlencode(_query_pairs(f))
 
 
 @router.get("/prospectos")
@@ -101,15 +114,24 @@ def prospects_page(
     nivel: Annotated[list[str] | None, Query()] = None,
     area: Annotated[list[str] | None, Query()] = None,
     web: str = "",
-    decisores: str = "",
+    tamano: Annotated[list[str] | None, Query()] = None,
     pagina: Annotated[int, Query(ge=1)] = 1,
 ) -> Response:
-    # Sin parámetros (primera visita) se muestran solo decisores.
+    # Primera visita (sin parámetros): solo decisores.
     if not request.query_params:
-        decisores = "1"
-    if decisores == "1" and not nivel:
         nivel = list(DECISION_LEVELS)
-    filters = _filters(cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web)
+    filters = _filters(
+        cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web, tamano
+    )
+    # Con filtros de empresa o de cargo, la búsqueda web arranca sola (o se reutiliza una
+    # reciente con los mismos filtros) y sus resultados llegan en vivo.
+    live_run = None
+    web_exhausted = False
+    if wants_web_search(filters) and pagina == 1:
+        live_run = ensure_discovery(
+            db, organization_id=user.organization_id, user_id=user.id, filters=filters
+        )
+        web_exhausted = live_run is None
     rows, total = search_prospects(
         db, user.organization_id, filters, page=pagina, page_size=PAGE_SIZE
     )
@@ -129,13 +151,6 @@ def prospects_page(
         )
         or 0
     )
-    catalog_total = int(db.scalar(select(func.count()).select_from(CatalogCompany)) or 0)
-    runs = db.scalars(
-        select(DiscoveryRun)
-        .where(DiscoveryRun.organization_id == user.organization_id)
-        .order_by(DiscoveryRun.created_at.desc())
-        .limit(5)
-    ).all()
     lists = db.scalars(
         select(ProspectList)
         .where(ProspectList.organization_id == user.organization_id)
@@ -157,14 +172,15 @@ def prospects_page(
             "base_total": base_total,
             "patterns": patterns,
             "uploads": uploads,
-            "runs": runs,
+            "live_run": live_run,
+            "web_exhausted": web_exhausted,
+            "searching": wants_web_search(filters) or bool(filters.city or filters.areas),
             "lists": lists,
-            "catalog_total": catalog_total,
             "sizes": SIZE_LABELS,
             "decision_levels": DECISION_LEVELS,
-            "only_decision_makers": sorted(filters.levels) == sorted(DECISION_LEVELS),
             "filters": filters,
             "query": _query_string(filters),
+            "query_pairs": _query_pairs(filters),
             "page": min(pagina, max(1, math.ceil(total / PAGE_SIZE))),
             "pages": max(1, math.ceil(total / PAGE_SIZE)),
             "industries": INDUSTRY_LABELS,
@@ -172,9 +188,24 @@ def prospects_page(
             "areas": AREA_LABELS,
             "countries": COUNTRY_CHOICES,
             "max_mb": MAX_BYTES // (1024 * 1024),
-            "refresh": any(u.status in ("queued", "running") for u in uploads)
-            or any(r.status in ("queued", "running") for r in runs),
+            # Solo mientras se procesa una base; la búsqueda web se actualiza con live.js.
+            "refresh": any(u.status in ("queued", "running") for u in uploads),
         },
+    )
+
+
+@router.get("/prospectos/busqueda/{run_id}")
+def discovery_status(run_id: uuid.UUID, db: DbSession, user: CurrentUser) -> Response:
+    run = db.get(DiscoveryRun, run_id)
+    if run is None or run.organization_id != user.organization_id:
+        return JSONResponse({"error": "no encontrada"}, status_code=404)
+    return JSONResponse(
+        {
+            "done": run.done,
+            "total": run.total,
+            "people_found": run.people_found,
+            "running": run.status in ("queued", "running"),
+        }
     )
 
 
@@ -260,18 +291,30 @@ def discover(
     request: Request,
     db: DbSession,
     user: CurrentUser,
+    cargo: Annotated[str, Form()] = "",
     empresa: Annotated[str, Form()] = "",
     industria: Annotated[list[str] | None, Form()] = None,
     pais: Annotated[list[str] | None, Form()] = None,
+    ciudad: Annotated[str, Form()] = "",
+    con_correo: Annotated[str, Form()] = "",
+    nivel: Annotated[list[str] | None, Form()] = None,
+    area: Annotated[list[str] | None, Form()] = None,
+    web: Annotated[str, Form()] = "",
     tamano: Annotated[list[str] | None, Form()] = None,
     csrf: CsrfField = None,
 ) -> Response:
+    """Siguiente lote de empresas por explorar con los mismos filtros."""
     check_csrf(request, csrf)
-    filters = _filters(empresa=empresa, industria=industria, pais=pais)
-    filters.sizes = [t for t in (tamano or []) if t in SIZE_LABELS]
+    filters = _filters(
+        cargo, empresa, industria, pais, ciudad, con_correo, nivel, area, web, tamano
+    )
     try:
         run = start_discovery(
-            db, organization_id=user.organization_id, user_id=user.id, filters=filters
+            db,
+            organization_id=user.organization_id,
+            user_id=user.id,
+            filters=filters,
+            limit=AUTO_COMPANIES,
         )
     except DiscoveryError as exc:
         db.rollback()
@@ -286,5 +329,5 @@ def discover(
             entity_id=run.id,
             companies=run.total,
         )
-        flash(request, f"Buscando personas en los sitios de {run.total} empresas.", "success")
+        flash(request, f"Buscando decisores en los sitios de {run.total} empresas más.", "success")
     return RedirectResponse(f"/prospectos?{_query_string(filters)}", status_code=303)

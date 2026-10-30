@@ -20,7 +20,13 @@ CHUNK = 1000
 
 def load_catalog(session: Session, rows: Iterable[dict[str, str]]) -> int:
     """Inserta o actualiza empresas por QID de Wikidata. Devuelve cuántas filas se cargaron."""
-    items = [r for r in rows if r.get("qid") and r.get("name")]
+    # Una empresa puede venir repetida (varios tipos en Wikidata): la última versión gana, y así
+    # un mismo INSERT nunca toca dos veces la misma fila.
+    unique: dict[str, dict[str, str]] = {}
+    for r in rows:
+        if r.get("qid") and r.get("name"):
+            unique[r["qid"][:20]] = r
+    items = list(unique.values())
     for start in range(0, len(items), CHUNK):
         values = []
         for r in items[start : start + CHUNK]:

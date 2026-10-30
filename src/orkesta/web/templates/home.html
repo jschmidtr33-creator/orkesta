@@ -24,7 +24,7 @@
     {% set c = counts.get(l.id, (0, 0)) %}
     <p><a href="/listas/{{ l.id }}">{{ l.name }}</a> <span class="muted small">· {{ c[0] | thousands }} personas, {{ c[1] | thousands }} con correo</span></p>
     {% else %}
-    <p class="muted">Aún no hay listas. Filtra decisores en Prospectos y agrégalos a una lista.</p>
+    <p class="muted">Aún no hay listas. Busca decisores con filtros y agrégalos a una lista.</p>
     {% endfor %}
   </section>
   <section class="card" style="flex:1 1 320px">
@@ -33,7 +33,7 @@
     <p>{% if r.status == "completed" %}<span class="badge badge-valid">terminada</span>{% else %}<span class="badge badge-queued">{{ r.done }} de {{ r.total }}</span>{% endif %}
       <span class="small">{{ r.total | thousands }} empresas · {{ r.people_found | thousands }} decisores nuevos</span></p>
     {% else %}
-    <p class="muted">Sin búsquedas todavía. En Prospectos usa «Buscar en la web» para encontrar decisores nuevos.</p>
+    <p class="muted">Sin búsquedas todavía. En «Buscar personas» elige una industria y un país: la búsqueda web arranca sola.</p>
     {% endfor %}
   </section>
 </div>

@@ -43,6 +43,33 @@ SELECT ?item ?itemLabel ?website ?cityLabel ?industryLabel ?employees WHERE {{
 }}
 LIMIT {limit}
 """
+# Consultas complementarias: el tipo "negocio" es enorme y Wikidata corta por tiempo. Estas
+# capturan empresas tipadas con clases específicas (banco, aerolínea, cadena de supermercados…)
+# a través de lo que solo tienen las empresas: industria declarada con sitio oficial, o un CEO.
+EXTRA_QUERIES = (
+    """
+SELECT ?item ?itemLabel ?website ?cityLabel ?industryLabel ?employees WHERE {{
+  ?item wdt:P17 wd:{country} ; wdt:P452 ?industry ; wdt:P856 ?website .
+  FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
+  OPTIONAL {{ ?item wdt:P159 ?city . }}
+  OPTIONAL {{ ?item wdt:P1128 ?employees . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "es,en". }}
+}}
+LIMIT {limit}
+""",
+    """
+SELECT ?item ?itemLabel ?website ?cityLabel ?industryLabel ?employees WHERE {{
+  ?item wdt:P17 wd:{country} ; wdt:P169 ?ceo .
+  FILTER NOT EXISTS {{ ?item wdt:P576 ?dissolved }}
+  OPTIONAL {{ ?item wdt:P856 ?website . }}
+  OPTIONAL {{ ?item wdt:P159 ?city . }}
+  OPTIONAL {{ ?item wdt:P452 ?industry . }}
+  OPTIONAL {{ ?item wdt:P1128 ?employees . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "es,en". }}
+}}
+LIMIT {limit}
+""",
+)
 COLUMNS = ("qid", "name", "country", "city", "domain", "industry_code", "industry_labels",
            "employees", "size_band")  # fmt: skip
 
@@ -110,6 +137,13 @@ def fetch_country(country: str, client: httpx.Client, limit: int = 4000) -> list
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             print(f"{country} {business_type}: {exc!r}", file=sys.stderr)
         time.sleep(1)  # cortesía con el servicio público
+    for extra in EXTRA_QUERIES:
+        query = extra.format(country=COUNTRY_ENTITY[country], limit=limit * 2)
+        try:
+            merge_bindings(companies, _query(client, query), country)
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            print(f"{country} consulta complementaria: {exc!r}", file=sys.stderr)
+        time.sleep(1)
     return list(companies.values())
 
 

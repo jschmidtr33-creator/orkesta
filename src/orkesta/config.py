@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: float = Field(default=2.0, gt=0, le=60)
     # Ejecutar el worker dentro del proceso web (un solo servicio, menor costo).
     run_worker_in_web: bool = False
+    # Hilos del worker integrado: varios sitios y consultas en paralelo (la cola usa SKIP LOCKED).
+    worker_threads: int = Field(default=4, ge=1, le=16)
     job_lock_timeout_seconds: int = Field(default=600, ge=30)
     job_retry_base_seconds: int = Field(default=30, ge=1)
     job_retry_max_seconds: int = Field(default=3600, ge=1)

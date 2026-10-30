@@ -34,6 +34,9 @@ from orkesta.worker.queue import enqueue_job
 DISCOVERY_JOB_KIND = "discover_people"
 RECENT_DAYS = 30
 MAX_COMPANIES = 200
+# Búsqueda automática al filtrar: lote acotado para que los primeros resultados lleguen rápido.
+AUTO_COMPANIES = 60
+AUTO_REUSE_MINUTES = 20
 
 
 class DiscoveryError(ValueError):
@@ -111,12 +114,7 @@ def start_discovery(
     run = DiscoveryRun(
         organization_id=organization_id,
         user_id=user_id,
-        filters={
-            "industries": filters.industries,
-            "countries": filters.countries,
-            "company": filters.company,
-            "sizes": filters.sizes,
-        },
+        filters=run_filters(filters),
         status="queued",
         total=len(companies),
     )
@@ -140,6 +138,62 @@ def start_discovery(
             max_attempts=2,
         )
     return run
+
+
+def run_filters(filters: ProspectFilters) -> dict[str, Any]:
+    return {
+        "industries": sorted(filters.industries),
+        "countries": sorted(filters.countries),
+        "company": filters.company,
+        "sizes": sorted(filters.sizes),
+        "title": filters.title,
+    }
+
+
+def wants_web_search(filters: ProspectFilters) -> bool:
+    """La búsqueda web se activa sola cuando hay algún filtro de empresa o de cargo."""
+    return bool(
+        filters.industries or filters.countries or filters.company or filters.sizes
+        or filters.title
+    )  # fmt: skip
+
+
+def ensure_discovery(
+    session: Session,
+    *,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    filters: ProspectFilters,
+) -> DiscoveryRun | None:
+    """Búsqueda web automática para estos filtros: reutiliza una reciente o inicia una nueva.
+
+    Devuelve ``None`` si no quedan empresas por explorar con estos filtros.
+    """
+    wanted = run_filters(filters)
+    since = func.now() - timedelta(minutes=AUTO_REUSE_MINUTES)
+    recent = session.scalars(
+        select(DiscoveryRun)
+        .where(DiscoveryRun.organization_id == organization_id, DiscoveryRun.created_at >= since)
+        .order_by(DiscoveryRun.created_at.desc())
+        .limit(20)
+    ).all()
+    for run in recent:
+        stored = run.filters or {}
+        if all(
+            (sorted(stored.get(k) or []) if isinstance(v, list) else stored.get(k) or "") == v
+            for k, v in wanted.items()
+        ):
+            return run
+    try:
+        return start_discovery(
+            session,
+            organization_id=organization_id,
+            user_id=user_id,
+            filters=filters,
+            limit=AUTO_COMPANIES,
+        )
+    except DiscoveryError:
+        return None
 
 
 def _existing_names(session: Session, organization_id: uuid.UUID, company_key: str) -> set[str]:

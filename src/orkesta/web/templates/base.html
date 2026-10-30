@@ -11,23 +11,27 @@
   <header class="topbar">
     <a class="brand" href="/">ORKESTA</a>
     {% if user %}
-    <nav class="topnav">
-      <a href="/">Inicio</a>
-      <a href="/prospectos">Prospectos</a>
-      <a href="/listas">Listas</a>
-      <a href="/campanas">Campañas</a>
-      <a href="/cuentas">Cuentas</a>
-      <a href="/lotes">Lotes</a>
-      <a href="/lotes/nuevo" class="button button-small">Nueva importación</a>
-      <span class="muted">{{ user.email }}</span>
-      <form method="post" action="/logout" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="link">Salir</button>
-      </form>
+    {% set path = request.url.path %}
+    <nav class="topnav" aria-label="Principal">
+      <div class="nav-links">
+        <a href="/" class="{{ 'active' if path == '/' }}">Inicio</a>
+        <a href="/prospectos" class="{{ 'active' if path.startswith('/prospectos') }}">Buscar personas</a>
+        <a href="/listas" class="{{ 'active' if path.startswith('/listas') }}">Listas</a>
+        <a href="/campanas" class="{{ 'active' if path.startswith('/campanas') or path.startswith('/exclusiones') }}">Campañas</a>
+        <a href="/cuentas" class="{{ 'active' if path.startswith('/cuentas') }}">Correo</a>
+        <a href="/lotes" class="{{ 'active' if path.startswith('/lotes') }}">Enriquecer archivo</a>
+      </div>
+      <div class="nav-user">
+        <span class="muted small">{{ user.email }}</span>
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="link small">Salir</button>
+        </form>
+      </div>
     </nav>
     {% endif %}
   </header>
-  <main class="page">
+  <main class="page{% block page_class %}{% endblock %}">
     {% for item in flashes %}
     <div class="notice notice-{{ item.kind }}" role="status">{{ item.message }}</div>
     {% endfor %}

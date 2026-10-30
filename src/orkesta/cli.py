@@ -109,7 +109,15 @@ def cmd_release(args: argparse.Namespace) -> int:
     status = cmd_bootstrap_admin(args)
     if status != 0:
         return status
-    return cmd_catalog_load(argparse.Namespace(path=None))
+    status = cmd_catalog_load(argparse.Namespace(path=None))
+    if status != 0:
+        return status
+    from orkesta.catalog.public_data import schedule_refresh
+
+    with session_scope() as session:
+        queued = schedule_refresh(session)
+    print(f"release: {queued} consultas de datos públicos programadas")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
