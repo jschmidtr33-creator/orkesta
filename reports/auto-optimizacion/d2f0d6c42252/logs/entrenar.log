@@ -1,0 +1,38 @@
+{
+  "version": "lgbm-20261030",
+  "filas": 11997,
+  "empresas_entrenamiento": 954,
+  "empresas_prueba": 368,
+  "umbral_confirmado": 0.99,
+  "umbral_probable": 0.66,
+  "modelo_prueba": {
+    "empresas": 368,
+    "con_dominio": 280,
+    "aciertos": 206,
+    "exactitud": 0.7357,
+    "cobertura": 0.7609
+  },
+  "reglas_prueba": {
+    "empresas": 368,
+    "con_dominio": 278,
+    "aciertos": 170,
+    "exactitud": 0.6115,
+    "cobertura": 0.7554
+  },
+  "modelo_prueba_marca": {
+    "empresas": 368,
+    "con_dominio": 280,
+    "aciertos": 230,
+    "exactitud": 0.8214,
+    "cobertura": 0.7609
+  },
+  "reglas_prueba_marca": {
+    "empresas": 368,
+    "con_dominio": 278,
+    "aciertos": 194,
+    "exactitud": 0.6978,
+    "cobertura": 0.7554
+  },
+  "promover": true
+}
+Modelo guardado en work/modelo/domain-model.json

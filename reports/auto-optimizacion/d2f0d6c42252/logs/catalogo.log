@@ -1,0 +1,25 @@
+MX consulta complementaria: HTTPStatusError("Server error '504 Gateway Timeout' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+%3FindustryLabel+%3Femployees+WHERE+%7B%0A++%3Fitem+wdt%3AP17+wd%3AQ96+%3B+wdt%3AP452+%3Findustry+%3B+wdt%3AP856+%3Fwebsite+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP1128+%3Femployees+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+8000%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504")
+ES consulta complementaria: HTTPStatusError("Server error '504 Gateway Timeout' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+%3FindustryLabel+%3Femployees+WHERE+%7B%0A++%3Fitem+wdt%3AP17+wd%3AQ29+%3B+wdt%3AP452+%3Findustry+%3B+wdt%3AP856+%3Fwebsite+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP1128+%3Femployees+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+8000%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504")
+BR wd:Q4830453: HTTPStatusError("Server error '502 Bad Gateway' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+%3FindustryLabel+%3Femployees+WHERE+%7B%0A++%3Fitem+wdt%3AP31+wd%3AQ4830453+%3B+wdt%3AP17+wd%3AQ155+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP856+%3Fwebsite+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP452+%3Findustry+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP1128+%3Femployees+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+4000%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502")
+BR consulta complementaria: HTTPStatusError("Server error '504 Gateway Timeout' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+%3FindustryLabel+%3Femployees+WHERE+%7B%0A++%3Fitem+wdt%3AP17+wd%3AQ155+%3B+wdt%3AP452+%3Findustry+%3B+wdt%3AP856+%3Fwebsite+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP1128+%3Femployees+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+8000%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504")
+MX: 537 empresas, 411 con sitio oficial
+CO: 411 empresas, 339 con sitio oficial
+PE: 224 empresas, 187 con sitio oficial
+CL: 429 empresas, 344 con sitio oficial
+AR: 951 empresas, 648 con sitio oficial
+EC: 79 empresas, 62 con sitio oficial
+UY: 133 empresas, 95 con sitio oficial
+PA: 55 empresas, 42 con sitio oficial
+CR: 36 empresas, 31 con sitio oficial
+GT: 41 empresas, 31 con sitio oficial
+DO: 43 empresas, 40 con sitio oficial
+ES: 3486 empresas, 2580 con sitio oficial
+BR: 644 empresas, 518 con sitio oficial
+BO: 69 empresas, 52 con sitio oficial
+PY: 28 empresas, 21 con sitio oficial
+SV: 35 empresas, 22 con sitio oficial
+HN: 24 empresas, 15 con sitio oficial
+NI: 13 empresas, 9 con sitio oficial
+VE: 153 empresas, 114 con sitio oficial
+PR: 15 empresas, 12 con sitio oficial
+Total: 7406 empresas → work/catalogo/empresas_latam.csv.gz
