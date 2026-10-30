@@ -299,3 +299,5 @@ fieldset.filter-group { margin: 0 0 12px; padding: 12px; }
 .quick-levels .chip-check span { max-width: 100%; }
 .topnav .nav-links { flex: 1 1 auto; min-width: 0; }
 .topnav .nav-user { flex: none; }
+.input-short { width: 6.5em; min-width: 0; }
+.option-card > .badge { align-self: flex-start; }

@@ -12,6 +12,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 
 from orkesta.audit import audit
+from orkesta.campaigns.google_config import (
+    google_client,
+    google_credentials,
+    public_base_url,
+    redirect_uri,
+    remember_public_base_url,
+    save_google_credentials,
+)
 from orkesta.campaigns.service import (
     CampaignError,
     apply_unsubscribe,
@@ -25,7 +33,6 @@ from orkesta.campaigns.service import (
     start_campaign,
     suppress,
 )
-from orkesta.campaigns.transports import google_client
 from orkesta.config import get_settings
 from orkesta.db.models import (
     Campaign,
@@ -79,12 +86,15 @@ WEEKDAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 @router.get("/cuentas")
 def accounts_page(request: Request, db: DbSession, user: CurrentUser) -> Response:
+    # Sin PUBLIC_BASE_URL, se recuerda la dirección pública con la que se abrió ORKESTA.
+    remember_public_base_url(db, user.organization_id, str(request.base_url))
     accounts = db.scalars(
         select(MailAccount)
         .where(MailAccount.organization_id == user.organization_id)
         .order_by(MailAccount.email)
     ).all()
     settings = get_settings()
+    credentials = google_credentials(db, user.organization_id)
     return render(
         request,
         "accounts.html",
@@ -92,10 +102,38 @@ def accounts_page(request: Request, db: DbSession, user: CurrentUser) -> Respons
             "user": user,
             "accounts": accounts,
             "presets": SMTP_PRESETS,
-            "google_ready": bool(settings.google_client_id and settings.public_base_url),
+            "google": credentials is not None and bool(redirect_uri(db)),
+            "google_env": credentials is not None and credentials.from_environment,
+            "redirect_uri": redirect_uri(db),
+            "is_admin": user.role == "admin",
             "default_limit": settings.mail_default_daily_limit,
         },
     )
+
+
+@router.post("/cuentas/google/configurar")
+def configure_google(
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+    client_id: Annotated[str, Form()],
+    client_secret: Annotated[str, Form()],
+    csrf: CsrfField = None,
+) -> Response:
+    check_csrf(request, csrf)
+    if user.role != "admin":
+        raise HTTPException(status_code=403)
+    try:
+        save_google_credentials(db, user.organization_id, client_id, client_secret)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return RedirectResponse("/cuentas#configurar-google", status_code=303)
+    audit(
+        db, organization_id=user.organization_id, actor_user_id=user.id,
+        action="google_oauth.configured", entity_type="app_setting",
+    )  # fmt: skip
+    flash(request, "Google quedó configurado. Ya puedes conectar Gmail con un clic.", "success")
+    return RedirectResponse("/cuentas", status_code=303)
 
 
 @router.post("/cuentas/smtp")
@@ -128,7 +166,13 @@ def add_smtp_account(
         )  # fmt: skip
     except (CampaignError, MailTransportError) as exc:
         db.rollback()
-        flash(request, f"No se pudo conectar la cuenta: {exc}", "error")
+        message = f"No se pudo conectar la cuenta: {exc}"
+        if preajuste == "google_workspace":
+            message += (
+                " · Google pide una contraseña de aplicación (16 letras), no tu contraseña "
+                "normal, y la verificación en dos pasos activa."
+            )
+        flash(request, message, "error")
         return RedirectResponse("/cuentas", status_code=303)
     audit(
         db, organization_id=user.organization_id, actor_user_id=user.id,
@@ -140,9 +184,9 @@ def add_smtp_account(
 
 
 @router.get("/cuentas/google/conectar")
-def google_connect(request: Request, user: CurrentUser) -> Response:
+def google_connect(request: Request, db: DbSession, user: CurrentUser) -> Response:
     try:
-        client = google_client()
+        client = google_client(db, user.organization_id)
     except MailTransportError as exc:
         flash(request, str(exc), "error")
         return RedirectResponse("/cuentas", status_code=303)
@@ -161,7 +205,7 @@ def google_callback(
         flash(request, "No se completó la conexión con Google.", "error")
         return RedirectResponse("/cuentas", status_code=303)
     try:
-        refresh_token, email = gmail.exchange_code(google_client(), code)
+        refresh_token, email = gmail.exchange_code(google_client(db, user.organization_id), code)
     except MailTransportError as exc:
         flash(request, str(exc), "error")
         return RedirectResponse("/cuentas", status_code=303)
@@ -354,7 +398,7 @@ def campaign_detail(
             "recipients": recipients,
             "labels": STATUS_LABELS,
             "weekdays": WEEKDAYS,
-            "public_url_missing": get_settings().is_deployed and not get_settings().public_base_url,
+            "public_url_missing": get_settings().is_deployed and not public_base_url(db),
         },
     )
 

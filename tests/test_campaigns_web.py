@@ -43,7 +43,11 @@ def org_id(session_factory: sessionmaker[Session]) -> uuid.UUID:
         session.add(org)
         session.flush()
         create_user(
-            session, email="jenn@ejemplo.com", password="clave-de-prueba-1", organization_id=org.id
+            session,
+            email="jenn@ejemplo.com",
+            password="clave-de-prueba-1",
+            organization_id=org.id,
+            role="admin",
         )
         upsert_prospects(session, org.id, records_from_file(BASE, "b.csv"), source="base")
         target = create_list(session, organization_id=org.id, user_id=None, name="Lácteos")
@@ -188,7 +192,67 @@ def test_suppressions_and_public_unsubscribe(
 def test_gmail_requires_configuration_and_valid_state(client: TestClient) -> None:
     response = client.get("/cuentas/google/conectar")
     assert response.status_code == 303 and response.headers["location"] == "/cuentas"
-    assert "Gmail no está configurado" in client.get("/cuentas").text
+    assert "todavía no está configurado" in client.get("/cuentas").text
     response = client.get("/cuentas/google/retorno", params={"code": "x", "state": "y"})
     assert response.status_code == 303
     assert "No se completó la conexión" in client.get("/cuentas").text
+
+
+def test_admin_configures_google_from_the_page(
+    engine: Engine, session_factory: sessionmaker[Session], org_id: uuid.UUID
+) -> None:
+    from orkesta.campaigns.google_config import google_credentials, public_base_url
+
+    with TestClient(
+        create_app(engine_provider=lambda: engine),
+        base_url="https://orkesta.ejemplo.com",
+        follow_redirects=False,
+    ) as c:
+        token = re.search(r'name="csrf_token" value="([^"]+)"', c.get("/login").text)
+        assert token
+        c.post(
+            "/login",
+            data={
+                "email": "jenn@ejemplo.com",
+                "password": "clave-de-prueba-1",
+                "csrf_token": token.group(1),
+            },
+        )
+        page = c.get("/cuentas").text
+        # La dirección pública se recuerda sola y el URI de retorno queda listo para copiar.
+        assert "https://orkesta.ejemplo.com/cuentas/google/retorno" in page
+        assert "Configurar Google" in page
+        csrf = re.search(r'name="csrf_token" value="([^"]+)"', page)
+        assert csrf
+        bad = c.post(
+            "/cuentas/google/configurar",
+            data={
+                "csrf_token": csrf.group(1),
+                "client_id": "abc",
+                "client_secret": "secreto-largo-123",
+            },
+        )
+        assert bad.status_code == 303 and "googleusercontent" in c.get("/cuentas").text
+        ok = c.post(
+            "/cuentas/google/configurar",
+            data={
+                "csrf_token": csrf.group(1),
+                "client_id": "123-abc.apps.googleusercontent.com",
+                "client_secret": "GOCSPX-secreto-de-prueba",
+            },
+        )
+        assert ok.status_code == 303
+        assert "Conectar con Google" in c.get("/cuentas").text
+        connect = c.get("/cuentas/google/conectar")
+        assert connect.status_code == 303
+        location = connect.headers["location"]
+        assert location.startswith("https://accounts.google.com/")
+        assert "client_id=123-abc.apps.googleusercontent.com" in location
+        assert (
+            "redirect_uri=https%3A%2F%2Forkesta.ejemplo.com%2Fcuentas%2Fgoogle%2Fretorno"
+            in location
+        )
+    with session_factory() as session:
+        credentials = google_credentials(session, org_id)
+        assert credentials is not None and credentials.client_secret == "GOCSPX-secreto-de-prueba"
+        assert public_base_url(session) == "https://orkesta.ejemplo.com"

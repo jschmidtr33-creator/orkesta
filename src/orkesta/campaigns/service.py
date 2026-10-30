@@ -20,6 +20,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from orkesta.campaigns.google_config import public_base_url
 from orkesta.campaigns.history import excluded_by_history, record_contact
 from orkesta.campaigns.transports import (
     Transport,
@@ -246,9 +247,10 @@ def start_campaign(session: Session, campaign: Campaign) -> dict[str, int]:
     """Congela destinatarios y variables desde la lista y encola el envío."""
     if campaign.status not in ("draft", "paused"):
         raise CampaignError("La campaña ya está en marcha o terminó.")
-    if get_settings().is_deployed and not get_settings().public_base_url:
+    if get_settings().is_deployed and not public_base_url(session):
         raise CampaignError(
-            "Falta PUBLIC_BASE_URL: el enlace de baja de un clic es obligatorio para enviar."
+            "Falta la dirección pública de ORKESTA (PUBLIC_BASE_URL): el enlace de baja de un "
+            "clic es obligatorio para enviar."
         )
     summary = {"destinatarios": 0, "excluidos": 0, "por_historial": 0, "sin_correo": 0}
     if campaign.status == "draft":
@@ -343,8 +345,8 @@ def unsubscribe_token(organization_id: uuid.UUID, email: str) -> str:
     return _serializer().dumps({"o": str(organization_id), "e": email.lower()})
 
 
-def unsubscribe_url(organization_id: uuid.UUID, email: str) -> str | None:
-    base = get_settings().public_base_url.rstrip("/")
+def unsubscribe_url(organization_id: uuid.UUID, email: str, base: str | None = None) -> str | None:
+    base = (get_settings().public_base_url if base is None else base).rstrip("/")
     return f"{base}/baja/{unsubscribe_token(organization_id, email)}" if base else None
 
 
@@ -485,7 +487,9 @@ def _send_next(
         signature_html=campaign.signature_html,
         sender_email=account.email,
         in_reply_to=recipient.last_message_id if is_followup else None,
-        unsubscribe_url=unsubscribe_url(campaign.organization_id, recipient.email),
+        unsubscribe_url=unsubscribe_url(
+            campaign.organization_id, recipient.email, public_base_url(session)
+        ),
     )
     try:
         sent = transport.send(to_mime(mail, account.email, account.from_name), recipient.thread_id)
