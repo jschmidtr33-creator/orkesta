@@ -72,7 +72,7 @@ def session_factory(engine: Engine, database: tuple[str, str]) -> Iterator[sessi
             "orkesta.contact_lists, orkesta.imports, orkesta.contacts, orkesta.companies, "
             "orkesta.audit_logs, orkesta.invitations, orkesta.memberships, "
             "orkesta.sessions, orkesta.login_attempts, orkesta.demo_requests, orkesta.users, "
-            "orkesta.tenants CASCADE"
+            "orkesta.tenants, orkesta.web_cache CASCADE"
         )
 
 

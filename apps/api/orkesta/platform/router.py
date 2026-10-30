@@ -453,6 +453,8 @@ def accept(
 
 
 ACTION_LABELS = {
+    "research.started": "inició una investigación de prospectos",
+    "research.saved": "guardó decisores investigados en Contactos",
     "tenant.created": "creó el espacio de trabajo",
     "workspace.renamed": "cambió el nombre de la empresa",
     "member.invited": "invitó a una persona",

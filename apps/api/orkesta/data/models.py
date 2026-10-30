@@ -34,7 +34,7 @@ STATUS_LABELS = {
     "enriquecido": "Enriquecido",
     "validado": "Validado",
 }
-SOURCE_TYPES = ("importacion", "manual", "enriquecimiento")
+SOURCE_TYPES = ("importacion", "manual", "enriquecimiento", "investigacion")
 IMPORT_STATUSES = ("preview", "queued", "running", "completed", "failed", "canceled")
 # Campos del contacto con procedencia registrada (los 8 que se conservan de las bases).
 TRACKED_FIELDS = (

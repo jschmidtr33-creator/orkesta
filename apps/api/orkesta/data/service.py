@@ -928,6 +928,12 @@ def remove_from_list(
 
 # --- Exportación ---------------------------------------------------------------------------
 
+ORIGIN_LABELS = {
+    "importacion": "Importación",
+    "manual": "Manual",
+    "enriquecimiento": "Enriquecimiento",
+    "investigacion": "Investigación IA",
+}
 EXPORT_COLUMNS = (
     "Nombre", "Apellido", "Cargo", "Empresa", "Correo", "Teléfono", "Ciudad", "País",
     "Industria", "Estado", "Origen",
@@ -954,7 +960,7 @@ def export_csv(session: Session, tenant_id: uuid.UUID, f: ContactFilters) -> byt
                     c.first_name, c.last_name, c.job_title, c.company_name, c.email, c.phone,
                     c.city, country_name(c.country_code) or c.country_code, c.industry,
                     STATUS_LABELS[c.status],
-                    "Importación" if c.source == "importacion" else "Manual",
+                    ORIGIN_LABELS.get(c.source, "Manual"),
                 )
             ]
         )  # fmt: skip

@@ -22,6 +22,7 @@ from orkesta.core.db import get_session_factory
 from orkesta.data.router import router as data_router
 from orkesta.models import load_all
 from orkesta.platform.router import router as platform_router
+from orkesta.research.router import router as research_router
 
 logger = logging.getLogger("orkesta")
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -103,6 +104,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
 
     app.include_router(platform_router)
     app.include_router(data_router)
+    app.include_router(research_router)
     _mount_frontends(app)
     return app
 

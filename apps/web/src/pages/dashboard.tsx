@@ -15,7 +15,7 @@ type Summary = {
 type AuditItem = { id: string; at: string; actor: string; label: string };
 
 const KPIS: { key: keyof Summary["kpis"]; label: string; stage: number }[] = [
-  { key: "emails_validated", label: "Correos validados", stage: 2 },
+  { key: "emails_validated", label: "Correos validados", stage: 3 },
   { key: "open_opportunities", label: "Oportunidades abiertas", stage: 6 },
   { key: "conversion_rate", label: "Tasa de conversión", stage: 6 },
 ];
@@ -55,9 +55,16 @@ export function DashboardPage() {
       action: "Ver integraciones",
     },
     {
+      done: false,
+      title: "Investiga prospectos con IA",
+      text: "Elige país, industria y cargos: el agente encuentra empresas y decisores con fuentes.",
+      to: "/prospeccion",
+      action: "Investigar",
+    },
+    {
       done: (data?.contacts ?? 0) > 0,
-      title: "Importa tus contactos",
-      text: "Excel o CSV: se guardan 8 campos y cada dato conserva su fuente.",
+      title: "Importa tu base (opcional)",
+      text: "Excel o CSV como referencia: se guardan 8 campos y cada dato conserva su fuente.",
       to: "/contactos/importar",
       action: "Importar",
     },
