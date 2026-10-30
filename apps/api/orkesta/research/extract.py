@@ -158,8 +158,99 @@ _SEPARATOR = re.compile(r"\s+[-–—|·•]\s+|\s*:\s+|\s*,\s+|\s*\|\s*")
 _TITLE_LEAD = re.compile(r"^(?:el|la|nuestro|nuestra|our|the)\s+", re.IGNORECASE)
 
 
-def looks_like_person(text: str) -> bool:
-    """«Juan Carlos Pérez Gómez» sí; «Gerente General», «Nuestro Equipo» o «Banco Andino» no."""
+# Palabras que delatan que un texto en mayúsculas iniciales no es un nombre de persona.
+NON_NAME_WORDS = frozenset(
+    [
+        "equipo",
+        "junta",
+        "directiva",
+        "directivo",
+        "directivos",
+        "gobierno",
+        "corporativo",
+        "nuestro",
+        "nuestra",
+        "nuestros",
+        "nuestras",
+        "conoce",
+        "conozca",
+        "somos",
+        "quienes",
+        "historia",
+        "mision",
+        "vision",
+        "valores",
+        "contacto",
+        "contactenos",
+        "noticias",
+        "servicios",
+        "servicio",
+        "productos",
+        "producto",
+        "banco",
+        "grupo",
+        "empresa",
+        "compania",
+        "corporacion",
+        "sociedad",
+        "fundacion",
+        "asociacion",
+        "holding",
+        "inicio",
+        "bienvenido",
+        "bienvenidos",
+        "politica",
+        "politicas",
+        "privacidad",
+        "terminos",
+        "aviso",
+        "legal",
+        "sostenibilidad",
+        "informe",
+        "anual",
+        "reporte",
+        "inversionistas",
+        "accionistas",
+        "comite",
+        "consejo",
+        "presidencia",
+        "gerencia",
+        "administracion",
+        "oficina",
+        "sede",
+        "sucursal",
+        "seguros",
+        "financiera",
+        "capital",
+        "cooperativa",
+        "universidad",
+        "colegio",
+        "hospital",
+        "clinica",
+        "ministerio",
+        "the",
+        "our",
+        "team",
+        "board",
+        "about",
+        "us",
+        "leadership",
+        "management",
+        "company",
+        "group",
+        "services",
+        "news",
+    ]
+)
+
+
+def looks_like_person(text: str, *, strict: bool = True) -> bool:
+    """«Juan Carlos Pérez Gómez» sí; «Gerente General», «Nuestro Equipo» o «Banco Andino» no.
+
+    ``strict``: el primer nombre debe estar en el diccionario de nombres de pila. Sin él (cuando
+    hay otra señal fuerte, como un cargo al lado o una fuente de búsqueda) basta con que tenga
+    forma de nombre y ninguna palabra típica de títulos de página o empresas.
+    """
     value = clean(text)
     if not 5 <= len(value) <= 60 or _NOT_NAME.search(value):
         return False
@@ -168,13 +259,15 @@ def looks_like_person(text: str) -> bool:
         tokens = tokens[1:]
     if not 2 <= len(tokens) <= 5:
         return False
-    if fold(tokens[0]) not in FIRST_NAMES:
+    if strict and fold(tokens[0]) not in FIRST_NAMES:
         return False
     for token in tokens:
         folded = fold(token).rstrip(".")
         if folded in PARTICLES:
             continue
-        if folded in JOB_WORDS or not _TOKEN.match(token):
+        if folded in JOB_WORDS or folded in NON_NAME_WORDS or not _TOKEN.match(token):
+            return False
+        if not strict and len(folded) < 2:
             return False
     level, area = classify_title(value)
     return level is None and area is None
@@ -256,18 +349,31 @@ def people_in(doc: Document) -> list[Person]:
         pieces = [p for p in _SEPARATOR.split(line, maxsplit=1) if p.strip()]
         if len(pieces) == 2:
             left, right = pieces
-            if looks_like_person(left) and looks_like_title(right):
+            if (
+                looks_like_person(left, strict=False)
+                and looks_like_title(right)
+                and (looks_like_person(left) or classify_title(right)[0])
+            ):
                 add(left, right)
                 continue
-            if looks_like_title(left) and looks_like_person(right):
+            if (
+                looks_like_title(left)
+                and looks_like_person(right, strict=False)
+                and (looks_like_person(right) or classify_title(left)[0])
+            ):
                 add(right, left)
                 continue
-        if not looks_like_person(line):
+        strict = looks_like_person(line)
+        if not strict and not looks_like_person(line, strict=False):
             continue
-        # El cargo suele ir justo después del nombre; a veces justo antes.
-        for j in (i + 1, i + 2, i - 1):
+        # El cargo suele ir justo después del nombre; a veces justo antes. Un nombre poco común
+        # (fuera del diccionario) solo se acepta con un cargo directivo inmediatamente al lado.
+        neighbors = (i + 1, i + 2, i - 1) if strict else (i + 1, i - 1)
+        for j in neighbors:
             if 0 <= j < len(lines) and looks_like_title(lines[j]):
-                if j == i + 2 and looks_like_person(lines[i + 1]):
+                if j == i + 2 and looks_like_person(lines[i + 1], strict=False):
+                    continue
+                if not strict and classify_title(lines[j])[0] is None:
                     continue
                 add(line, lines[j])
                 break

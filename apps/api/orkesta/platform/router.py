@@ -520,7 +520,10 @@ def dashboard(principal: Member, db: Db) -> dict[str, Any]:
             "open_opportunities": None,
             "conversion_rate": None,
         },
-        "integrations": {"google_sign_in": get_settings().google_enabled},
+        "integrations": {
+            "google_sign_in": get_settings().google_enabled,
+            "ai_search": bool(get_settings().gemini_api_key),
+        },
     }
 
 

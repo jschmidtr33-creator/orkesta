@@ -41,7 +41,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import news, website, wikidata
+from orkesta.research import gemini, news, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -409,7 +409,10 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
             qids = wikidata.search_company(fetcher, entry)[:5]
             options = wikidata.companies_by_qid(fetcher, qids)
             if not options:
-                run.log(f"No encontramos «{entry}» en Wikidata. Escribe su dominio (empresa.com).")
+                key = company_key(entry)
+                found.setdefault(key, Candidate(key=key, name=entry))
+                if not gemini.enabled():
+                    run.log(f"«{entry}» no está en Wikidata. Escribe su dominio (empresa.com).")
                 continue
             best = next((o for o in options if fold(entry) in fold(o.name)), options[0])
             candidate = _from_wiki(best)
@@ -460,6 +463,43 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
                     added += 1
         if added:
             run.log(f"{added} empresas más de tu base cumplen los filtros.")
+
+    if gemini.enabled() and not filters.companies and len(found) < filters.limit:
+        country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+        run.log("Buscando más empresas en la web con IA…")
+        extra = gemini.companies(
+            fetcher,
+            country=country_name,
+            industries=[INDUSTRY_LABELS.get(i, i) for i in filters.industries],
+            city=filters.city,
+            keywords=filters.keywords,
+            limit=min(25, filters.limit - len(found) + 5),
+        )
+        known_domains = {c.domain for c in found.values() if c.domain}
+        added = 0
+        for hit in extra:
+            key = company_key(hit.name)
+            if hit.domain in known_domains or key in found:
+                continue
+            code = filters.industries[0] if len(filters.industries) == 1 else ""
+            found[key] = Candidate(
+                key=key,
+                name=hit.name,
+                domain=hit.domain,
+                website=hit.website,
+                city=filters.city,
+                industry=INDUSTRY_LABELS.get(code, ""),
+                industry_code=code,
+                sources=[
+                    {
+                        "type": "web",
+                        "label": f"Búsqueda web · {gemini.short_host(hit.url)}",
+                        "url": hit.url,
+                    }
+                ],
+            )
+            added += 1
+        run.log(f"Búsqueda web: {added} empresas más.")
 
     # Primero las empresas con tamaño conocido, de mayor a menor.
     ranked = sorted(
@@ -569,6 +609,58 @@ def _news(run: Run, fetcher: Fetcher, filters: Filters) -> None:
     run.log(f"Noticias: {len(found)} menciones de directivos en los últimos 3 meses.")
 
 
+def _ai_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
+    """Búsqueda web con IA por empresa, respetando el ritmo del plan gratuito."""
+    if not gemini.enabled():
+        return
+    country = COUNTRIES.get(filters.country, (filters.country,))[0]
+    total = 0
+
+    def one(company: Candidate) -> int:
+        if run.expired():
+            return 0
+        found = gemini.decision_makers(
+            fetcher,
+            company=company.name,
+            domain=company.domain,
+            country=country,
+            levels=filters.levels,
+            areas=[AREA_LABELS.get(a, a) for a in filters.areas],
+        )
+        for person in found:
+            source = {"type": "web", "label": person.source_label, "url": person.url}
+            linkedin = person.url if "linkedin.com/in/" in person.url else ""
+            prospect = run.merge_person(
+                company,
+                full_name=person.full_name,
+                first_name=person.first_name,
+                last_name=person.last_name,
+                source=source,
+                title=person.title,
+                title_confidence=70,
+                linkedin=linkedin,
+            )
+            with run.lock:
+                run.source_counts["web"] = run.source_counts.get("web", 0) + 1
+            _publish(run, prospect, filters)
+        return len(found)
+
+    # Tres consultas a la vez; el ritmo global lo limita ``gemini.MIN_INTERVAL``.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(one, c): c for c in run.companies.values()}
+        for future in as_completed(futures):
+            company = futures[future]
+            try:
+                n = future.result()
+            except Exception:
+                logger.exception("ai_people_failed %s", company.name)
+                continue
+            total += n
+            if n:
+                run.log(f"Búsqueda web · {company.name}: {n} decisores con fuente")
+    run.log(f"Búsqueda web con IA: {total} decisores respaldados por resultados de Google.")
+
+
 def _short(url: str) -> str:
     return url.split("://", 1)[-1].removeprefix("www.").rstrip("/")[:120]
 
@@ -637,6 +729,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         side: list[Callable[[], None]] = [
             lambda: _wikidata_people(run, fetcher, filters),
             lambda: _news(run, fetcher, filters),
+            lambda: _ai_people(run, fetcher, filters),
         ]
         side_futures = [pool.submit(fn) for fn in side]
         site_futures = {pool.submit(_site, run, fetcher, c, filters): c for c in companies}
