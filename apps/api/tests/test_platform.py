@@ -178,7 +178,9 @@ def test_dashboard_reports_only_real_data(client: TestClient) -> None:
     summary = client.get("/api/dashboard/summary").json()
     assert summary["team"] == {"members": 1, "pending_invitations": 0}
     # Los módulos que aún no existen no muestran cifras inventadas.
-    assert set(summary["kpis"].values()) == {None}
+    kpis = summary["kpis"]
+    assert kpis.pop("emails_validated") == 0  # real: todavía no hay correos validados
+    assert set(kpis.values()) == {None}
 
 
 def test_demo_requests_consent_rate_limit_and_platform_view(client: TestClient) -> None:

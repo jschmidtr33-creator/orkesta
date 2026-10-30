@@ -42,6 +42,8 @@ class Settings(BaseSettings):
 
     # Worker de trabajos en segundo plano dentro del proceso web (un solo servicio).
     run_worker: bool = False
+    # Verificación de buzones por SMTP (puerto 25). Se desactiva si la red lo bloquea.
+    smtp_probe: bool = True
     worker_threads: int = Field(default=2, ge=1, le=8)
 
     # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).

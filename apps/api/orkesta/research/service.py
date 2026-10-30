@@ -306,6 +306,7 @@ def save_people(
             "industry": (data.get("industry") or "")[:200] or None,
             "industry_code": classify(data.get("industry") or "") or None,
         }
+        estimated = bool(email) and data.get("email_status") == "estimado"
         if contact is None:
             contact = Contact(
                 tenant_id=tenant_id,
@@ -314,14 +315,18 @@ def save_people(
                 dedup_key=dedup_key(email, full_name, ckey),
                 source="investigacion",
                 status="nuevo",
+                email_status="estimado" if estimated else "sin_validar",
                 **values,
             )
             session.add(contact)
             created += 1
         else:
+            had_email = bool(contact.email)
             for key, value in values.items():
                 if value and not getattr(contact, key):
                     setattr(contact, key, value)
+            if not had_email and contact.email and estimated:
+                contact.email_status = "estimado"
             contact.company_id = contact.company_id or company_ids.get(ckey)
             merged += 1
         contact.level_code, contact.area_code = classify_title(contact.job_title)

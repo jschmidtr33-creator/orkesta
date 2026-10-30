@@ -34,7 +34,10 @@ STATUS_LABELS = {
     "enriquecido": "Enriquecido",
     "validado": "Validado",
 }
-SOURCE_TYPES = ("importacion", "manual", "enriquecimiento", "investigacion")
+SOURCE_TYPES = ("importacion", "manual", "enriquecimiento", "investigacion", "validacion")
+EMAIL_STATUSES = (
+    "sin_validar", "estimado", "valido", "invalido", "catch_all", "riesgoso", "desconocido",
+)  # fmt: skip
 IMPORT_STATUSES = ("preview", "queued", "running", "completed", "failed", "canceled")
 # Campos del contacto con procedencia registrada (los 8 que se conservan de las bases).
 TRACKED_FIELDS = (
@@ -74,6 +77,8 @@ class Contact(IdMixin, Base):
         CheckConstraint(_in("status", CONTACT_STATUSES), name="status"),
         CheckConstraint(_in("source", SOURCE_TYPES), name="source"),
         CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),
+        CheckConstraint(_in("email_status", EMAIL_STATUSES), name="email_status"),
+        Index("ix_contacts_tenant_email_status", "tenant_id", "email_status"),
         Index("ix_contacts_tenant_status", "tenant_id", "status"),
         Index("ix_contacts_tenant_company", "tenant_id", "company_id"),
         Index(
@@ -107,6 +112,11 @@ class Contact(IdMixin, Base):
     industry: Mapped[str | None] = mapped_column(String(200))
     industry_code: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="nuevo")
+    email_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="sin_validar", server_default="sin_validar"
+    )
+    email_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_check_reason: Mapped[str | None] = mapped_column(String(300))
     source: Mapped[str] = mapped_column(String(20), nullable=False)
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(

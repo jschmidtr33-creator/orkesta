@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileUp, ListPlus, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Download, FileUp, ListPlus, MailCheck, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -19,6 +19,7 @@ import {
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
+import { EMAIL_FILTERS, EmailBadge, ValidateModal, ValidationBanner } from "./validation";
 
 export type Option = { value: string; label: string };
 export type Meta = {
@@ -44,6 +45,8 @@ type ContactRow = {
   industry_label: string | null;
   status: string;
   status_label: string;
+  email_status: string | null;
+  email_check_reason: string | null;
 };
 type ContactPage = {
   items: ContactRow[];
@@ -103,6 +106,7 @@ export function ContactsPage() {
     pais: params.get("pais") ?? "",
     industria: params.get("industria") ?? "",
     lista: params.get("lista") ?? "",
+    correo: params.get("correo") ?? "",
   };
   const page = Number(params.get("pagina") ?? "1") || 1;
   const search = new URLSearchParams(
@@ -119,6 +123,7 @@ export function ContactsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ContactDetail | "new" | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  const [validateOpen, setValidateOpen] = useState(false);
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -163,6 +168,9 @@ export function ContactsPage() {
             <Link to="/contactos/importar" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-white px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
               <FileUp className="size-4" aria-hidden /> Importar
             </Link>
+            <Button variant="secondary" icon={<MailCheck className="size-4" aria-hidden />} onClick={() => setValidateOpen(true)}>
+              Validar correos
+            </Button>
             <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setEditing("new")}>
               Agregar contacto
             </Button>
@@ -204,6 +212,7 @@ export function ContactsPage() {
           </label>
           <FilterSelect label="País" value={filters.pais} onChange={(v) => setFilter("pais", v)} options={meta.data?.countries ?? []} />
           <FilterSelect label="Industria" value={filters.industria} onChange={(v) => setFilter("industria", v)} options={meta.data?.industries ?? []} />
+          <FilterSelect label="Correo" value={filters.correo} onChange={(v) => setFilter("correo", v)} options={EMAIL_FILTERS} />
           <FilterSelect
             label="Lista"
             value={filters.lista}
@@ -214,6 +223,7 @@ export function ContactsPage() {
             <Download className="size-4" aria-hidden /> Exportar
           </a>
         </div>
+        <ValidationBanner />
         {activeList && (
           <div className="mx-4 mb-3 flex items-center justify-between rounded-xl bg-ork-violet/5 px-3 py-2 text-[13px] text-ork-violet">
             <span>
@@ -229,6 +239,9 @@ export function ContactsPage() {
             <span className="text-[13px] font-semibold text-ork-blue">{selected.size} seleccionados</span>
             <Button size="sm" variant="secondary" icon={<ListPlus className="size-3.5" aria-hidden />} onClick={() => setListOpen(true)}>
               Agregar a lista
+            </Button>
+            <Button size="sm" variant="secondary" icon={<MailCheck className="size-3.5" aria-hidden />} onClick={() => setValidateOpen(true)}>
+              Validar correos
             </Button>
             {canManage && (
               <Button
@@ -299,7 +312,10 @@ export function ContactsPage() {
                         <Avatar name={c.full_name} email={c.email ?? ""} size={32} />
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-ork-ink">{c.full_name}</p>
-                          <p className="truncate text-[12.5px] text-ork-mist">{c.email ?? "Correo pendiente"}</p>
+                          <p className="flex items-center gap-1.5 truncate text-[12.5px] text-ork-mist">
+                            {c.email ?? "Correo pendiente"}
+                            {c.email && c.email_status !== "sin_validar" && <EmailBadge status={c.email_status} />}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -335,6 +351,13 @@ export function ContactsPage() {
       <ContactDrawer id={openId} onClose={() => setOpenId(null)} onEdit={(c) => setEditing(c)} />
       {editing && <ContactForm contact={editing === "new" ? null : editing} meta={meta.data} onClose={() => setEditing(null)} onSaved={(id) => setOpenId(id)} />}
       <AddToListModal open={listOpen} onOpenChange={setListOpen} ids={[...selected]} onDone={() => setSelected(new Set())} />
+      <ValidateModal
+        open={validateOpen}
+        onOpenChange={setValidateOpen}
+        ids={[...selected]}
+        filters={filters}
+        onStarted={() => setSelected(new Set())}
+      />
     </>
   );
 }
@@ -460,6 +483,12 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                         ) : (
                           <>
                             <p className="break-words text-[14px] text-ork-ink">{f.value}</p>
+                            {f.field === "email" && c.email_status && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <EmailBadge status={c.email_status} />
+                                {c.email_check_reason && <span className="text-[11.5px] text-ork-mist">{c.email_check_reason}</span>}
+                              </div>
+                            )}
                             {f.sources[0] && (
                               <p className="mt-0.5 text-[11.5px] text-ork-mist">
                                 Fuente: {SOURCE_LABEL[f.sources[0].source_type]} · <SourceText label={f.sources[0].source_label} /> · {formatWhen(f.sources[0].obtained_at)}
