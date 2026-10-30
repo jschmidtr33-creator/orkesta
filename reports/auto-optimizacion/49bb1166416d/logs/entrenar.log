@@ -1,0 +1,38 @@
+{
+  "version": "lgbm-20261030",
+  "filas": 11997,
+  "empresas_entrenamiento": 954,
+  "empresas_prueba": 368,
+  "umbral_confirmado": 0.99,
+  "umbral_probable": 0.73,
+  "modelo_prueba": {
+    "empresas": 368,
+    "con_dominio": 269,
+    "aciertos": 201,
+    "exactitud": 0.7472,
+    "cobertura": 0.731
+  },
+  "reglas_prueba": {
+    "empresas": 368,
+    "con_dominio": 280,
+    "aciertos": 173,
+    "exactitud": 0.6179,
+    "cobertura": 0.7609
+  },
+  "modelo_prueba_marca": {
+    "empresas": 368,
+    "con_dominio": 269,
+    "aciertos": 225,
+    "exactitud": 0.8364,
+    "cobertura": 0.731
+  },
+  "reglas_prueba_marca": {
+    "empresas": 368,
+    "con_dominio": 280,
+    "aciertos": 196,
+    "exactitud": 0.7,
+    "cobertura": 0.7609
+  },
+  "promover": false
+}
+El modelo no supera a las reglas: no se promueve.
