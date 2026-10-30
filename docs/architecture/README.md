@@ -22,3 +22,5 @@ La propuesta técnica aprobada (Fases 1 a 5) vive como documento colaborativo:
 | 13 | Fuentes gratuitas: Wikidata (SPARQL), sitios oficiales (respetando robots.txt) y GDELT | Sin presupuesto para APIs; LinkedIn no se rastrea: solo se enlaza el perfil público que Wikidata publica |
 | 14 | Correos «publicados» vs «estimados» | El patrón de la empresa se deduce solo de correos publicados en su sitio; los estimados quedan marcados hasta la validación (Etapa 3) |
 | 15 | Descargas con protección SSRF y caché global `web_cache` | El usuario puede escribir dominios; solo se permiten IP públicas y las respuestas públicas se reutilizan |
+| 16 | Validación propia por DNS y SMTP (sin APIs) | Sin enviar correos: `RCPT TO` con prueba de dirección aleatoria para detectar catch-all. Si la red bloquea el puerto 25 el resultado queda «Sin confirmar», nunca «Válido». Se puede apagar con `SMTP_PROBE=false` |
+| 17 | Buscar correos faltantes solo con confirmación del servidor | Se prueban formatos habituales y se guarda únicamente el que el servidor confirma; en dominios catch-all no se adivina |

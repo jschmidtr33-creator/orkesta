@@ -25,6 +25,7 @@ from orkesta.core import jobs
 from orkesta.core.db import set_context
 from orkesta.data.models import (
     CONTACT_STATUSES,
+    EMAIL_STATUSES,
     STATUS_LABELS,
     Company,
     Contact,
@@ -542,6 +543,7 @@ class ContactFilters:
     industry: str = ""
     company_id: uuid.UUID | None = None
     list_id: uuid.UUID | None = None
+    email_status: str = ""
 
 
 def _filtered(tenant_id: uuid.UUID, f: ContactFilters) -> Select[Any]:
@@ -556,6 +558,10 @@ def _filtered(tenant_id: uuid.UUID, f: ContactFilters) -> Select[Any]:
         query = query.where(Contact.industry_code == f.industry)
     if f.company_id:
         query = query.where(Contact.company_id == f.company_id)
+    if f.email_status == "sin_correo":
+        query = query.where(Contact.email.is_(None))
+    elif f.email_status in EMAIL_STATUSES:
+        query = query.where(Contact.email_status == f.email_status, Contact.email.is_not(None))
     if f.list_id:
         query = query.where(
             Contact.id.in_(select(ListMember.contact_id).where(ListMember.list_id == f.list_id))
@@ -603,6 +609,11 @@ def contact_dict(contact: Contact) -> dict[str, Any]:
         "industry_label": INDUSTRY_LABELS.get(contact.industry_code or "", contact.industry),
         "status": contact.status,
         "status_label": STATUS_LABELS[contact.status],
+        "email_status": contact.email_status if contact.email else None,
+        "email_check_reason": contact.email_check_reason,
+        "email_checked_at": contact.email_checked_at.isoformat()
+        if contact.email_checked_at
+        else None,
         "source": contact.source,
         "updated_at": contact.updated_at.isoformat() if contact.updated_at else None,
     }
@@ -807,6 +818,12 @@ def update_contact(session: Session, *, contact: Contact, user: Any, data: Conta
             setattr(contact, key, value)
     if "company_name" in changed:
         contact.company_id = _ensure_company(session, contact.tenant_id, values)
+    if "email" in changed:
+        contact.email_status, contact.email_checked_at, contact.email_check_reason = (
+            "sin_validar",
+            None,
+            None,
+        )
     contact.level_code, contact.area_code = classify_title(contact.job_title)
     contact.search_text = search_text(
         contact.full_name, contact.email, contact.company_name, contact.job_title, contact.city
@@ -965,6 +982,17 @@ def export_csv(session: Session, tenant_id: uuid.UUID, f: ContactFilters) -> byt
             ]
         )  # fmt: skip
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def emails_validated(session: Session, tenant_id: uuid.UUID) -> int:
+    return int(
+        session.scalar(
+            select(func.count()).where(
+                Contact.tenant_id == tenant_id, Contact.email_status == "valido"
+            )
+        )
+        or 0
+    )
 
 
 def contacts_total(session: Session, tenant_id: uuid.UUID) -> int:

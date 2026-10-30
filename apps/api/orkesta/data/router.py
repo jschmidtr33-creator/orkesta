@@ -36,10 +36,11 @@ def _filters(
     industria: str = "",
     empresa: uuid.UUID | None = None,
     lista: uuid.UUID | None = None,
+    correo: str = "",
 ) -> svc.ContactFilters:
     return svc.ContactFilters(
         q=q[:200], status=estado, country=pais[:2], industry=industria[:40],
-        company_id=empresa, list_id=lista,
+        company_id=empresa, list_id=lista, email_status=correo[:20],
     )  # fmt: skip
 
 

@@ -453,6 +453,7 @@ def accept(
 
 
 ACTION_LABELS = {
+    "validation.started": "inició una validación de correos",
     "research.started": "inició una investigación de prospectos",
     "research.saved": "guardó decisores investigados en Contactos",
     "tenant.created": "creó el espacio de trabajo",
@@ -515,7 +516,7 @@ def dashboard(principal: Member, db: Db) -> dict[str, Any]:
         "contacts": data_service.contacts_total(db, tid),
         "kpis": {
             "contacts_found": None,
-            "emails_validated": None,
+            "emails_validated": data_service.emails_validated(db, tid),
             "open_opportunities": None,
             "conversion_rate": None,
         },
