@@ -26,6 +26,11 @@ jobs:
           pip install --require-hashes -r requirements.txt
           pip install --no-deps -e .
       - name: Directivos públicos por país
-        run: python -m orkesta.catalog.public_people --out /tmp/directivos.csv.gz --countries "${{ inputs.paises }}"
+        run: |
+          set -o pipefail
+          python -m orkesta.catalog.public_people --out /tmp/directivos.csv.gz --countries "${{ inputs.paises }}" \
+            | sed 's/^/::notice::Directivos /'
       - name: Empresas por país
-        run: python -m orkesta.catalog.wikidata_catalog --out /tmp/empresas.csv.gz --countries "${{ inputs.paises }}" 2>&1 | tail -n 30
+        run: |
+          python -m orkesta.catalog.wikidata_catalog --out /tmp/empresas.csv.gz --countries "${{ inputs.paises }}" \
+            | sed 's/^/::notice::Empresas /'
