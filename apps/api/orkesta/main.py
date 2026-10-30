@@ -76,6 +76,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
             status_code=422,
         )
 
+    @app.get("/health", include_in_schema=False)
+    def root_health() -> dict[str, str]:
+        # Alias para servicios de Render configurados con la ruta antigua del health check.
+        return {"status": "ok"}
+
     app.include_router(platform_router)
     _mount_frontends(app)
     return app
