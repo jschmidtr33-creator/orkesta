@@ -18,3 +18,7 @@ La propuesta técnica aprobada (Fases 1 a 5) vive como documento colaborativo:
 | 9 | Cola de trabajos propia sobre PostgreSQL (`FOR UPDATE SKIP LOCKED`) en lugar de Procrastinate | Sin dependencias extra; los workers corren dentro del servicio web (`RUN_WORKER=true`) para no pagar un segundo servicio |
 | 10 | Motor de normalización en `apps/api/orkesta/engine` | Se porta el motor probado de la versión anterior dentro del backend en vez de un paquete aparte |
 | 11 | De las bases propias solo se guardan 8 campos | Nombre, apellido, ubicación, teléfono, correo, cargo, empresa e industria; cada valor guarda su fuente |
+| 12 | La prospección no depende de bases subidas | El agente parte de filtros y consulta fuentes abiertas; la base propia solo suma empresas de referencia |
+| 13 | Fuentes gratuitas: Wikidata (SPARQL), sitios oficiales (respetando robots.txt) y GDELT | Sin presupuesto para APIs; LinkedIn no se rastrea: solo se enlaza el perfil público que Wikidata publica |
+| 14 | Correos «publicados» vs «estimados» | El patrón de la empresa se deduce solo de correos publicados en su sitio; los estimados quedan marcados hasta la validación (Etapa 3) |
+| 15 | Descargas con protección SSRF y caché global `web_cache` | El usuario puede escribir dominios; solo se permiten IP públicas y las respuestas públicas se reutilizan |

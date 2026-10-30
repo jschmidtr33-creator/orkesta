@@ -389,7 +389,26 @@ function EmptyContacts({ filtered, onAdd }: { filtered: boolean; onAdd: () => vo
   );
 }
 
-const SOURCE_LABEL: Record<string, string> = { importacion: "Importación", manual: "Manual", enriquecimiento: "Enriquecimiento" };
+const SOURCE_LABEL: Record<string, string> = {
+  importacion: "Importación",
+  manual: "Manual",
+  enriquecimiento: "Enriquecimiento",
+  investigacion: "Investigación IA",
+};
+
+function SourceText({ label }: { label: string }) {
+  const match = label.match(/https?:\/\/\S+/);
+  if (!match) return <>{label}</>;
+  const [before] = label.split(match[0]);
+  return (
+    <>
+      {before}
+      <a href={match[0]} target="_blank" rel="noreferrer noopener" className="text-ork-blue hover:underline">
+        {match[0].replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)}
+      </a>
+    </>
+  );
+}
 
 function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: () => void; onEdit: (c: ContactDetail) => void }) {
   const detail = useQuery({
@@ -443,7 +462,7 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                             <p className="break-words text-[14px] text-ork-ink">{f.value}</p>
                             {f.sources[0] && (
                               <p className="mt-0.5 text-[11.5px] text-ork-mist">
-                                Fuente: {SOURCE_LABEL[f.sources[0].source_type]} · {f.sources[0].source_label} · {formatWhen(f.sources[0].obtained_at)}
+                                Fuente: {SOURCE_LABEL[f.sources[0].source_type]} · <SourceText label={f.sources[0].source_label} /> · {formatWhen(f.sources[0].obtained_at)}
                                 {f.sources.length > 1 && ` · ${f.sources.length - 1} fuente${f.sources.length > 2 ? "s" : ""} más`}
                               </p>
                             )}

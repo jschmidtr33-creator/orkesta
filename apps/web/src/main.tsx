@@ -11,6 +11,7 @@ import { DashboardPage } from "./pages/dashboard";
 import { ContactsPage, ListsPage } from "./pages/contacts";
 import { ImportPage } from "./pages/importer";
 import { ModulePage } from "./pages/modules";
+import { ProspectingPage } from "./pages/prospecting";
 import { SettingsPage } from "./pages/settings";
 
 const client = new QueryClient({
@@ -34,7 +35,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/invitacion/:token" element={<InvitationPage />} />
             <Route element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
-              <Route path="/prospeccion" element={<ModulePage slug="prospeccion" />} />
+              <Route path="/prospeccion" element={<ProspectingPage />} />
               <Route path="/contactos" element={<ContactsPage />} />
               <Route path="/contactos/importar" element={<ImportPage />} />
               <Route path="/contactos/listas" element={<ListsPage />} />
