@@ -1,0 +1,15 @@
+AR wd:Q4830453: JSONDecodeError("Expecting ',' delimiter: line 3654 column 6 (char 90027)")
+ES wd:Q4830453: HTTPStatusError("Server error '504 Gateway Timeout' for url 'https://query.wikidata.org/sparql?query=%0ASELECT+%3Fitem+%3FitemLabel+%3Fwebsite+%3FcityLabel+%3FindustryLabel+%3Femployees+WHERE+%7B%0A++%3Fitem+wdt%3AP31+wd%3AQ4830453+%3B+wdt%3AP17+wd%3AQ29+.%0A++FILTER+NOT+EXISTS+%7B+%3Fitem+wdt%3AP576+%3Fdissolved+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP856+%3Fwebsite+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP159+%3Fcity+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP452+%3Findustry+.+%7D%0A++OPTIONAL+%7B+%3Fitem+wdt%3AP1128+%3Femployees+.+%7D%0A++SERVICE+wikibase%3Alabel+%7B+bd%3AserviceParam+wikibase%3Alanguage+%22es%2Cen%22.+%7D%0A%7D%0ALIMIT+4000%0A&format=json'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504")
+MX: 523 empresas, 400 con sitio oficial
+CO: 271 empresas, 207 con sitio oficial
+PE: 148 empresas, 113 con sitio oficial
+CL: 319 empresas, 240 con sitio oficial
+AR: 262 empresas, 129 con sitio oficial
+EC: 63 empresas, 49 con sitio oficial
+UY: 74 empresas, 36 con sitio oficial
+PA: 42 empresas, 29 con sitio oficial
+CR: 24 empresas, 19 con sitio oficial
+GT: 25 empresas, 21 con sitio oficial
+DO: 32 empresas, 29 con sitio oficial
+ES: 1222 empresas, 914 con sitio oficial
+Total: 3005 empresas → work/catalogo/empresas_latam.csv.gz
