@@ -1,84 +1,137 @@
 {% extends "base.html" %}
-{% block title %}Cuentas de envío{% endblock %}
+{% block title %}Correo{% endblock %}
 {% block content %}
-<h1>Cuentas de envío</h1>
+<div class="heading-row">
+  <div>
+    <h1>Correo de envío</h1>
+    <p class="muted">Conecta la cuenta desde la que salen tus campañas. ORKESTA envía desde tu propio correo, respeta tu límite diario y detecta respuestas y rebotes.</p>
+  </div>
+</div>
+
+{% if accounts %}
 <section class="card">
+  <div class="card-title"><h2>Cuentas conectadas</h2></div>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Cuenta</th><th>Tipo</th><th>Estado</th><th class="num">Límite diario</th><th></th></tr></thead>
+    <thead><tr><th>Cuenta</th><th>Conexión</th><th>Estado</th><th class="num">Límite diario</th><th></th></tr></thead>
     <tbody>
       {% for a in accounts %}
       <tr>
-        <td>{{ a.email }}{% if a.from_name %}<div class="muted small">{{ a.from_name }}</div>{% endif %}{% if a.last_error %}<div class="small notice-error">{{ a.last_error }}</div>{% endif %}</td>
-        <td>{% if a.provider == "gmail" %}Gmail{% else %}SMTP · {{ a.smtp_host }}{% if not a.imap_host %}<div class="muted small">sin IMAP: no detecta respuestas</div>{% endif %}{% endif %}</td>
-        <td>{% if a.active %}<span class="badge badge-valid">activa</span>{% else %}<span class="badge badge-invalid">inactiva</span>{% endif %}</td>
+        <td><div class="cell-main">{{ a.email }}</div>{% if a.from_name %}<div class="cell-sub">{{ a.from_name }}</div>{% endif %}{% if a.last_error %}<div class="small notice-error top-gap">{{ a.last_error }}</div>{% endif %}</td>
+        <td>{% if a.provider == "gmail" %}Gmail (Google){% else %}{{ a.smtp_host }}{% if not a.imap_host %}<div class="cell-sub">sin IMAP: no detecta respuestas</div>{% endif %}{% endif %}</td>
+        <td>{% if a.active %}<span class="badge badge-valid">activa</span>{% else %}<span class="badge badge-invalid">pausada</span>{% endif %}</td>
         <td class="num">
-          <form method="post" action="/cuentas/{{ a.id }}/limite" class="inline">
+          <form method="post" action="/cuentas/{{ a.id }}/limite" class="actions">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="number" name="limite" value="{{ a.daily_limit }}" min="1" max="2000" style="width:6em" aria-label="Límite diario">
+            <input type="number" name="limite" value="{{ a.daily_limit }}" min="1" max="2000" class="input-short" aria-label="Límite diario de {{ a.email }}">
             <button type="submit" class="button button-small button-secondary">Guardar</button>
           </form>
         </td>
         <td>
           <form method="post" action="/cuentas/{{ a.id }}/estado" class="inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit" class="link">{% if a.active %}Desactivar{% else %}Activar{% endif %}</button>
+            <button type="submit" class="link">{% if a.active %}Pausar{% else %}Activar{% endif %}</button>
           </form>
         </td>
       </tr>
-      {% else %}
-      <tr><td colspan="5" class="muted">Aún no hay cuentas. Conecta Gmail o tu correo corporativo.</td></tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
-  <p class="muted small">Límites de los proveedores: Gmail gratuito 500 correos al día, Google Workspace 2.000.
-    Para prospección en frío conviene empezar con 30-50 al día por cuenta y subir de a poco.</p>
+  <p class="muted small top-gap">Para prospección en frío conviene empezar con 30–50 correos al día por cuenta y subir de a poco. Límites de Google: Gmail gratuito 500 al día, Workspace 2.000.</p>
 </section>
+{% endif %}
 
-<section class="card">
-  <h2>Conectar Gmail</h2>
-  {% if google_ready %}
-  <p>Inicia sesión con tu cuenta de Google: ORKESTA solo pide permiso para enviar y para ver si respondieron.</p>
-  <a class="button" href="/cuentas/google/conectar">Conectar con Google</a>
-  {% else %}
-  <p class="muted">Para conectar Gmail hay que configurar una credencial OAuth de Google Cloud
-    (variables <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> y <code>PUBLIC_BASE_URL</code>).
-    Mientras tanto puedes usar Gmail o Workspace por SMTP con una contraseña de aplicación.</p>
-  {% endif %}
-</section>
+<h2 class="top-gap">{% if accounts %}Conectar otra cuenta{% else %}Elige cómo conectar tu correo{% endif %}</h2>
+<div class="option-cards top-gap">
+  <section class="option-card recommended">
+    <span class="badge badge-valid">Recomendado</span>
+    <h3>Gmail o Google Workspace</h3>
+    <p class="muted small grow">Un clic: inicias sesión con Google y das permiso para enviar y para ver si te respondieron. Sin contraseñas.</p>
+    {% if google %}
+    <a class="button button-google button-block" href="/cuentas/google/conectar">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      Conectar con Google
+    </a>
+    {% elif is_admin %}
+    <a class="button button-block" href="#configurar-google">Configurar Google (una sola vez)</a>
+    <p class="hint">Toma unos 5 minutos. Mientras tanto puedes usar la contraseña de aplicación →</p>
+    {% else %}
+    <p class="notice notice-info small">Un administrador debe configurar Google una vez. Mientras tanto usa la contraseña de aplicación.</p>
+    {% endif %}
+  </section>
 
-<section class="card">
-  <h2>Conectar correo corporativo (SMTP)</h2>
-  <form method="post" action="/cuentas/smtp" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="filter-row">
-      <label>Correo <input type="email" name="correo" required placeholder="tu@empresa.com"></label>
+  <section class="option-card">
+    <h3>Gmail con contraseña de aplicación</h3>
+    <p class="muted small">Funciona ya, sin configurar nada en Google Cloud. Requiere tener activa la verificación en dos pasos.</p>
+    <form method="post" action="/cuentas/smtp" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="preajuste" value="google_workspace">
+      <label>Correo de Gmail <input type="email" name="correo" required placeholder="tu@gmail.com o tu@empresa.com" autocomplete="email"></label>
+      <label>Contraseña de aplicación
+        <input type="password" name="contrasena" required autocomplete="new-password" placeholder="16 letras">
+        <span class="hint">Créala en <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a> (nómbrala «ORKESTA»).</span>
+      </label>
       <label>Nombre del remitente <input type="text" name="nombre" maxlength="120" placeholder="Jenn | America Digital"></label>
-      <label>Contraseña (o contraseña de aplicación) <input type="password" name="contrasena" required autocomplete="new-password"></label>
-    </div>
-    <div class="filter-row">
+      <input type="hidden" name="limite" value="{{ default_limit }}">
+      <button type="submit" class="button button-secondary button-block">Probar y conectar</button>
+    </form>
+  </section>
+
+  <section class="option-card">
+    <h3>Outlook, Microsoft 365 u otro correo</h3>
+    <p class="muted small">Correo corporativo por SMTP. ORKESTA prueba la conexión antes de guardar y guarda la contraseña cifrada.</p>
+    <form method="post" action="/cuentas/smtp" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Proveedor
         <select name="preajuste">
-          {% for code, p in presets.items() %}<option value="{{ code }}">{{ p[0] }}</option>{% endfor %}
+          {% for code, p in presets.items() %}{% if code != "google_workspace" %}<option value="{{ code }}">{{ p[0] }}</option>{% endif %}{% endfor %}
           <option value="">Otro (completar servidores)</option>
         </select>
       </label>
-      <label>Límite diario <input type="number" name="limite" value="{{ default_limit }}" min="1" max="2000"></label>
-    </div>
-    <details class="filter-group">
-      <summary>Otro proveedor: servidores</summary>
-      <div class="filter-row top-gap">
-        <label>Servidor SMTP <input type="text" name="smtp_host" placeholder="mail.empresa.com"></label>
-        <label>Puerto <input type="number" name="smtp_port" value="587"></label>
-        <label>Seguridad <select name="seguridad"><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL (465)</option></select></label>
-        <label>Servidor IMAP (respuestas) <input type="text" name="imap_host" placeholder="mail.empresa.com"></label>
-        <label>Puerto IMAP <input type="number" name="imap_port" value="993"></label>
-        <label>Usuario (si no es el correo) <input type="text" name="usuario"></label>
-      </div>
-    </details>
-    <div class="actions"><button type="submit" class="button">Probar y conectar</button></div>
-  </form>
-  <p class="muted small">ORKESTA prueba la conexión antes de guardar. La contraseña se guarda cifrada.</p>
+      <label>Correo <input type="email" name="correo" required placeholder="tu@empresa.com"></label>
+      <label>Contraseña <input type="password" name="contrasena" required autocomplete="new-password"></label>
+      <label>Nombre del remitente <input type="text" name="nombre" maxlength="120" placeholder="Jenn | America Digital"></label>
+      <input type="hidden" name="limite" value="{{ default_limit }}">
+      <details class="filter-group">
+        <summary>Servidores (solo para «Otro»)</summary>
+        <div class="stack">
+          <label>Servidor SMTP <input type="text" name="smtp_host" placeholder="mail.empresa.com"></label>
+          <label>Puerto SMTP <input type="number" name="smtp_port" value="587"></label>
+          <label>Seguridad <select name="seguridad"><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL (465)</option></select></label>
+          <label>Servidor IMAP (para detectar respuestas) <input type="text" name="imap_host" placeholder="mail.empresa.com"></label>
+          <label>Puerto IMAP <input type="number" name="imap_port" value="993"></label>
+          <label>Usuario (si no es el correo) <input type="text" name="usuario"></label>
+        </div>
+      </details>
+      <button type="submit" class="button button-secondary button-block">Probar y conectar</button>
+    </form>
+  </section>
+</div>
+
+{% if is_admin and not google_env %}
+<section class="card top-gap" id="configurar-google">
+  <div class="card-title">
+    <h2>Configurar Google {% if google %}<span class="badge badge-valid">configurado</span>{% endif %}</h2>
+  </div>
+  <p class="muted">Se hace una sola vez para toda la organización. Luego cada persona conecta su Gmail con un clic.</p>
+  <ol class="steps top-gap">
+    <li>Entra a <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud</a> con tu cuenta (idealmente la de la empresa) y crea un proyecto llamado <strong>ORKESTA</strong>.</li>
+    <li>Activa la <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener noreferrer">API de Gmail</a> con el botón «Habilitar».</li>
+    <li>En <a href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noopener noreferrer">Pantalla de consentimiento (Google Auth Platform)</a> pon nombre «ORKESTA» y tu correo de soporte. En «Público» elige <strong>Interno</strong> si usas Google Workspace (no hay revisión de Google); si usas Gmail gratuito elige <strong>Externo</strong> y luego pulsa <strong>Publicar app</strong> para que la conexión no venza a los 7 días.</li>
+    <li>En <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Clientes</a> crea un cliente de tipo <strong>Aplicación web</strong> y agrega este URI de redireccionamiento autorizado:
+      <div class="copy-field top-gap"><input type="text" readonly value="{{ redirect_uri or 'Abre ORKESTA desde su dirección pública para ver el URI' }}" aria-label="URI de redireccionamiento"></div>
+    </li>
+    <li>Copia el <strong>ID de cliente</strong> y el <strong>secreto de cliente</strong> y pégalos aquí:
+      <form method="post" action="/cuentas/google/configurar" class="stack top-gap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>ID de cliente <input type="text" name="client_id" required placeholder="123456-abc.apps.googleusercontent.com" autocomplete="off"></label>
+        <label>Secreto de cliente <input type="password" name="client_secret" required autocomplete="new-password" placeholder="GOCSPX-…"></label>
+        <div class="actions"><button type="submit" class="button">Guardar y activar Gmail</button></div>
+      </form>
+    </li>
+  </ol>
+  <p class="muted small top-gap">Si usas Gmail gratuito, al conectar Google mostrará «Google no verificó esta app»: pulsa «Configuración avanzada» → «Ir a ORKESTA». Es tu propia app; el aviso desaparece si la verificas con Google.</p>
 </section>
+{% endif %}
 {% endblock %}

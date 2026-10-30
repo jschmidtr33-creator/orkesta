@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Protocol
 
-from orkesta.config import get_settings
+from sqlalchemy.orm import object_session
+
 from orkesta.db.models import MailAccount
 from orkesta.engine.mail import gmail
 from orkesta.engine.mail.smtp import (
@@ -48,20 +49,15 @@ class Transport(Protocol):
     def events(self, watched: list[Watched]) -> Events: ...
 
 
-def google_client() -> gmail.GoogleClient:
-    settings = get_settings()
-    if not (
-        settings.google_client_id and settings.google_client_secret and settings.public_base_url
-    ):
-        raise MailTransportError(
-            "Gmail no está configurado: faltan GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET o "
-            "PUBLIC_BASE_URL."
-        )
-    return gmail.GoogleClient(
-        settings.google_client_id,
-        settings.google_client_secret,
-        settings.public_base_url.rstrip("/") + "/cuentas/google/retorno",
-    )
+def google_client_for(account: MailAccount) -> gmail.GoogleClient:
+    """Cliente OAuth de la organización de la cuenta (variables del servidor o credencial
+    guardada desde la pantalla de Correo)."""
+    from orkesta.campaigns.google_config import google_client
+
+    session = object_session(account)
+    if session is None:
+        raise MailTransportError("La cuenta de Gmail no está asociada a una sesión.")
+    return google_client(session, account.organization_id)
 
 
 class GmailTransport:
@@ -73,7 +69,9 @@ class GmailTransport:
 
     def _access(self) -> str:
         if self._token is None:
-            self._token = gmail.access_token(google_client(), decrypt(self.account.secret or b""))
+            self._token = gmail.access_token(
+                google_client_for(self.account), decrypt(self.account.secret or b"")
+            )
         return self._token
 
     def send(self, message: EmailMessage, thread_id: str | None) -> SentRef:
