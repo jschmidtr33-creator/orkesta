@@ -1,33 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Prospectos{% endblock %}
+{% block title %}Buscar personas{% endblock %}
+{% block page_class %} page-wide{% endblock %}
 {% block content %}
 <div class="heading-row">
-  <h1>Base de prospectos</h1>
-  {% if total %}<a class="button button-secondary" href="/prospectos/exportar?{{ query }}">Exportar {{ total | thousands }} (CSV)</a>{% endif %}
+  <div>
+    <h1>Buscar personas</h1>
+    <p class="muted">Filtra por cargo, empresa, industria y país. ORKESTA busca en tu base, en datos públicos y en los sitios de las empresas.</p>
+  </div>
+  <div class="actions">
+    {% if total %}<a class="button button-secondary" href="/prospectos/exportar?{{ query }}">Exportar {{ total | thousands }} (CSV)</a>{% endif %}
+    <a class="button button-secondary" href="#agregar-base">Subir una base</a>
+  </div>
 </div>
 
-<section class="card">
-  <div class="stats">
-    <div class="stat"><span class="stat-value">{{ base_total | thousands }}</span><span class="stat-label">Personas en tu base</span></div>
-    <div class="stat stat-good"><span class="stat-value">{{ patterns | thousands }}</span><span class="stat-label">Empresas con patrón de correo real</span></div>
-  </div>
-  <form method="get" action="/prospectos" class="filters top-gap">
-    <div class="filter-row">
-      <label>Cargo <input type="search" name="cargo" value="{{ filters.title }}" placeholder="gerente compras"></label>
-      <label>Empresa <input type="search" name="empresa" value="{{ filters.company }}" placeholder="bancolombia"></label>
-      <label>Ciudad <input type="search" name="ciudad" value="{{ filters.city }}" placeholder="Monterrey"></label>
-    </div>
-    <div class="filter-row">
-      <details class="filter-group" {% if filters.levels and not only_decision_makers %}open{% endif %}>
-        <summary>Nivel{% if filters.levels and not only_decision_makers %} ({{ filters.levels | length }}){% endif %}</summary>
-        <div class="checks">
-          {% for code, label in levels.items() %}
-          <label class="check"><input type="checkbox" name="nivel" value="{{ code }}" {% if code in filters.levels and not only_decision_makers %}checked{% endif %}> {{ label }}</label>
-          {% endfor %}
-        </div>
-      </details>
+<div class="search-layout">
+  <form method="get" action="/prospectos" class="card search-sidebar" aria-label="Filtros">
+    <input type="hidden" name="buscar" value="1">
+    <div class="sidebar-section">
+      <span class="sidebar-label">Persona</span>
+      <label>Cargo <input type="search" name="cargo" value="{{ filters.title }}" placeholder="Ej.: gerente de compras"></label>
+      <div class="quick-levels" role="group" aria-label="Nivel">
+        {% for code, label in levels.items() %}{% if code in decision_levels %}
+        <label class="chip-check"><input type="checkbox" name="nivel" value="{{ code }}" {% if code in filters.levels %}checked{% endif %}><span>{{ label }}</span></label>
+        {% endif %}{% endfor %}
+      </div>
       <details class="filter-group" {% if filters.areas %}open{% endif %}>
-        <summary>Área{% if filters.areas %} ({{ filters.areas | length }}){% endif %}</summary>
+        <summary>Área{% if filters.areas %}<span class="count-pill">{{ filters.areas | length }}</span>{% endif %}</summary>
         <div class="checks">
           {% for code, label in areas.items() %}
           <label class="check"><input type="checkbox" name="area" value="{{ code }}" {% if code in filters.areas %}checked{% endif %}> {{ label }}</label>
@@ -35,157 +33,182 @@
         </div>
       </details>
     </div>
-    <div class="filter-row">
+
+    <div class="sidebar-section">
+      <span class="sidebar-label">Empresa</span>
+      <label>Nombre de la empresa <input type="search" name="empresa" value="{{ filters.company }}" placeholder="Ej.: Bancolombia"></label>
       <details class="filter-group" {% if filters.industries %}open{% endif %}>
-        <summary>Industria{% if filters.industries %} ({{ filters.industries | length }}){% endif %}</summary>
+        <summary>Industria{% if filters.industries %}<span class="count-pill">{{ filters.industries | length }}</span>{% endif %}</summary>
         <div class="checks">
           {% for code, label in industries.items() %}
           <label class="check"><input type="checkbox" name="industria" value="{{ code }}" {% if code in filters.industries %}checked{% endif %}> {{ label }}</label>
           {% endfor %}
         </div>
       </details>
+      <details class="filter-group" {% if filters.sizes %}open{% endif %}>
+        <summary>Tamaño (empleados){% if filters.sizes %}<span class="count-pill">{{ filters.sizes | length }}</span>{% endif %}</summary>
+        <div class="checks">
+          {% for band in sizes %}<label class="check"><input type="checkbox" name="tamano" value="{{ band }}" {% if band in filters.sizes %}checked{% endif %}> {{ band }}</label>{% endfor %}
+          <span class="hint">Se usa para elegir qué empresas explorar en la web.</span>
+        </div>
+      </details>
+    </div>
+
+    <div class="sidebar-section">
+      <span class="sidebar-label">Ubicación</span>
       <details class="filter-group" {% if filters.countries %}open{% endif %}>
-        <summary>País{% if filters.countries %} ({{ filters.countries | length }}){% endif %}</summary>
+        <summary>País{% if filters.countries %}<span class="count-pill">{{ filters.countries | length }}</span>{% endif %}</summary>
         <div class="checks">
           {% for code, name in countries %}
           <label class="check"><input type="checkbox" name="pais" value="{{ code }}" {% if code in filters.countries %}checked{% endif %}> {{ name }}</label>
           {% endfor %}
         </div>
       </details>
-      <label class="check"><input type="checkbox" name="decisores" value="1" {% if only_decision_makers %}checked{% endif %}> <strong>Solo decisores</strong> (C-Level, dueños y fundadores, VP, directores, gerentes, jefes)</label>
+      <label>Ciudad <input type="search" name="ciudad" value="{{ filters.city }}" placeholder="Ej.: Monterrey"></label>
+    </div>
+
+    <div class="sidebar-section">
+      <span class="sidebar-label">Opciones</span>
       <label class="check"><input type="checkbox" name="con_correo" value="1" {% if filters.with_email %}checked{% endif %}> Solo con correo</label>
       <label class="check"><input type="checkbox" name="web" value="1" {% if filters.only_web %}checked{% endif %}> Solo encontrados en la web</label>
     </div>
-    <div class="actions">
-      <button type="submit" class="button">Buscar</button>
-      {% if filters.active %}<a href="/prospectos" class="link">Quitar filtros</a>{% endif %}
+
+    <div class="sidebar-actions">
+      <button type="submit" class="button button-block">Buscar</button>
+      {% if filters.active %}<a href="/prospectos?buscar=1" class="button button-secondary button-block">Quitar filtros</a>{% endif %}
     </div>
   </form>
-</section>
 
-<section class="card">
-  <form method="post" action="/prospectos/a-lista" id="a-lista">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="cargo" value="{{ filters.title }}">
-  <input type="hidden" name="empresa" value="{{ filters.company }}">
-  <input type="hidden" name="ciudad" value="{{ filters.city }}">
-  {% for code in filters.industries %}<input type="hidden" name="industria" value="{{ code }}">{% endfor %}
-  {% for code in filters.countries %}<input type="hidden" name="pais" value="{{ code }}">{% endfor %}
-  {% for code in filters.levels %}<input type="hidden" name="nivel" value="{{ code }}">{% endfor %}
-  {% for code in filters.areas %}<input type="hidden" name="area" value="{{ code }}">{% endfor %}
-  {% if filters.with_email %}<input type="hidden" name="con_correo" value="1">{% endif %}
-  {% if filters.only_web %}<input type="hidden" name="web" value="1">{% endif %}
-  {% if total %}
-  <div class="filter-row list-bar">
-    <label>Agregar a lista
-      <select name="lista">
-        <option value="">— elegir —</option>
-        {% for l in lists %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>o nueva lista <input type="text" name="nueva_lista" maxlength="120" placeholder="Nombre de la lista"></label>
-    <label class="check"><input type="radio" name="alcance" value="seleccionados" checked> Seleccionados</label>
-    <label class="check"><input type="radio" name="alcance" value="todos"> Todos los resultados ({{ total | thousands }}{% if total > 5000 %}, máx. 5.000{% endif %})</label>
-    <label class="check"><input type="checkbox" name="excluir_otras" value="1"> Excluir a quienes ya están en otras listas</label>
-    <div class="actions"><button type="submit" class="button">Agregar</button></div>
-  </div>
-  {% endif %}
-  <p class="muted small">{{ total | thousands }} {% if total == 1 %}persona{% else %}personas{% endif %}{% if filters.active %} con estos filtros{% endif %}.</p>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th></th><th>Nombre</th><th>Cargo</th><th>Empresa</th><th>Correo</th><th>Teléfono</th><th>Ciudad</th><th>País</th><th>Industria</th></tr></thead>
-    <tbody>
-      {% for p in rows %}
-      <tr>
-        <td><input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar {{ p.full_name }}"></td>
-        <td>{{ p.full_name }}{% if p.source == "web" %}<div><a class="badge badge-queued" href="{{ p.source_name }}" rel="noopener noreferrer nofollow" target="_blank">web</a></div>{% endif %}</td>
-        <td>{{ p.title or "—" }}</td>
-        <td>{{ p.company }}</td>
-        <td>{% if p.email %}{{ p.email }}{% if p.email_status == "inferred" %}<div><span class="badge badge-email-{% if (p.email_confidence or 0) >= 70 %}high{% elif (p.email_confidence or 0) >= 50 %}medium{% else %}low{% endif %}">deducido ({{ p.email_confidence }})</span></div>{% endif %}{% else %}—{% endif %}</td>
-        <td>{{ p.phone or "—" }}</td>
-        <td>{{ p.city or "—" }}</td>
-        <td>{{ p.country_code or "—" }}</td>
-        <td>{{ industries.get(p.industry_code, p.industry or "—") }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="9" class="muted">{% if base_total %}Nadie coincide con estos filtros.{% else %}Tu base está vacía: sube una base de contactos abajo.{% endif %}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  </form>
-  {% if pages > 1 %}
-  <nav class="pager">
-    {% if page > 1 %}<a href="/prospectos?{{ query }}&pagina={{ page - 1 }}">← Anterior</a>{% endif %}
-    <span class="muted">Página {{ page }} de {{ pages }}</span>
-    {% if page < pages %}<a href="/prospectos?{{ query }}&pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
-  </nav>
-  {% endif %}
-</section>
-
-<section class="card">
-  <h2>Buscar personas nuevas en la web</h2>
-  <p class="muted">ORKESTA visita las páginas públicas de equipo, directivos y prensa de las empresas que cumplen los filtros de
-    <strong>empresa, industria y país</strong> de arriba, guarda solo a los <strong>decisores</strong> (C-Level, dueños y fundadores, VP, directores, gerentes y jefes) con su cargo, y deduce el correo (con el patrón real de la empresa
-    si ya lo conoce). Cada persona guarda la página donde se publicó. Las empresas exploradas en los últimos 30 días no se repiten.</p>
-  <p class="muted small">Empresas a explorar: las de tu base con dominio corporativo y {{ catalog_total | thousands }} del catálogo público LATAM.</p>
-  <form method="post" action="/prospectos/descubrir" class="actions">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="empresa" value="{{ filters.company }}">
-    {% for code in filters.industries %}<input type="hidden" name="industria" value="{{ code }}">{% endfor %}
-    {% for code in filters.countries %}<input type="hidden" name="pais" value="{{ code }}">{% endfor %}
-    <details class="filter-group">
-      <summary>Tamaño de empresa (empleados, solo empresas del catálogo)</summary>
-      <div class="checks">
-        {% for band in sizes %}<label class="check"><input type="checkbox" name="tamano" value="{{ band }}"> {{ band }}</label>{% endfor %}
+  <section aria-label="Resultados">
+    {% if live_run %}
+    {% set running = live_run.status in ("queued", "running") %}
+    <div class="live-panel {{ '' if running else 'done' }}" id="live-panel" data-run="{{ live_run.id }}" data-running="{{ 1 if running else 0 }}">
+      <span class="pulse" aria-hidden="true"></span>
+      <div class="live-body">
+        <div class="live-title" id="live-title">{% if running %}Buscando en la web…{% else %}Búsqueda web terminada{% endif %}</div>
+        <div class="small muted" id="live-detail">
+          {{ live_run.done | thousands }} de {{ live_run.total | thousands }} empresas revisadas · <strong>{{ live_run.people_found | thousands }}</strong> decisores nuevos
+        </div>
+        {% if running %}<progress class="progress top-gap" id="live-progress" max="{{ live_run.total }}" value="{{ live_run.done }}"></progress>{% endif %}
       </div>
-    </details>
-    <button type="submit" class="button">Buscar en la web{% if filters.industries or filters.countries or filters.company %} con estos filtros{% endif %}</button>
-  </form>
-  {% if runs %}
-  <table class="top-gap">
-    <thead><tr><th>Búsqueda</th><th>Estado</th><th class="num">Empresas</th><th class="num">Personas nuevas</th></tr></thead>
-    <tbody>
-      {% for r in runs %}
-      <tr>
-        <td class="small">{% set f = r.filters %}{{ (f.get("industries") or []) | map("replace", "_", " ") | join(", ") or "todas las industrias" }} · {{ (f.get("countries") or []) | join(", ") or "todos los países" }}{% if f.get("company") %} · «{{ f["company"] }}»{% endif %}</td>
-        <td>{% if r.status == "completed" %}<span class="badge badge-valid">terminada</span>{% else %}<span class="badge badge-queued">{{ r.done }} de {{ r.total }}</span>{% endif %}</td>
-        <td class="num">{{ r.total | thousands }}</td>
-        <td class="num">{{ r.people_found | thousands }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-</section>
+      <a class="button button-small {{ 'button-secondary' if running }}" id="live-refresh" href="/prospectos?{{ query }}">Ver resultados</a>
+      {% if not running %}
+      <form method="post" action="/prospectos/descubrir" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% for key, value in query_pairs %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+        <button type="submit" class="button button-small button-secondary">Buscar en más empresas</button>
+      </form>
+      {% endif %}
+    </div>
+    {% elif web_exhausted %}
+    <div class="notice notice-info">Ya se revisaron en la web todas las empresas que cumplen estos filtros en los últimos 30 días. Prueba con otra industria o país, o sube una base con más empresas.</div>
+    {% endif %}
 
-<section class="card">
-  <h2>Agregar una base</h2>
-  <p class="muted">Excel (todas las hojas) o CSV de hasta {{ max_mb }} MB: exportaciones de Wiza, registros de eventos,
-    listas de campañas. ORKESTA reconoce las columnas solo y guarda únicamente nombre completo, cargo, empresa, correo,
-    teléfono, ciudad, país e industria. Las personas repetidas se fusionan, y cada correo corporativo enseña el patrón de
-    correo real de su empresa.</p>
-  <form method="post" action="/prospectos/cargar" enctype="multipart/form-data" class="actions">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="file" name="archivo" accept=".csv,.txt,.xlsx" required>
-    <button type="submit" class="button">Cargar base</button>
-  </form>
-  {% if uploads %}
-  <table class="top-gap">
-    <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Personas</th><th class="num">Nuevas</th><th class="num">Patrones</th><th class="num">Historial de envíos</th></tr></thead>
-    <tbody>
-      {% for u in uploads %}
-      <tr>
-        <td>{{ u.filename }}</td>
-        <td>{% if u.status == "completed" %}<span class="badge badge-valid">cargada</span>{% elif u.status == "failed" %}<span class="badge badge-invalid">error</span><div class="small muted">{{ u.error }}</div>{% else %}<span class="badge badge-queued">procesando</span>{% endif %}</td>
-        <td class="num">{{ (u.summary.get("personas") or 0) | thousands }}</td>
-        <td class="num">{{ (u.summary.get("nuevas") or 0) | thousands }}</td>
-        <td class="num">{{ (u.summary.get("dominios_con_patron") or 0) | thousands }}</td>
-        <td class="num">{{ (u.summary.get("historial") or 0) | thousands }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-</section>
+    <div class="results-head">
+      <div>
+        <div class="results-count">{{ total | thousands }} {% if total == 1 %}persona{% else %}personas{% endif %}</div>
+        <div class="small muted">De {{ base_total | thousands }} en tu base · {{ patterns | thousands }} empresas con patrón de correo real</div>
+      </div>
+    </div>
+
+    {% if total %}
+    <form method="post" action="/prospectos/a-lista" id="a-lista">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% for key, value in query_pairs %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+      <div class="list-bar">
+        <label>Agregar a una lista
+          <select name="lista">
+            <option value="">— elegir —</option>
+            {% for l in lists %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>o crear una nueva <input type="text" name="nueva_lista" maxlength="120" placeholder="Nombre de la lista"></label>
+        <label class="check"><input type="radio" name="alcance" value="seleccionados" checked> Solo los marcados</label>
+        <label class="check"><input type="radio" name="alcance" value="todos"> Todos ({{ total | thousands }}{% if total > 5000 %}, máx. 5.000{% endif %})</label>
+        <label class="check"><input type="checkbox" name="excluir_otras" value="1"> Omitir a quien ya está en otra lista</label>
+        <button type="submit" class="button">Agregar</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th><span class="hide-mobile">Sel.</span></th><th>Persona</th><th>Empresa</th><th>Correo</th><th class="hide-mobile">Teléfono</th><th>Ubicación</th></tr></thead>
+          <tbody>
+            {% for p in rows %}
+            <tr>
+              <td><input type="checkbox" name="ids" value="{{ p.id }}" aria-label="Seleccionar a {{ p.full_name }}"></td>
+              <td>
+                <div class="cell-main">{{ p.full_name }}</div>
+                <div class="cell-sub">{{ p.title or "Sin cargo" }}</div>
+                {% if p.source == "web" %}<a class="badge badge-source" href="{{ p.source_name }}" rel="noopener noreferrer nofollow" target="_blank">sitio de la empresa</a>
+                {% elif p.source == "wikidata" %}<a class="badge badge-source" href="{{ p.source_name }}" rel="noopener noreferrer nofollow" target="_blank">dato público</a>{% endif %}
+              </td>
+              <td>
+                <div class="cell-main">{{ p.company }}</div>
+                <div class="cell-sub">{{ industries.get(p.industry_code, p.industry or "") }}</div>
+              </td>
+              <td>
+                {% if p.email %}<span class="nowrap">{{ p.email }}</span>
+                  {% if p.email_status == "inferred" %}<div><span class="badge badge-email-{% if (p.email_confidence or 0) >= 70 %}high{% elif (p.email_confidence or 0) >= 50 %}medium{% else %}low{% endif %}">deducido · {{ p.email_confidence }}%</span></div>
+                  {% else %}<div><span class="badge badge-valid">verificado en tu base</span></div>{% endif %}
+                {% else %}<span class="faint">—</span>{% endif %}
+              </td>
+              <td class="hide-mobile">{{ p.phone or "" }}</td>
+              <td>{{ p.city or "" }}{% if p.city and p.country_code %}, {% endif %}{{ p.country_code or "" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+    {% if pages > 1 %}
+    <nav class="pager" aria-label="Páginas">
+      {% if page > 1 %}<a href="/prospectos?{{ query }}&pagina={{ page - 1 }}">← Anterior</a>{% endif %}
+      <span class="muted">Página {{ page }} de {{ pages }}</span>
+      {% if page < pages %}<a href="/prospectos?{{ query }}&pagina={{ page + 1 }}">Siguiente →</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}
+    <div class="card empty-state">
+      {% if live_run and live_run.status in ("queued", "running") %}
+      <h2>Buscando decisores en la web</h2>
+      <p class="muted">Los resultados van apareciendo a medida que ORKESTA revisa cada empresa. Esta página se actualiza sola.</p>
+      {% elif searching %}
+      <h2>Nadie coincide todavía</h2>
+      <p class="muted">Amplía los filtros (por ejemplo, quita el cargo exacto o agrega más países) o usa «Buscar en más empresas».</p>
+      {% else %}
+      <h2>Empieza con un filtro</h2>
+      <p class="muted">Elige una industria y un país, o escribe un cargo. ORKESTA buscará decisores en tu base, en datos públicos y en la web.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <section class="card top-gap" id="agregar-base">
+      <div class="card-title"><h2>Subir una base</h2></div>
+      <p class="muted small">Excel (todas las hojas) o CSV de hasta {{ max_mb }} MB. ORKESTA reconoce las columnas solo y guarda nombre completo, cargo, empresa, correo, teléfono, ciudad, país e industria. Cada correo corporativo enseña el patrón real de su empresa, y sus empresas se suman a la búsqueda web.</p>
+      <form method="post" action="/prospectos/cargar" enctype="multipart/form-data" class="actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="file" name="archivo" accept=".csv,.txt,.xlsx" required class="file-input">
+        <button type="submit" class="button">Cargar base</button>
+      </form>
+      {% if uploads %}
+      <div class="table-wrap top-gap">
+        <table>
+          <thead><tr><th>Archivo</th><th>Estado</th><th class="num">Personas</th><th class="num">Nuevas</th><th class="num">Patrones</th></tr></thead>
+          <tbody>
+            {% for u in uploads %}
+            <tr>
+              <td>{{ u.filename }}</td>
+              <td>{% if u.status == "completed" %}<span class="badge badge-valid">cargada</span>{% elif u.status == "failed" %}<span class="badge badge-invalid">error</span><div class="small muted">{{ u.error }}</div>{% else %}<span class="badge badge-queued">procesando</span>{% endif %}</td>
+              <td class="num">{{ (u.summary.get("personas") or 0) | thousands }}</td>
+              <td class="num">{{ (u.summary.get("nuevas") or 0) | thousands }}</td>
+              <td class="num">{{ (u.summary.get("dominios_con_patron") or 0) | thousands }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+  </section>
+</div>
+<script src="/static/live.js" defer></script>
 {% endblock %}

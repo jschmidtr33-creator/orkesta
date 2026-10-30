@@ -10,9 +10,12 @@ from orkesta.catalog.discovery import DISCOVERY_JOB_KIND
 from orkesta.catalog.jobs import (
     handle_discover_people,
     handle_import_prospects,
+    handle_public_companies,
+    handle_public_people,
     on_discover_people_failed,
     on_import_prospects_failed,
 )
+from orkesta.catalog.public_data import COMPANIES_JOB_KIND, PEOPLE_JOB_KIND
 from orkesta.catalog.service import UPLOAD_JOB_KIND
 from orkesta.config import get_settings
 from orkesta.db.session import get_session_factory
@@ -30,6 +33,8 @@ HANDLERS: dict[str, JobHandler] = {
     UPLOAD_JOB_KIND: handle_import_prospects,
     DISCOVERY_JOB_KIND: handle_discover_people,
     TICK_JOB_KIND: handle_campaign_tick,
+    COMPANIES_JOB_KIND: handle_public_companies,
+    PEOPLE_JOB_KIND: handle_public_people,
 }
 FAILURE_HOOKS: dict[str, FailureHook] = {
     IMPORT_JOB_KIND: on_import_failed,
@@ -39,8 +44,11 @@ FAILURE_HOOKS: dict[str, FailureHook] = {
 }
 
 
-def build_worker(session_factory: sessionmaker[Session] | None = None) -> Worker:
+def build_worker(
+    session_factory: sessionmaker[Session] | None = None, worker_id: str | None = None
+) -> Worker:
     settings = get_settings()
+    extra = {"worker_id": worker_id} if worker_id else {}
     return Worker(
         session_factory or get_session_factory(),
         HANDLERS,
@@ -48,6 +56,7 @@ def build_worker(session_factory: sessionmaker[Session] | None = None) -> Worker
         poll_interval_seconds=settings.worker_poll_interval_seconds,
         lock_timeout_seconds=settings.job_lock_timeout_seconds,
         failure_hooks=FAILURE_HOOKS,
+        **extra,
     )
 
 

@@ -30,6 +30,8 @@ SPARQL = "https://query.wikidata.org/sparql"
 COUNTRY_ENTITY = {
     "MX": "Q96", "CO": "Q739", "PE": "Q419", "CL": "Q298", "AR": "Q414", "EC": "Q736",
     "UY": "Q77", "PA": "Q804", "CR": "Q800", "GT": "Q774", "DO": "Q786", "ES": "Q29",
+    "BR": "Q155", "BO": "Q750", "PY": "Q733", "SV": "Q792", "HN": "Q783", "NI": "Q811",
+    "VE": "Q717", "PR": "Q1183",
 }  # fmt: skip
 # Clases de empresa: negocio, empresa, compañía, empresa cotizada, corporación, empresa
 # privada, holding.

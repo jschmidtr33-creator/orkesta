@@ -80,6 +80,7 @@ def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM organizations"))
         connection.execute(text("DELETE FROM catalog_companies"))  # global, sin organización
+        connection.execute(text("DELETE FROM catalog_people"))
 
 
 @pytest.fixture()

@@ -334,7 +334,7 @@ def client(engine: Engine, session_factory: sessionmaker[Session]) -> Iterator[T
 def test_prospects_page_search_and_export(client: TestClient) -> None:
     page = client.get("/prospectos", params={"cargo": "compras", "pais": "MX"}).text
     assert "Ana López" in page and "María Pérez" not in page
-    assert "Personas en tu base" in page
+    assert "en tu base" in page and "Buscar personas" in page
     response = client.get("/prospectos/exportar", params={"industria": "banca_finanzas"})
     assert response.status_code == 200
     text = response.content.decode("utf-8-sig")

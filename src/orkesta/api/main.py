@@ -61,18 +61,24 @@ def create_app(engine_provider: Callable[[], Engine] = get_engine) -> FastAPI:
         if not settings.secret_key:
             logger.warning("secret_key_missing: sesiones con clave temporal hasta reiniciar")
         logger.info("api_started", extra={"environment": settings.environment})
-        worker, thread = None, None
+        workers: list[tuple[Any, threading.Thread]] = []
         if settings.run_worker_in_web:
-            # Un solo servicio: el worker corre en un hilo del proceso web.
+            # Un solo servicio: el worker corre en hilos del proceso web, en paralelo.
             from orkesta.worker.__main__ import build_worker
+            from orkesta.worker.runner import default_worker_id
 
-            worker = build_worker(session_factory())
-            thread = threading.Thread(target=worker.run_forever, name="orkesta-worker", daemon=True)
-            thread.start()
+            for n in range(settings.worker_threads):
+                worker = build_worker(session_factory(), worker_id=f"{default_worker_id()}-{n}")
+                thread = threading.Thread(
+                    target=worker.run_forever, name=f"orkesta-worker-{n}", daemon=True
+                )
+                thread.start()
+                workers.append((worker, thread))
         yield
-        if worker is not None and thread is not None:
-            worker.stop()
-            thread.join(timeout=30)
+        for running_worker, _thread in workers:
+            running_worker.stop()
+        for _worker, running_thread in workers:
+            running_thread.join(timeout=30)
         logger.info("api_stopped")
 
     app = FastAPI(

@@ -34,6 +34,7 @@ PROSPECTING_TABLES = {
     "discovery_runs",
     "web_discoveries",
     "catalog_companies",
+    "catalog_people",
     "prospect_lists",
     "prospect_list_members",
     "mail_accounts",

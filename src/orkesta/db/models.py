@@ -534,6 +534,28 @@ class DomainPattern(OrgScopedMixin, Base):
     agreeing: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class CatalogPerson(IdMixin, Base):
+    """Directivo público (Wikidata, CC0) de una empresa del catálogo: CEO, presidente del
+    directorio, director general o fundador vivo, con cargo vigente. Compartido por todas las
+    organizaciones; cada una lo recibe en su base con su propio correo deducido."""
+
+    __tablename__ = "catalog_people"
+    __table_args__ = (
+        UniqueConstraint("person_qid", "company_qid", "title"),
+        CheckConstraint("country_code IS NULL OR length(country_code) = 2", name="country_code"),
+        Index("ix_catalog_people_country", "country_code"),
+        Index("ix_catalog_people_company_qid", "company_qid"),
+    )
+
+    person_qid: Mapped[str] = mapped_column(String(20), nullable=False)
+    company_qid: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    domain: Mapped[str | None] = mapped_column(String(253))
+
+
 class CatalogCompany(IdMixin, Base):
     """Empresa del catálogo público LATAM (Wikidata, CC0), compartido por todas las
     organizaciones: no contiene datos de personas ni de clientes."""
