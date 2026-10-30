@@ -1,7 +1,5 @@
-# Despliegue en Render (Blueprint): base PostgreSQL + un servicio web que también ejecuta el
-# worker (RUN_WORKER_IN_WEB). Render → New → Blueprint → este repositorio, rama main.
-# Para más volumen: quitar RUN_WORKER_IN_WEB y agregar un servicio worker con
-# dockerCommand `python -m orkesta.worker` y las mismas variables.
+# Despliegue en Render (Blueprint): PostgreSQL + un servicio web con API, app y sitio público.
+# Las tablas viven en el esquema "orkesta"; la versión anterior (esquema "public") no se toca.
 envVarGroups:
   - name: orkesta-shared
     envVars:
@@ -9,7 +7,6 @@ envVarGroups:
         value: production
       - key: LOG_LEVEL
         value: INFO
-      # Generada por Render una sola vez y compartida por web y worker.
       - key: SECRET_KEY
         generateValue: true
 
@@ -25,8 +22,8 @@ services:
     runtime: docker
     plan: 0.5c-512mb
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
-    # Un solo comando: Render no lo ejecuta en una consola, así que no admite "&&".
+    healthCheckPath: /api/health
+    # Un solo comando: Render no ejecuta "&&" en el paso previo al despliegue.
     preDeployCommand: python -m orkesta.cli release
     envVars:
       - fromGroup: orkesta-shared
@@ -40,13 +37,9 @@ services:
         sync: false
       - key: ORKESTA_BOOTSTRAP_ORG_NAME
         value: America Digital
-      - key: RUN_WORKER_IN_WEB
-        value: "true"
-      # Campañas: URL pública (enlaces de baja y retorno de Google) y OAuth de Gmail (opcional).
       - key: PUBLIC_BASE_URL
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-

@@ -1,0 +1,9 @@
+{
+  "name": "orkesta",
+  "private": true,
+  "workspaces": ["packages/ui", "apps/web", "apps/site"],
+  "scripts": {
+    "build": "npm run build -w @orkesta/web && npm run build -w @orkesta/site",
+    "typecheck": "npm run typecheck -w @orkesta/web"
+  }
+}

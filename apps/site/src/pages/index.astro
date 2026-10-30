@@ -1,0 +1,210 @@
+---
+import Logo from "../components/Logo.astro";
+import Base from "../layouts/Base.astro";
+
+const modules = [
+  { title: "Prospección B2B", text: "Encuentra decisores por cargo, industria, país y tamaño de empresa.", icon: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 2"/>' },
+  { title: "Enriquecimiento de datos", text: "Dominio, cargo, ubicación y correo, cada dato con su fuente y su nivel de confianza.", icon: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>' },
+  { title: "Validación de correos", text: "Formato, dominio y registros MX antes de enviar, para cuidar tu reputación.", icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
+  { title: "Campañas y seguimientos", text: "Secuencias desde tu propio buzón que se detienen solas cuando responden.", icon: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>' },
+  { title: "CRM integrado", text: "Expediente de cada contacto, pipeline en Kanban y trazabilidad completa.", icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v8M12 7v5M16 7v10"/>' },
+  { title: "Propuestas con IA", text: "Propuestas con tu marca, sin inventar precios ni condiciones.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
+];
+const steps = [
+  ["Encuentra", "Define tu cliente ideal con filtros y ORKESTA busca a los decisores en fuentes públicas."],
+  ["Enriquece", "Completa y valida cada contacto, con la fuente de cada dato a la vista."],
+  ["Contacta", "Lanza secuencias personalizadas desde tu correo y deja que los seguimientos corran solos."],
+  ["Conquista", "Gestiona oportunidades, envía propuestas y cierra desde el mismo lugar."],
+];
+const integrations = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo (SMTP)"];
+---
+
+<Base
+  title="ORKESTA · Conecta. Enriquece. Conquista."
+  description="Plataforma de automatización comercial B2B: prospección, enriquecimiento de datos, campañas, CRM y propuestas en un solo sistema."
+>
+  <header class="sticky top-0 z-30 border-b border-white/5 bg-ork-ink/80 backdrop-blur">
+    <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
+      <a href="/" aria-label="ORKESTA, inicio"><Logo size={28} /></a>
+      <nav class="hidden items-center gap-7 text-[14px] text-ork-mist md:flex" aria-label="Secciones">
+        <a href="#modulos" class="hover:text-white">Producto</a>
+        <a href="#como-funciona" class="hover:text-white">Cómo funciona</a>
+        <a href="#integraciones" class="hover:text-white">Integraciones</a>
+        <a href="#seguridad" class="hover:text-white">Seguridad</a>
+      </nav>
+      <div class="flex items-center gap-3">
+        <a href="/app/ingresar" class="hidden text-[14px] font-medium text-white/80 hover:text-white sm:inline">Iniciar sesión</a>
+        <a href="#demo" class="ork-gradient rounded-xl px-4 py-2 text-[14px] font-semibold text-white shadow-[0_6px_20px_rgb(79_70_229/0.35)] hover:brightness-110">Solicitar demo</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="relative overflow-hidden">
+      <div class="ork-glow pointer-events-none absolute inset-0" aria-hidden="true"></div>
+      <div class="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-16 lg:grid-cols-[1.05fr_1fr] lg:pt-24">
+        <div>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-mist">Plataforma de automatización comercial B2B</p>
+          <h1 class="mt-5 text-[40px] font-bold leading-[1.08] tracking-tight sm:text-[54px]">
+            De la prospección a la oportunidad.
+            <span class="ork-gradient-text">Todo conectado</span> en un solo sistema.
+          </h1>
+          <p class="mt-6 max-w-xl text-[17px] leading-relaxed text-white/75">
+            ORKESTA integra prospección, enriquecimiento de datos, campañas de correo y CRM para que tu equipo comercial llegue más lejos, más rápido.
+          </p>
+          <div class="mt-9 flex flex-wrap gap-3">
+            <a href="#demo" class="ork-gradient rounded-xl px-6 py-3 text-[15px] font-semibold text-white shadow-[0_8px_28px_rgb(79_70_229/0.4)] hover:brightness-110">Solicitar demo</a>
+            <a href="/app/registro" class="rounded-xl border border-white/15 px-6 py-3 text-[15px] font-semibold text-white hover:bg-white/5">Crear espacio de trabajo</a>
+          </div>
+        </div>
+        <div class="relative" aria-label="Vista ilustrativa de la aplicación" role="img">
+          <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-3 shadow-[0_30px_80px_rgb(0_0_0/0.5)]">
+            <div class="flex overflow-hidden rounded-xl bg-ork-surface">
+              <div class="hidden w-36 shrink-0 flex-col gap-2 bg-ork-ink p-3 sm:flex">
+                <div class="mb-2 h-3 w-20 rounded bg-white/20"></div>
+                {Array.from({ length: 7 }).map((_, i) => <div class={`h-6 rounded-md ${i === 0 ? "bg-ork-blue/40" : "bg-white/[0.06]"}`}></div>)}
+              </div>
+              <div class="flex-1 p-4">
+                <div class="mb-4 h-3 w-32 rounded bg-ork-ink/15"></div>
+                <div class="grid grid-cols-3 gap-2.5">
+                  {[0, 1, 2].map(() => (
+                    <div class="rounded-lg border border-ork-line bg-white p-2.5">
+                      <div class="h-2 w-12 rounded bg-ork-ink/10"></div>
+                      <div class="mt-2 h-4 w-10 rounded bg-ork-ink/20"></div>
+                    </div>
+                  ))}
+                </div>
+                <div class="mt-3 rounded-lg border border-ork-line bg-white p-3">
+                  <svg viewBox="0 0 300 90" class="h-24 w-full" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.35"></stop>
+                        <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"></stop>
+                      </linearGradient>
+                    </defs>
+                    <path d="M0 70 C40 60 60 72 90 52 S150 40 180 46 S240 18 300 22 L300 90 L0 90 Z" fill="url(#area)"></path>
+                    <path d="M0 70 C40 60 60 72 90 52 S150 40 180 46 S240 18 300 22" fill="none" stroke="#8B5CF6" stroke-width="2.5"></path>
+                    <path d="M0 78 C50 74 80 70 120 64 S200 52 300 44" fill="none" stroke="#2563EB" stroke-width="2" stroke-dasharray="4 4"></path>
+                  </svg>
+                </div>
+                <div class="mt-3 space-y-2">
+                  {[0, 1, 2].map(() => (
+                    <div class="flex items-center gap-2 rounded-lg bg-white p-2">
+                      <div class="ork-gradient size-6 rounded-full"></div>
+                      <div class="h-2 w-28 rounded bg-ork-ink/15"></div>
+                      <div class="ml-auto h-4 w-16 rounded-full bg-ork-blue/15"></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="mt-3 text-center text-[12px] text-ork-mist">Vista ilustrativa</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="modulos" class="bg-ork-night py-20">
+      <div class="mx-auto max-w-6xl px-5">
+        <div class="max-w-2xl">
+          <h2 class="text-[32px] font-bold leading-tight tracking-tight">Una plataforma. Todo tu proceso comercial.</h2>
+          <p class="mt-3 text-[16px] text-white/70">Lo que hoy contratas por separado, conectado y sin duplicar registros.</p>
+        </div>
+        <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {modules.map((m) => (
+            <article class="rounded-2xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-ork-violet/40 hover:bg-white/[0.05]">
+              <span class="inline-flex size-11 items-center justify-center rounded-xl border border-ork-violet/30 bg-ork-violet/10">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><Fragment set:html={m.icon} /></svg>
+              </span>
+              <h3 class="mt-4 text-[17px] font-semibold">{m.title}</h3>
+              <p class="mt-1.5 text-[14.5px] leading-relaxed text-white/65">{m.text}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section id="como-funciona" class="py-20">
+      <div class="mx-auto max-w-6xl px-5">
+        <h2 class="text-[32px] font-bold tracking-tight">Cómo funciona</h2>
+        <ol class="mt-10 grid gap-6 md:grid-cols-4">
+          {steps.map(([title, text], i) => (
+            <li class="relative rounded-2xl border border-white/10 p-6">
+              <span class="ork-gradient inline-flex size-9 items-center justify-center rounded-full text-[15px] font-bold">{i + 1}</span>
+              <h3 class="mt-4 text-[18px] font-semibold">{title}</h3>
+              <p class="mt-1.5 text-[14.5px] leading-relaxed text-white/65">{text}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+
+    <section id="integraciones" class="bg-ork-night py-20">
+      <div class="mx-auto max-w-6xl px-5">
+        <h2 class="text-[32px] font-bold tracking-tight">Integraciones que impulsan tu crecimiento</h2>
+        <p class="mt-3 max-w-2xl text-[16px] text-white/70">Conecta ORKESTA con las herramientas que tu equipo ya usa.</p>
+        <ul class="mt-8 flex flex-wrap gap-3">
+          {integrations.map((name) => <li class="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-[14.5px] font-medium text-white/85">{name}</li>)}
+        </ul>
+      </div>
+    </section>
+
+    <section id="seguridad" class="py-20">
+      <div class="mx-auto grid max-w-6xl gap-10 px-5 lg:grid-cols-2">
+        <div>
+          <h2 class="text-[32px] font-bold tracking-tight">Tus datos, protegidos y trazables</h2>
+          <p class="mt-3 text-[16px] text-white/70">Construido para operar en Latinoamérica con buenas prácticas de protección de datos.</p>
+        </div>
+        <ul class="grid gap-4 sm:grid-cols-2">
+          {[
+            ["Aislamiento por empresa", "Cada espacio de trabajo está separado a nivel de base de datos."],
+            ["Procedencia de cada dato", "Fuente y fecha de obtención, siempre visibles."],
+            ["Bajas respetadas", "Lista de supresión automática y baja con un clic."],
+            ["Ley 1581 y RGPD", "Gestión de consentimiento, oposición y supresión."],
+          ].map(([t, d]) => (
+            <li class="rounded-2xl border border-white/10 p-5">
+              <h3 class="text-[15.5px] font-semibold">{t}</h3>
+              <p class="mt-1 text-[14px] text-white/65">{d}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+
+    <section id="demo" class="relative overflow-hidden bg-ork-night py-20">
+      <div class="ork-glow pointer-events-none absolute inset-0 opacity-60" aria-hidden="true"></div>
+      <div class="relative mx-auto grid max-w-6xl gap-10 px-5 lg:grid-cols-[1fr_1.1fr]">
+        <div>
+          <h2 class="text-[32px] font-bold leading-tight tracking-tight">¿Listo para llevar tu prospección comercial al siguiente nivel?</h2>
+          <p class="mt-4 text-[16px] text-white/70">Solicita una demo y te mostramos cómo ORKESTA puede ayudar a tu equipo comercial.</p>
+        </div>
+        <form id="demo-form" class="grid gap-4 rounded-2xl bg-white p-6 text-ork-ink shadow-[var(--shadow-pop)] sm:grid-cols-2" novalidate>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Nombre<input name="name" required autocomplete="name" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Correo de trabajo<input name="email" type="email" required autocomplete="email" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Empresa<input name="company" required autocomplete="organization" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Cargo<input name="job_title" autocomplete="organization-title" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold sm:col-span-2">País<input name="country" autocomplete="country-name" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold sm:col-span-2">¿Qué te gustaría resolver? (opcional)<textarea name="message" rows="3" class="ork-focus rounded-xl border border-ork-line px-3 py-2 text-[15px] font-normal"></textarea></label>
+          <label class="flex items-start gap-2.5 text-[13px] text-ork-graphite sm:col-span-2">
+            <input type="checkbox" name="consent" required class="mt-0.5 size-4 accent-[#2563EB]" />
+            <span>Autorizo a ORKESTA a usar estos datos para contactarme sobre la demo, según la <a href="/privacidad" class="underline">política de privacidad</a>.</span>
+          </label>
+          <p id="demo-status" class="text-[13.5px] sm:col-span-2" role="status" aria-live="polite"></p>
+          <button type="submit" class="ork-gradient h-12 rounded-xl text-[15px] font-semibold text-white hover:brightness-110 sm:col-span-2">Solicitar demo</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-white/5 py-10">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 text-[13px] text-ork-mist">
+      <Logo size={22} id="ork-logo-footer" />
+      <p>Conecta. Enriquece. Conquista.</p>
+      <nav class="flex gap-5" aria-label="Legal">
+        <a href="/privacidad" class="hover:text-white">Privacidad</a>
+        <a href="/app/ingresar" class="hover:text-white">Iniciar sesión</a>
+      </nav>
+    </div>
+  </footer>
+  <script src="/js/demo.js" defer is:inline></script>
+</Base>

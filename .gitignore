@@ -1,29 +1,19 @@
-# Entornos y caches
+# Dependencias y entornos
+node_modules/
 .venv/
 __pycache__/
 *.pyc
-*.egg-info/
-build/
-dist/
-.pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.railway/node_modules/
+.pytest_cache/
+.astro/
 
-# Secretos: nunca al repositorio
+# Compilados del frontend (los genera el Dockerfile)
+apps/api/orkesta/static/
+
+# Secretos y datos locales
 .env
 .env.*
 !.env.example
-
-# Datos de contactos: nunca al repositorio
-*.csv
 *.xlsx
-!tests/fixtures/**/*.csv
-# Conjuntos de evaluación: datos de empresas, nunca de personas.
-!data/eval/*.csv
-!tests/fixtures/**/*.xlsx
-*.dump
-*.sql.gz
-
-# Planes de Railway: pueden contener secretos
-*.plan.json
+*.csv

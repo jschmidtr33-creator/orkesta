@@ -1,0 +1,11 @@
+{
+  "name": "@orkesta/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./theme.css": "./src/theme.css",
+    "./logo.svg": "./src/logo.svg",
+    "./*": "./src/*"
+  }
+}

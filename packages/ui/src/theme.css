@@ -1,0 +1,72 @@
+/* Sistema de diseño ORKESTA — tokens compartidos por la app y el sitio público.
+   Paleta oficial: azul eléctrico #2563EB, violeta #8B5CF6, negro #080B12,
+   gris oscuro #1F2937, gris claro #94A3B8. Tipografía: Plus Jakarta Sans. */
+@import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ork-blue: #2563eb;
+  --color-ork-blue-600: #1d4ed8;
+  --color-ork-violet: #8b5cf6;
+  --color-ork-ink: #080b12;
+  --color-ork-night: #0d1220;
+  --color-ork-graphite: #1f2937;
+  --color-ork-mist: #94a3b8;
+  --color-ork-surface: #f5f7fb;
+  --color-ork-line: #e5e9f2;
+
+  --color-ok: #16a34a;
+  --color-warn: #d97706;
+  --color-bad: #dc2626;
+
+  --radius-card: 14px;
+  --shadow-card: 0 1px 2px rgb(8 11 18 / 0.04), 0 4px 16px rgb(8 11 18 / 0.04);
+  --shadow-pop: 0 12px 40px rgb(8 11 18 / 0.18);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-ork-surface text-ork-graphite font-sans;
+  }
+  ::selection {
+    background: rgb(139 92 246 / 0.25);
+  }
+}
+
+@utility ork-gradient {
+  background-image: linear-gradient(135deg, var(--color-ork-blue) 0%, var(--color-ork-violet) 100%);
+}
+
+@utility ork-gradient-text {
+  background-image: linear-gradient(90deg, #60a5fa 0%, var(--color-ork-violet) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility ork-glow {
+  background-image:
+    radial-gradient(60% 50% at 80% 0%, rgb(139 92 246 / 0.35) 0%, transparent 70%),
+    radial-gradient(50% 45% at 10% 10%, rgb(37 99 235 / 0.35) 0%, transparent 70%);
+}
+
+@utility ork-card {
+  background: #fff;
+  border: 1px solid var(--color-ork-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+@utility ork-focus {
+  outline: 2px solid transparent;
+  &:focus-visible {
+    outline: 2px solid var(--color-ork-blue);
+    outline-offset: 2px;
+  }
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ORKESTA">
+  <defs>
+    <linearGradient id="ork-g" x1="6" y1="58" x2="58" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="0.55" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <path d="M30.5 9.5 L55 50.5 L8.5 54 Z" fill="none" stroke="url(#ork-g)" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
