@@ -9,6 +9,7 @@ import {
   Mail,
   Newspaper,
   Phone,
+  Search,
   Sparkles,
   Square,
   UserPlus,
@@ -28,6 +29,7 @@ type Options = {
   levels: Option[];
   areas: Option[];
   limits: number[];
+  ai_search: boolean;
 };
 type Filters = {
   country: string;
@@ -111,6 +113,7 @@ const SOURCE_META: Record<string, { label: string; icon: ReactNode }> = {
   sitio: { label: "Sitio web", icon: <Globe className="size-3" aria-hidden /> },
   noticia: { label: "Noticia", icon: <Newspaper className="size-3" aria-hidden /> },
   base: { label: "Tu base", icon: <Building2 className="size-3" aria-hidden /> },
+  web: { label: "Búsqueda web", icon: <Search className="size-3" aria-hidden /> },
   patron: { label: "Patrón", icon: <Wand2 className="size-3" aria-hidden /> },
 };
 
@@ -148,6 +151,15 @@ export function ProspectingPage() {
         title="Prospección con IA"
         description="Describe a tu cliente ideal y el agente investiga por ti: catálogo abierto de Wikidata, sitios oficiales de cada empresa y noticias recientes. Cada dato muestra su fuente."
       />
+      {options.data && !options.data.ai_search && (
+        <div className="mb-5">
+          <Alert tone="blue">
+            <strong>Activa la búsqueda web con IA para encontrar muchos más decisores.</strong> Es gratis: crea una clave en
+            aistudio.google.com/apikey y agrégala en Render como <code>GEMINI_API_KEY</code>. Sin ella, el agente solo usa
+            Wikidata, sitios oficiales y noticias.
+          </Alert>
+        </div>
+      )}
       <div className="grid items-start gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <FilterPanel
           options={options.data}
@@ -341,11 +353,12 @@ function RecentRuns({ runs, loading, onOpen }: { runs?: Run[]; loading: boolean;
         <div className="ork-glow pointer-events-none absolute inset-0 opacity-25" aria-hidden />
         <div className="relative">
           <h2 className="text-[17px] font-bold text-ork-ink">Cómo investiga el agente</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { icon: <Database className="size-4" />, title: "Wikidata", text: "Catálogo abierto de empresas, tamaño, sede y directivos vigentes." },
               { icon: <Globe className="size-4" />, title: "Sitios oficiales", text: "Páginas de equipo y directivos, correos y teléfonos publicados." },
               { icon: <Newspaper className="size-4" />, title: "Noticias", text: "Nombramientos de los últimos 3 meses en medios de todo el mundo." },
+              { icon: <Search className="size-4" />, title: "Búsqueda web con IA", text: "Google + Gemini: solo personas con una fuente pública que lo respalde." },
             ].map((s) => (
               <div key={s.title} className="rounded-xl border border-ork-line bg-white/80 p-3.5">
                 <span className="inline-flex size-7 items-center justify-center rounded-lg bg-ork-blue/10 text-ork-blue">{s.icon}</span>

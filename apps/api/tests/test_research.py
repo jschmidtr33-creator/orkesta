@@ -3,6 +3,7 @@ las respuestas reales de Wikidata (SPARQL y búsqueda), GDELT y sitios de empres
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from urllib.parse import parse_qs, urlsplit
 
@@ -270,3 +271,95 @@ def test_people_extraction_patterns() -> None:
         ("Ricardo Roa", "Presidente")
     ]
     assert news.people_in_headline("Fallece Ricardo Roa, presidente de la compañía") == []
+
+
+def _gemini_reply(text: str, supported: list[str], titles: list[str]) -> dict:
+    return {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": text}]},
+                "groundingMetadata": {
+                    "groundingChunks": [
+                        {
+                            "web": {
+                                "uri": f"https://vertexaisearch.cloud.google.com/r/{i}",
+                                "title": t,
+                            }
+                        }
+                        for i, t in enumerate(titles)
+                    ],
+                    "groundingSupports": [
+                        {"segment": {"text": s}, "groundingChunkIndices": [0]} for s in supported
+                    ],
+                },
+            }
+        ]
+    }
+
+
+PEOPLE_TEXT = """Mariela Solano Quirós | Gerente General | https://cr.linkedin.com/in/mariela-solano
+Inventado Pérez | CFO | https://ejemplo.com
+- Óscar Vindas | Director de Tecnología | https://www.bancoandino.co/prensa"""
+COMPANIES_TEXT = """Coopeservidores | https://www.coopeservidores.fi.cr
+Banco Fantasma | https://fantasma.cr"""
+
+
+def _gemini(request: httpx.Request) -> httpx.Response:
+    prompt = json.loads(request.content)["contents"][0]["parts"][0]["text"]
+    if "Lista hasta" in prompt:
+        return httpx.Response(200, json=_gemini_reply(
+            COMPANIES_TEXT, ["Coopeservidores | https://www.coopeservidores.fi.cr"],
+            ["coopeservidores.fi.cr"]))  # fmt: skip
+    return httpx.Response(200, json=_gemini_reply(
+        PEOPLE_TEXT,
+        ["Mariela Solano Quirós | Gerente General", "Óscar Vindas | Director de Tecnología"],
+        ["linkedin.com", "bancoandino.co"],
+    ))  # fmt: skip
+
+
+@pytest.fixture()
+def with_gemini(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    from orkesta.core.config import get_settings
+    from orkesta.research import gemini
+
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "clave-de-prueba")
+    monkeypatch.setattr(gemini, "MIN_INTERVAL", 0)
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "generativelanguage.googleapis.com":
+            return _gemini(request)
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    yield
+
+
+def test_ai_web_search_adds_grounded_people_and_companies(
+    client: TestClient, session_factory: sessionmaker[Session], with_gemini: None
+) -> None:
+    register(client, "ana@lacteos.co")
+    assert client.get("/api/research/options").json()["ai_search"] is True
+    run = _run(client, session_factory, industries=["banca_finanzas"])
+    assert run["status"] == "completed", run
+    companies = {c["data"]["name"]: c for c in run["companies"]}
+    # La IA suma empresas respaldadas por la búsqueda; la que no tiene respaldo no entra.
+    assert "Coopeservidores" in companies and "Banco Fantasma" not in companies
+    assert companies["Coopeservidores"]["sources"][0]["type"] == "web"
+
+    people = {(p["data"]["company"], p["data"]["full_name"]): p for p in run["people"]}
+    mariela = people[("Banco Andino", "Mariela Solano Quirós")]
+    assert mariela["sources"][0]["type"] == "web"
+    # La URL que dio el modelo se cita porque su dominio está entre los resultados de Google.
+    assert mariela["data"]["linkedin"] == "https://cr.linkedin.com/in/mariela-solano"
+    assert ("Banco Andino", "Óscar Vindas") in people
+    # El nombre sin respaldo en la búsqueda se descarta: no se inventan personas.
+    assert all(name != "Inventado Pérez" for _, name in people)
+    assert run["totals"]["source_web"] >= 2
+
+
+def test_ai_reply_without_search_backing_is_ignored(
+    client: TestClient, session_factory: sessionmaker[Session], with_gemini: None
+) -> None:
+    from orkesta.research import gemini
+
+    assert gemini._parse({"candidates": [{"content": {"parts": [{"text": PEOPLE_TEXT}]}}]}) is None

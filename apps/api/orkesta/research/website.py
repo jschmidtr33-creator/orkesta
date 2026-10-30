@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -30,6 +31,14 @@ SKIP_WORDS = (
     "politica", "privacy", "terminos", "cookies", "trabaja", "empleo", "careers", "vacante",
 )  # fmt: skip
 MAX_TEAM_PAGES = 4
+_LOC = re.compile(r"<loc>\s*([^<]+?)\s*</loc>", re.IGNORECASE)
+# Rutas típicas cuando el inicio no enlaza a la página de equipo (menús hechos con JavaScript).
+COMMON_PATHS = (
+    "/nosotros", "/quienes-somos", "/equipo", "/nuestro-equipo", "/gobierno-corporativo",
+    "/junta-directiva", "/directivos", "/about", "/about-us", "/team", "/leadership",
+    "/es/nosotros", "/en/about-us",
+)  # fmt: skip
+MAX_GUESSES = 6
 
 
 @dataclass
@@ -111,6 +120,8 @@ def investigate(fetcher: Fetcher, domain: str, website: str = "") -> SiteResult:
     result.name = doc.site_name or doc.title.split("|")[0].split(" - ")[0].strip()
     _collect(result, doc, home.final_url)
     team, contact = candidate_pages(doc, home.final_url, domain)
+    if len(team) < 2:
+        team += [u for u in _from_sitemap(fetcher, home.final_url, domain) if u not in team]
     visited = {home.final_url.rstrip("/")}
     for url in team + contact:
         if url.rstrip("/") in visited:
@@ -134,4 +145,53 @@ def investigate(fetcher: Fetcher, domain: str, website: str = "") -> SiteResult:
                 extra_page = fetcher.get(extra, respect_robots=True)
                 if extra_page is not None and extra_page.ok:
                     _collect(result, parse_html(extra_page.text), extra_page.final_url)
+    if not result.people:
+        _guess_paths(fetcher, result, home.final_url, visited)
     return result
+
+
+def _from_sitemap(fetcher: Fetcher, base_url: str, domain: str) -> list[str]:
+    """URLs de equipo/directivos listadas en sitemap.xml (también las de sitemaps anidados)."""
+    parts = urlsplit(base_url)
+    root = f"{parts.scheme}://{parts.netloc}"
+    found: list[str] = []
+    queue = [f"{root}/sitemap.xml", f"{root}/sitemap_index.xml"]
+    seen: set[str] = set()
+    while queue and len(seen) < 4:
+        url = queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        page = fetcher.get(url, accept="application/xml,text/xml;q=0.9,*/*;q=0.5")
+        if page is None or not page.ok or "<loc>" not in page.text:
+            continue
+        for loc in _LOC.findall(page.text)[:5000]:
+            loc = loc.strip()
+            if not _same_site(loc, domain):
+                continue
+            if loc.endswith(".xml"):
+                if any(w in loc for w in ("page", "pagina", "post")):
+                    queue.append(loc)
+                continue
+            if _score(loc, "", TEAM_WORDS) >= 60 and loc not in found:
+                found.append(loc)
+    return sorted(found, key=lambda u: (-_score(u, "", TEAM_WORDS), len(u)))[:MAX_TEAM_PAGES]
+
+
+def _guess_paths(fetcher: Fetcher, result: SiteResult, home_url: str, visited: set[str]) -> None:
+    parts = urlsplit(home_url)
+    root = f"{parts.scheme}://{parts.netloc}"
+    tries = 0
+    for path in COMMON_PATHS:
+        url = root + path
+        if url.rstrip("/") in visited or tries >= MAX_GUESSES:
+            continue
+        visited.add(url.rstrip("/"))
+        tries += 1
+        page = fetcher.get(url, respect_robots=True)
+        if page is None or not page.ok or "html" not in (page.content_type or "text/html"):
+            continue
+        before = len(result.people)
+        _collect(result, parse_html(page.text), page.final_url)
+        if len(result.people) > before:
+            break

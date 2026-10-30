@@ -24,3 +24,4 @@ La propuesta técnica aprobada (Fases 1 a 5) vive como documento colaborativo:
 | 15 | Descargas con protección SSRF y caché global `web_cache` | El usuario puede escribir dominios; solo se permiten IP públicas y las respuestas públicas se reutilizan |
 | 16 | Validación propia por DNS y SMTP (sin APIs) | Sin enviar correos: `RCPT TO` con prueba de dirección aleatoria para detectar catch-all. Si la red bloquea el puerto 25 el resultado queda «Sin confirmar», nunca «Válido». Se puede apagar con `SMTP_PROBE=false` |
 | 17 | Buscar correos faltantes solo con confirmación del servidor | Se prueban formatos habituales y se guarda únicamente el que el servidor confirma; en dominios catch-all no se adivina |
+| 18 | Búsqueda web con IA: Gemini + Google Search (plan gratuito) | Wikidata y los sitios no bastan para LATAM. Una persona solo se acepta si su línea está respaldada por resultados de Google (`groundingSupports`) y se cita la fuente; sin respaldo, se descarta |

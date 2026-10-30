@@ -310,6 +310,7 @@ function TeamSettings() {
 
 function IntegrationSettings() {
   const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<{ google: boolean }>("/api/auth/config") });
+  const research = useQuery({ queryKey: ["research-options"], queryFn: () => api<{ ai_search: boolean }>("/api/research/options") });
   const items = [
     {
       name: "Inicio de sesión con Google",
@@ -319,7 +320,13 @@ function IntegrationSettings() {
     { name: "Gmail y Google Workspace (envío)", detail: "Campañas desde el buzón de cada vendedor.", status: "stage", stage: 5 },
     { name: "Microsoft 365 y Outlook", detail: "Campañas desde buzones de Microsoft.", status: "stage", stage: 5 },
     { name: "Correo corporativo (SMTP)", detail: "Cualquier otro proveedor de correo.", status: "stage", stage: 5 },
-    { name: "Búsqueda web y modelo de lenguaje", detail: "Fuentes gratuitas en la primera etapa del motor de investigación.", status: "stage", stage: 4 },
+    {
+      name: "Búsqueda web con IA (Gemini)",
+      detail: research.data?.ai_search
+        ? "El agente de prospección busca decisores en Google y cita cada fuente."
+        : "Gratis: crea una clave en aistudio.google.com/apikey y agrégala en Render como GEMINI_API_KEY.",
+      status: research.data?.ai_search ? "connected" : "pending",
+    },
   ] as const;
   return (
     <div className="grid gap-4 md:grid-cols-2">

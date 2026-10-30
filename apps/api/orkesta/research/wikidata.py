@@ -50,6 +50,7 @@ ROLES: dict[str, str] = {
     "P488": "Presidente de la junta directiva",
     "P1037": "Director/a",
     "P3320": "Miembro de la junta directiva",
+    "P112": "Fundador/a",
 }
 
 

@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     worker_threads: int = Field(default=2, ge=1, le=8)
 
     # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).
+    # Búsqueda web con IA (Gemini + Google Search, plan gratuito de Google AI Studio).
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
     google_client_id: str = ""
     google_client_secret: str = ""
 
