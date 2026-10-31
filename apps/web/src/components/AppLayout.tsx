@@ -1,5 +1,5 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   Check,
@@ -16,7 +16,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -173,8 +173,34 @@ export function AppLayout() {
         </div>
       )}
       <main className="mx-auto max-w-[1240px] px-4 py-6 sm:px-8 sm:py-8">
+        <NewVersionBanner />
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+
+/** Avisa cuando se desplegó una versión nueva mientras la pestaña seguía abierta. */
+function NewVersionBanner() {
+  const first = useRef<string | null>(null);
+  const health = useQuery({
+    queryKey: ["app-version"],
+    queryFn: () => api<{ version?: string }>("/api/health"),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const version = health.data?.version;
+  if (version && first.current === null) first.current = version;
+  if (!version || version === first.current) return null;
+  return (
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ork-blue/30 bg-ork-blue/5 px-4 py-3 text-[13.5px] text-ork-ink" role="status">
+      <span>
+        <strong>Hay una versión nueva de ORKESTA.</strong> Recarga para usar las últimas mejoras.
+      </span>
+      <button type="button" onClick={() => window.location.reload()} className="ork-gradient ork-focus rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white">
+        Recargar
+      </button>
     </div>
   );
 }
