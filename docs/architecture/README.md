@@ -28,3 +28,4 @@ La propuesta técnica aprobada (Fases 1 a 5) vive como documento colaborativo:
 | 19 | Verificación en escalera para la IA | Respaldo de Google → página citada que menciona a la persona → perfil público con su nombre; si el modelo atribuye a la persona otra empresa, se descarta. Tope de 70 consultas por corrida y modelos de respaldo si uno no está disponible |
 | 20 | Dos olas de investigación | Se reservan el doble de empresas candidatas; si las primeras no publican decisores, se investigan otras hasta completar el objetivo o el tiempo |
 | 21 | Diagnóstico de conexiones en la app | Configuración → Integraciones prueba en vivo Wikidata, sitios, GDELT, Gemini y el puerto 25 |
+| 22 | Buscador de Google por API (Serper) como motor principal | ~0,30–1 USD por 1.000 búsquedas: decisores por «X-ray» de perfiles públicos, empresas en Google Maps y páginas de equipo. Gemini queda opcional solo para empresas sin resultados |

@@ -41,7 +41,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import gemini, news, website, wikidata
+from orkesta.research import gemini, news, serp, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -230,8 +230,11 @@ class Run:
         self.companies: dict[str, Candidate] = {}
         self.people: dict[str, list[Prospect]] = {}
         self.filtered_out = 0
-        self.source_counts = {"wikidata": 0, "sitio": 0, "noticia": 0, "web": 0}
+        self.source_counts = {
+            "wikidata": 0, "sitio": 0, "noticia": 0, "web": 0, "perfil": 0,
+        }  # fmt: skip
         self.ai = gemini.AiStats()
+        self.serp = serp.SerpStats()
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -469,6 +472,48 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
         if added:
             run.log(f"{added} empresas más de tu base cumplen los filtros.")
 
+    if serp.enabled() and not filters.companies and len(found) < 2 * filters.limit:
+        country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+        run.log("Buscando empresas en Google Maps…")
+        places = serp.companies(
+            fetcher,
+            run.serp,
+            country=filters.country,
+            country_name=country_name,
+            industries=filters.industries,
+            city=filters.city,
+            keywords=filters.keywords,
+            limit=2 * filters.limit - len(found),
+        )
+        known_domains = {c.domain for c in found.values() if c.domain}
+        added = 0
+        code = filters.industries[0] if len(filters.industries) == 1 else ""
+        for place in places:
+            key = company_key(place.name)
+            if place.domain in known_domains or key in found or not key:
+                continue
+            candidate = Candidate(
+                key=key,
+                name=place.name,
+                domain=place.domain,
+                website=place.website,
+                city=place.city,
+                industry=INDUSTRY_LABELS.get(code, "") or place.category,
+                industry_code=code,
+                sources=[
+                    {
+                        "type": "web",
+                        "label": f"Google Maps · {place.category or 'empresa'}",
+                        "url": place.website,
+                    }
+                ],
+            )
+            if place.phone:
+                candidate.phones[place.phone.replace(" ", "")] = place.website
+            found[key] = candidate
+            added += 1
+        run.log(f"Google Maps: {added} empresas con sitio web.")
+
     if gemini.enabled() and not filters.companies and len(found) < 2 * filters.limit:
         country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
         run.log("Buscando más empresas en la web con IA…")
@@ -554,6 +599,10 @@ def _site(run: Run, fetcher: Fetcher, company: Candidate, filters: Filters) -> N
     if not company.domain or run.expired():
         return
     result = website.investigate(fetcher, company.domain, company.website)
+    if not result.people and result.pages_read and serp.enabled():
+        extra = [u for u in serp.team_pages(fetcher, run.serp, company.domain)]
+        if extra:
+            website.read_pages(fetcher, result, extra)
     with run.lock:
         company.pages_read = result.pages_read
         if result.pages_read == 0:
@@ -615,6 +664,63 @@ def _news(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) 
         run.source_counts["noticia"] += 1
         _publish(run, prospect, filters)
     run.log(f"Noticias: {len(found)} menciones de directivos en los últimos 3 meses.")
+
+
+def _web_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
+    """Buscador de Google (motor principal) y, solo para las empresas que queden vacías,
+    la IA opcional."""
+    if serp.enabled():
+        _serp_people(run, fetcher, filters, batch)
+    if gemini.enabled():
+        empty = [c for c in batch if not run.people.get(c.key)] if serp.enabled() else batch
+        if empty:
+            _ai_people(run, fetcher, filters, empty)
+
+
+def _serp_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
+    def one(company: Candidate) -> int:
+        if run.expired() or run.serp.fatal:
+            return 0
+        hits = serp.decision_makers(
+            fetcher, run.serp, company=company.name, domain=company.domain,
+            country=filters.country, levels=filters.levels, areas=filters.areas,
+        )  # fmt: skip
+        for hit in hits:
+            source = {"type": "perfil", "label": "Perfil público · Google", "url": hit.url}
+            prospect = run.merge_person(
+                company,
+                full_name=hit.full_name,
+                first_name=hit.first_name,
+                last_name=hit.last_name,
+                source=source,
+                title=hit.title,
+                title_confidence=65,
+                linkedin=hit.url,
+            )
+            with run.lock:
+                run.source_counts["perfil"] += 1
+            _publish(run, prospect, filters)
+        return len(hits)
+
+    total = 0
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {pool.submit(one, c): c for c in batch}
+        for future in as_completed(futures):
+            company = futures[future]
+            try:
+                n = future.result()
+            except Exception:
+                logger.exception("serp_people_failed %s", company.name)
+                continue
+            total += n
+            if n:
+                run.log(f"Buscador · {company.name}: {n} decisores con perfil público")
+    if run.serp.fatal == "clave":
+        run.log("Buscador: la clave SERPER_API_KEY no es válida. Revísala en Render.")
+    elif run.serp.fatal == "creditos":
+        run.log("Buscador: se acabaron los créditos de Serper. Recarga en serper.dev.")
+    else:
+        run.log(f"Buscador de Google: {total} decisores ({run.serp.calls} consultas usadas).")
 
 
 def _ai_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
@@ -754,7 +860,7 @@ def _investigate(
         side: list[Callable[[], None]] = [
             lambda: _wikidata_people(run, fetcher, filters, batch),
             lambda: _news(run, fetcher, filters, batch),
-            lambda: _ai_people(run, fetcher, filters, batch),
+            lambda: _web_people(run, fetcher, filters, batch),
         ]
         side_futures = [pool.submit(fn) for fn in side]
         site_futures = {pool.submit(_site, run, fetcher, c, filters): c for c in batch}
@@ -829,6 +935,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
         **run.ai.totals(),
+        **run.serp.totals(),
     }
 
 

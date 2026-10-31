@@ -476,8 +476,12 @@ def test_diagnostics_report_each_connection(
     monkeypatch.setattr(diagnostics, "_smtp", lambda: (False, "Puerto 25 bloqueado"))
     register(client, "ana@lacteos.co")
     checks = {c["name"]: c for c in client.get("/api/research/diagnostics").json()["checks"]}
-    assert all(c["ok"] for n, c in checks.items() if "SMTP" not in n), checks
-    assert "resultados de Google" in checks["Búsqueda web con IA (Gemini + Google)"]["detail"]
+    assert all(c["ok"] for n, c in checks.items() if "SMTP" not in n and "Serper" not in n), checks
+    assert "SERPER_API_KEY" in checks["Buscador de Google (Serper) · motor principal"]["detail"]
+    assert (
+        "resultados de Google"
+        in checks["Búsqueda web con IA (Gemini + Google) · opcional"]["detail"]
+    )
     assert checks["Verificación de buzones (SMTP)"]["ok"] is False
 
 
@@ -510,3 +514,104 @@ def test_daily_quota_moves_to_next_model_and_is_reported(
     # Cada modelo se prueba una sola vez: agotado uno, no se insiste en él durante el día.
     assert len(asked) == len(set(asked)) == len(gemini.FALLBACK_MODELS)
     assert any("DIARIA" in line["text"] for line in run["progress"]["log"])
+
+
+XRAY = {
+    "organic": [
+        {"title": "Carlos Ruiz Pardo - Gerente General - Banco Andino | LinkedIn",
+         "link": "https://co.linkedin.com/in/carlos-ruiz-pardo-12ab", "snippet": "Bogotá"},
+        {"title": "Lucía Méndez - Banco Andino | LinkedIn",
+         "link": "https://co.linkedin.com/in/lucia-mendez",
+         "snippet": "Directora de Riesgos en Banco Andino · Experiencia: Banco Andino"},
+        {"title": "Pedro Otro - CEO - Otra Empresa SAS | LinkedIn",
+         "link": "https://co.linkedin.com/in/pedro-otro", "snippet": ""},
+        {"title": "Ana Pasado - Ex Gerente General - Banco Andino | LinkedIn",
+         "link": "https://co.linkedin.com/in/ana-pasado", "snippet": ""},
+        {"title": "Banco Andino | LinkedIn", "link": "https://co.linkedin.com/company/banco-andino"},
+    ]
+}  # fmt: skip
+PLACES = {
+    "places": [
+        {"title": "Banco Popular del Llano", "website": "https://www.bancollano.com.co/",
+         "address": "Cra 7 #1-2, Villavicencio, Meta, Colombia", "category": "Banco",
+         "phoneNumber": "+57 608 555 0000"},
+        {"title": "Cajero sin web", "address": "Bogotá, Colombia", "category": "Cajero"},
+    ]
+}  # fmt: skip
+
+
+@pytest.fixture()
+def with_serper(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict]]:
+    from orkesta.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "serper_api_key", "clave-serper")
+    asked: list[dict] = []
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "google.serper.dev":
+            body = json.loads(request.content)
+            asked.append({"path": request.url.path, **body})
+            if request.url.path == "/places":
+                return httpx.Response(200, json=PLACES if body.get("page") == 1 else {"places": []})
+            if 'site:linkedin.com/in "Banco Andino"' in body["q"]:
+                return httpx.Response(200, json=XRAY)
+            return httpx.Response(200, json={"organic": []})
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    yield asked
+
+
+def test_search_engine_finds_decision_makers_without_ai(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    register(client, "ana@lacteos.co")
+    assert client.get("/api/research/options").json()["web_search"] is True
+    run = _run(client, session_factory, industries=["banca_finanzas"])
+    assert run["status"] == "completed", run
+    names = {c["data"]["name"] for c in run["companies"]}
+    # Google Maps suma empresas con sitio web; la que no tiene sitio no entra.
+    assert "Banco Popular del Llano" in names and "Cajero sin web" not in names
+    people = {p["data"]["full_name"]: p for p in run["people"]}
+    carlos = people["Carlos Ruiz Pardo"]
+    assert carlos["data"]["title"] == "Gerente General"
+    assert carlos["data"]["linkedin"] == "https://co.linkedin.com/in/carlos-ruiz-pardo-12ab"
+    assert carlos["sources"][0]["type"] == "perfil"
+    # El cargo puede venir en el fragmento («Directora de Riesgos en Banco Andino»).
+    assert people["Lucía Méndez"]["data"]["title"] == "Directora de Riesgos"
+    # Otra empresa y cargos anteriores se descartan.
+    assert "Pedro Otro" not in people and "Ana Pasado" not in people
+    assert run["totals"]["serp_calls"] >= 2 and run["totals"]["source_perfil"] >= 2
+    xray = [a for a in with_serper if a["path"] == "/search" and "linkedin" in a["q"]]
+    assert all(a.get("gl") == "co" for a in xray)
+
+    # Repetir la búsqueda usa la caché: no gasta créditos otra vez.
+    calls_before = len(with_serper)
+    _run(client, session_factory, industries=["banca_finanzas"])
+    assert len(with_serper) == calls_before
+
+
+def test_invalid_search_key_is_reported(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "google.serper.dev":
+            return httpx.Response(403, json={"message": "Unauthorized."})
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, companies=["Banco Andino"])
+    assert run["totals"]["serp_fatal_clave"] == 1
+    assert any("SERPER_API_KEY" in line["text"] for line in run["progress"]["log"])
+
+
+def test_profile_title_parsing() -> None:
+    from orkesta.research.serp import parse_profile
+
+    assert parse_profile("María Paz – CFO – Grupo Éxito | LinkedIn", "") == (
+        "María Paz", "CFO", "Grupo Éxito")  # fmt: skip
+    assert parse_profile("José Díaz - Gerente de TI en Alpina | LinkedIn", "") == (
+        "José Díaz", "Gerente de TI", "Alpina")  # fmt: skip
+    assert parse_profile("Laura Gil - Bavaria | LinkedIn", "Directora Comercial en Bavaria. …") == (
+        "Laura Gil", "Directora Comercial", "Bavaria")  # fmt: skip
