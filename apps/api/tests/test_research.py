@@ -325,6 +325,7 @@ def with_gemini(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     monkeypatch.setattr(get_settings(), "gemini_api_key", "clave-de-prueba")
     monkeypatch.setattr(gemini, "MIN_INTERVAL", 0)
+    gemini._cooldown.clear()
 
     def route(request: httpx.Request) -> httpx.Response:
         if request.url.host == "generativelanguage.googleapis.com":
@@ -478,3 +479,34 @@ def test_diagnostics_report_each_connection(
     assert all(c["ok"] for n, c in checks.items() if "SMTP" not in n), checks
     assert "resultados de Google" in checks["Búsqueda web con IA (Gemini + Google)"]["detail"]
     assert checks["Verificación de buzones (SMTP)"]["ok"] is False
+
+
+def test_daily_quota_moves_to_next_model_and_is_reported(
+    client: TestClient, session_factory: sessionmaker[Session], with_gemini: None
+) -> None:
+    from orkesta.research import gemini
+
+    daily = {
+        "error": {
+            "code": 429,
+            "details": [
+                {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+                    {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]},
+            ],
+        }
+    }  # fmt: skip
+    asked: list[str] = []
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "generativelanguage.googleapis.com":
+            asked.append(request.url.path)
+            return httpx.Response(429, json=daily)
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, industries=["banca_finanzas"])
+    assert run["totals"]["ai_fatal_cuota"] == 1 and run["totals"]["ai_quota_diaria"] == 1
+    # Cada modelo se prueba una sola vez: agotado uno, no se insiste en él durante el día.
+    assert len(asked) == len(set(asked)) == len(gemini.FALLBACK_MODELS)
+    assert any("DIARIA" in line["text"] for line in run["progress"]["log"])

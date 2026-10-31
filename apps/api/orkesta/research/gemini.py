@@ -14,6 +14,7 @@ inventados. Las respuestas se leen aunque vengan en Markdown, tablas o prosa.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
@@ -39,7 +40,18 @@ from orkesta.research.extract import (
 from orkesta.research.fetch import Fetcher, Page
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest")
+# Cada modelo tiene su propia cuota gratuita: si uno se agota se usa el siguiente.
+FALLBACK_MODELS = (
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+)
+# Modelo → momento (monotónico) hasta el que no conviene usarlo por cuota agotada.
+_cooldown: dict[str, float] = {}
+_cooldown_lock = threading.Lock()
 MIN_INTERVAL = 4.5  # plan gratuito: ~15 solicitudes por minuto entre todas las corridas
 _lock = threading.Lock()
 _last = 0.0
@@ -77,7 +89,8 @@ class AiStats:
     errors: dict[str, int] = field(default_factory=dict)
     fatal: str = ""  # «clave» o «cuota»: no tiene sentido seguir preguntando
     # Tope de consultas por corrida para no gastar en una sola búsqueda la cuota diaria gratuita.
-    budget: int = 70
+    budget: int = 20
+    quota: str = ""  # «diaria» o «minuto» si Google respondió que se agotó la cuota
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def error(self, kind: str) -> None:
@@ -93,6 +106,7 @@ class AiStats:
             "ai_rejected": self.rejected,
             **{f"ai_error_{k}": v for k, v in self.errors.items()},
             **({f"ai_fatal_{self.fatal}": 1} if self.fatal else {}),
+            **({f"ai_quota_{self.quota}": 1} if self.quota else {}),
         }
 
 
@@ -169,7 +183,52 @@ def _parse(payload: dict[str, Any]) -> tuple[Grounded | None, str]:
 
 def _models() -> list[str]:
     configured = get_settings().gemini_model
-    return list(dict.fromkeys([configured, *FALLBACK_MODELS]))
+    now = time.monotonic()
+    with _cooldown_lock:
+        return [
+            m for m in dict.fromkeys([configured, *FALLBACK_MODELS]) if _cooldown.get(m, 0) <= now
+        ]
+
+
+def _seconds_to_pacific_midnight() -> float:
+    """La cuota diaria gratuita de Gemini se reinicia a medianoche, hora del Pacífico."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo("America/Los_Angeles"))
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
+    return (tomorrow - now).total_seconds()
+
+
+def quota_info(text: str) -> tuple[str, float]:
+    """(«diaria» | «minuto», segundos de espera sugeridos) a partir de un error 429."""
+    try:
+        details = json.loads(text).get("error", {}).get("details", [])
+    except (ValueError, AttributeError):
+        details = []
+    kind, delay = "minuto", 60.0
+    for item in details if isinstance(details, list) else []:
+        if not isinstance(item, dict):
+            continue
+        for violation in item.get("violations", []) or []:
+            quota = str(violation.get("quotaId", "")) if isinstance(violation, dict) else ""
+            if "PerDay" in quota:
+                kind = "diaria"
+        retry = str(item.get("retryDelay", ""))
+        if retry.endswith("s"):
+            with contextlib.suppress(ValueError):
+                delay = float(retry[:-1])
+    # «limit: 0»: el plan gratuito de ese modelo no incluye la función (no es que se agotó).
+    if re.search(r"limit[\"']?\s*:\s*0\b", text):
+        return "sin_plan", 6 * 3600.0
+    if kind == "diaria":
+        delay = _seconds_to_pacific_midnight()
+    return kind, delay
+
+
+def _cool(model: str, seconds: float) -> None:
+    with _cooldown_lock:
+        _cooldown[model] = time.monotonic() + seconds
 
 
 def ask(fetcher: Fetcher, prompt: str, stats: AiStats) -> Grounded | None:
@@ -218,7 +277,11 @@ def ask(fetcher: Fetcher, prompt: str, stats: AiStats) -> Grounded | None:
             stats.error("modelo")
             continue  # el modelo no existe o no admite búsqueda: probar el siguiente
         if status == 429:
+            kind, delay = quota_info(text)
             stats.error("cuota")
+            with stats.lock:
+                stats.quota = kind
+            _cool(model, delay if kind == "diaria" else min(delay, 90))
             continue  # cuota de este modelo agotada: probar el siguiente
         if status != 200:
             stats.error(str(status))
@@ -235,7 +298,7 @@ def ask(fetcher: Fetcher, prompt: str, stats: AiStats) -> Grounded | None:
         if grounded is not None:
             fetcher._store(Page(cache_url, cache_url, 200, "application/json", text))
         return grounded
-    if stats.errors.get("cuota"):
+    if not _models() or stats.errors.get("cuota", 0) >= len(FALLBACK_MODELS):
         stats.fatal = "cuota"
     return None
 
@@ -379,55 +442,72 @@ ROLE_HINTS = {
 }
 
 
-def decision_makers(
+def _roles(levels: list[str]) -> str:
+    return "; ".join(ROLE_HINTS[lv] for lv in levels if lv in ROLE_HINTS) or (
+        "CEO, presidente, gerente general, vicepresidentes, directores y gerentes de área"
+    )
+
+
+def decision_makers_batch(
     fetcher: Fetcher,
     stats: AiStats,
     *,
-    company: str,
-    domain: str,
+    companies: list[tuple[str, str]],
     country: str,
     levels: list[str],
     areas: list[str],
     variant: int = 0,
-) -> list[FoundPerson]:
-    roles = "; ".join(ROLE_HINTS[lv] for lv in levels if lv in ROLE_HINTS) or (
-        "CEO, presidente, gerente general, vicepresidentes, directores y gerentes de área"
-    )
+) -> dict[int, list[FoundPerson]]:
+    """Decisores de varias empresas en UNA consulta (la cuota gratuita es por consulta).
+
+    ``companies``: [(nombre, dominio)]. Devuelve {índice de la empresa: personas}.
+    """
     area_text = f" Prioriza las áreas: {', '.join(areas)}." if areas else ""
-    site = f" ({domain})" if domain else ""
+    listing = "\n".join(
+        f"{i + 1}. {name}" + (f" ({domain})" if domain else "")
+        for i, (name, domain) in enumerate(companies)
+    )
     if variant == 0:
         prompt = (
-            f"Busca en Google quiénes ocupan actualmente cargos directivos en «{company}»{site}, "
-            f"{country}. Cargos de interés: {roles}.{area_text} Revisa el sitio oficial, "
-            "informes anuales, notas de prensa, directorios empresariales y perfiles "
-            "profesionales públicos. Excluye a quienes ya dejaron el cargo. Entrega hasta 15 "
-            "personas, una por línea, sin introducción, con este formato exacto:\n"
+            f"Busca en Google quiénes ocupan actualmente cargos directivos en estas empresas de "
+            f"{country}:\n{listing}\nCargos de interés: {_roles(levels)}.{area_text} Revisa "
+            "sitios oficiales, informes anuales, notas de prensa, directorios empresariales y "
+            "perfiles profesionales públicos. Excluye a quienes ya dejaron el cargo. Hasta 8 "
+            "personas por empresa, una por línea, sin introducción, con este formato exacto:\n"
             "Nombre Apellido | Cargo | Empresa | URL de la página donde aparece\n"
             "Si no encuentras a nadie con fuente pública, escribe solo: NINGUNO"
         )
     else:
-        # Segundo intento con otra formulación (en inglés encuentra notas y perfiles distintos).
         prompt = (
-            f"Search Google for the current leadership team and senior managers of "
-            f"«{company}»{site} in {country} (CEO, general manager, CFO, COO, CTO, CIO, CMO, "
-            "VPs, directors). Use the company website, press releases, news and public "
-            "professional profiles. Up to 15 people, one per line, no intro, exactly:\n"
+            f"Search Google for the current leadership team of these companies in {country}:\n"
+            f"{listing}\nRoles: CEO, general manager, CFO, COO, CTO, CIO, CMO, VPs, directors. "
+            "Use company websites, press releases, news and public professional profiles. Up to "
+            "8 people per company, one per line, no intro, exactly:\n"
             "Full Name | Job title | Company | URL where it appears\n"
             "If none is found with a public source, write only: NONE"
         )
     grounded = ask(fetcher, prompt, stats)
+    results: dict[int, dict[str, FoundPerson]] = {i: {} for i in range(len(companies))}
     if grounded is None:
-        return []
-    found: dict[str, FoundPerson] = {}
+        return {}
     for line, urls, employer in answer_rows(grounded.text):
-        if not same_employer(employer, company, domain):
-            if people_in(Document(lines=[line])):
-                with stats.lock:
-                    stats.rejected += 1
+        people = people_in(Document(lines=[line]))
+        if not people:
             continue
-        for person in people_in(Document(lines=[line])):
+        matches = [
+            i for i, (name, domain) in enumerate(companies)
+            if employer and same_employer(employer, name, domain)
+        ]  # fmt: skip
+        if not employer and len(companies) == 1:
+            matches = [0]
+        if len(matches) != 1:
+            with stats.lock:
+                stats.rejected += len(people)  # empresa ausente, ajena o ambigua
+            continue
+        index = matches[0]
+        for person in people:
             key = fold(person.full_name)
-            if key in found:
+            if key in results[index]:
                 continue
             verdict = _verify(fetcher, grounded, person.full_name, person.first_name,
                               person.last_name, urls)  # fmt: skip
@@ -440,11 +520,29 @@ def decision_makers(
             linkedin = next((u for u in urls if "linkedin.com/in/" in u), "")
             if linkedin and not _linkedin_matches(linkedin, person.first_name, person.last_name):
                 linkedin = ""
-            found[key] = FoundPerson(
+            results[index][key] = FoundPerson(
                 person.full_name, person.first_name, person.last_name, person.title,
                 url, label, confidence, linkedin,
             )  # fmt: skip
-    return list(found.values())
+    return {i: list(v.values()) for i, v in results.items() if v}
+
+
+def decision_makers(
+    fetcher: Fetcher,
+    stats: AiStats,
+    *,
+    company: str,
+    domain: str,
+    country: str,
+    levels: list[str],
+    areas: list[str],
+    variant: int = 0,
+) -> list[FoundPerson]:
+    found = decision_makers_batch(
+        fetcher, stats, companies=[(company, domain)], country=country, levels=levels,
+        areas=areas, variant=variant,
+    )  # fmt: skip
+    return found.get(0, [])
 
 
 def _verify(

@@ -618,25 +618,14 @@ def _news(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) 
 
 
 def _ai_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
-    """Búsqueda web con IA por empresa, respetando el ritmo del plan gratuito."""
+    """Búsqueda web con IA en grupos de empresas, cuidando la cuota gratuita."""
     if not gemini.enabled():
         return
     country = COUNTRIES.get(filters.country, (filters.country,))[0]
-    total = 0
 
-    def one(company: Candidate) -> int:
-        if run.expired() or run.ai.fatal:
-            return 0
-        args: dict[str, Any] = {
-            "company": company.name,
-            "domain": company.domain,
-            "country": country,
-            "levels": filters.levels,
-            "areas": [AREA_LABELS.get(a, a) for a in filters.areas],
-        }
-        found = gemini.decision_makers(fetcher, run.ai, **args)
-        if not found and not run.ai.fatal and not run.expired():
-            found = gemini.decision_makers(fetcher, run.ai, variant=1, **args)
+    areas = [AREA_LABELS.get(a, a) for a in filters.areas]
+
+    def record(company: Candidate, found: list[gemini.FoundPerson]) -> int:
         for person in found:
             source = {"type": "web", "label": person.source_label, "url": person.url}
             prospect = run.merge_person(
@@ -653,27 +642,54 @@ def _ai_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candida
                 run.source_counts["web"] += 1
             _publish(run, prospect, filters)
         with run.lock:
-            company.ai_people = len(found)
+            company.ai_people += len(found)
         return len(found)
 
-    # Tres consultas a la vez; el ritmo global lo limita ``gemini.MIN_INTERVAL``.
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {pool.submit(one, c): c for c in batch}
-        for future in as_completed(futures):
-            company = futures[future]
-            try:
-                n = future.result()
-            except Exception:
-                logger.exception("ai_people_failed %s", company.name)
-                continue
-            total += n
+    def group(companies: list[Candidate], variant: int) -> list[Candidate]:
+        """Una consulta para el grupo; devuelve las empresas que quedaron sin decisores."""
+        if run.expired() or run.ai.fatal:
+            return []
+        found = gemini.decision_makers_batch(
+            fetcher, run.ai, companies=[(c.name, c.domain) for c in companies],
+            country=country, levels=filters.levels, areas=areas, variant=variant,
+        )  # fmt: skip
+        empty = []
+        for i, company in enumerate(companies):
+            n = record(company, found.get(i, []))
             if n:
                 run.log(f"Búsqueda web · {company.name}: {n} decisores verificados")
+            else:
+                empty.append(company)
+        return empty
+
+    # Grupos de 5 empresas por consulta: la cuota gratuita de Google se cuenta por consulta.
+    size = 5
+    groups = [batch[i : i + size] for i in range(0, len(batch), size)]
+    leftovers: list[Candidate] = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for empty in pool.map(lambda g: group(g, 0), groups):
+            leftovers += empty
+    # Segundo intento, en inglés, solo para las empresas que quedaron vacías.
+    if leftovers and not run.ai.fatal and not run.expired():
+        retry = [leftovers[i : i + size] for i in range(0, len(leftovers), size)]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda g: group(g, 1), retry))
+    total = sum(c.ai_people for c in batch)
     stats = run.ai
     if stats.fatal == "clave":
         run.log("Búsqueda web con IA: la clave GEMINI_API_KEY no es válida. Revísala en Render.")
+    elif stats.fatal == "cuota" and stats.quota == "sin_plan":
+        run.log(
+            "Búsqueda web con IA: el plan gratuito de Gemini de esta clave no incluye búsquedas "
+            "con Google (límite 0). Activa la facturación en Google AI Studio para usarla."
+        )
+    elif stats.fatal == "cuota" and stats.quota == "diaria":
+        run.log(
+            "Búsqueda web con IA: se agotó la cuota DIARIA gratuita de Gemini. Se reinicia "
+            "hacia las 2:00–3:00 a. m. (hora de Colombia)."
+        )
     elif stats.fatal == "cuota":
-        run.log("Búsqueda web con IA: se agotó la cuota gratuita de Gemini por ahora.")
+        run.log("Búsqueda web con IA: Gemini pidió esperar (límite por minuto). Reintenta luego.")
     else:
         run.log(
             f"Búsqueda web con IA: {total} decisores verificados "
