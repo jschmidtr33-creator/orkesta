@@ -764,7 +764,133 @@ def _productive(run: Run, filters: Filters) -> int:
     return sum(1 for people in run.people.values() if any(filters.wants(p) for p in people))
 
 
+COMMON_PATTERN = "first.last"
+
+
+def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    """Modo principal con buscador: leads que cumplen los filtros → su empresa y dominio →
+    formato de correo de la empresa → correo de cada lead."""
+    country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+    target = filters.limit
+    run.total = target
+    run.log(f"Buscando {target} leads con perfil público en {country_name}…", step="leads")
+    leads = serp.people_search(
+        fetcher, run.serp, country=filters.country, country_name=country_name,
+        city=filters.city, levels=filters.levels, areas=filters.areas,
+        industries=filters.industries, keywords=filters.keywords, target=target,
+    )  # fmt: skip
+    run.log(f"{len(leads)} leads encontrados que cumplen los filtros.", done=len(leads))
+    code = filters.industries[0] if len(filters.industries) == 1 else ""
+    for lead in leads:
+        key = company_key(lead.employer)
+        if not key:
+            continue
+        company = run.companies.get(key)
+        if company is None:
+            company = Candidate(
+                key=key,
+                name=lead.employer,
+                city=filters.city,
+                industry=INDUSTRY_LABELS.get(code, ""),
+                industry_code=code,
+                sources=[
+                    {"type": "perfil", "label": "Empresa del perfil público", "url": lead.url}
+                ],
+            )
+            run.companies[key] = company
+        prospect = run.merge_person(
+            company, full_name=lead.full_name, first_name=lead.first_name,
+            last_name=lead.last_name, title=lead.title, title_confidence=65, linkedin=lead.url,
+            source={"type": "perfil", "label": "Perfil público · Google", "url": lead.url},
+        )  # fmt: skip
+        with run.lock:
+            run.source_counts["perfil"] += 1
+        _publish(run, prospect, filters)
+    companies = list(run.companies.values())
+    if not companies:
+        run.log("No aparecieron leads con estos filtros. Prueba con menos filtros o más niveles.")
+        return {"companies": 0, "people": 0, **run.serp.totals()}
+
+    run.log(f"Buscando el sitio web de {len(companies)} empresas…", step="dominios")
+
+    def resolve(company: Candidate) -> None:
+        if run.expired() or run.serp.fatal:
+            return
+        company.domain = serp.company_domain(
+            fetcher, run.serp, company.name, filters.country, country_name
+        )
+        if company.domain:
+            company.website = f"https://{company.domain}"
+        run.save_company(company, filters.country)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(resolve, companies))
+    with_domain = [c for c in companies if c.domain]
+    run.log(f"{len(with_domain)} empresas con sitio web identificado.", step="correos")
+
+    patterns: dict[str, tuple[str, int, str]] = {}
+
+    def pattern_for(company: Candidate) -> None:
+        if run.expired():
+            return
+        patterns[company.key] = serp.email_pattern(fetcher, run.serp, company.domain)
+        _site(run, fetcher, company, filters)  # correos publicados y más decisores del sitio
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(pattern_for, with_domain))
+
+    infer_emails(run, filters)  # primero, patrón de correos publicados junto a un nombre
+    evidence_based = common = 0
+    for company in with_domain:
+        pattern, votes, example = patterns.get(company.key, ("", 0, ""))
+        if pattern:
+            source = {"type": "patron", "url": example,
+                      "label": f"Formato {pattern}@{company.domain} visto en {votes} correo(s) "
+                               "públicos"}  # fmt: skip
+            confidence = 50 if votes > 1 else 40
+        else:
+            pattern = COMMON_PATTERN
+            label = f"Formato más común ({pattern}@{company.domain}); sin evidencia"
+            source = {"type": "patron", "url": "", "label": label}
+            confidence = 20
+        for prospect in run.people.get(company.key, []):
+            if prospect.email:
+                continue
+            email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
+            if not email:
+                continue
+            prospect.set("email", email, source, confidence)
+            prospect.email_status = "estimado"
+            if confidence >= 40:
+                evidence_based += 1
+            else:
+                common += 1
+            _publish(run, prospect, filters)
+    run.log(
+        f"Correos: {evidence_based} con formato verificado en la web, {common} con el formato "
+        "más común (por validar)."
+    )
+    shown = [p for people in run.people.values() for p in people if filters.wants(p)]
+    for company in companies:
+        company.people_found = sum(1 for p in shown if p.company.key == company.key)
+        run.save_company(company, filters.country)
+    return {
+        "companies": len(companies),
+        "people": len(shown),
+        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
+        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "pattern_emails": evidence_based,
+        "common_emails": common,
+        "domains": len(with_domain),
+        "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
+        **{f"source_{k}": v for k, v in run.source_counts.items()},
+        **run.serp.totals(),
+    }
+
+
 def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    if serp.enabled() and not filters.companies:
+        return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
     first, reserve = pool[: filters.limit], pool[filters.limit :]
     companies = list(first)
