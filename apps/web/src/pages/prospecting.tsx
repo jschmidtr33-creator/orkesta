@@ -85,6 +85,8 @@ type CompanyData = {
   phones: string[];
   people_found: number;
   site_status: string;
+  pages_read?: number;
+  ai_people?: number;
 };
 type RunDetail = Run & { companies: Item<CompanyData>[]; people: Item<PersonData>[] };
 
@@ -588,6 +590,7 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
             ))}
           </div>
         )}
+        {run.status === "completed" && <SourceSummary totals={run.totals} />}
       </Card>
 
       {saved && <Alert tone="ok">{saved}</Alert>}
@@ -742,6 +745,10 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
                     </td>
                     <td className="px-2 py-3">
                       <Badge tone={c.data.people_found ? "blue" : "neutral"}>{c.data.people_found}</Badge>
+                      <p className="mt-1 text-[11px] text-ork-mist">
+                        {c.data.site_status === "sin_acceso" ? "Sitio sin acceso" : `Sitio: ${c.data.pages_read ?? 0} págs.`}
+                        {c.data.ai_people ? ` · Web: ${c.data.ai_people}` : ""}
+                      </p>
                     </td>
                     <td className="px-5 py-3">
                       <SourceChips sources={c.sources} />
@@ -765,6 +772,43 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
           detail.refetch();
         }}
       />
+    </div>
+  );
+}
+
+function SourceSummary({ totals }: { totals: Record<string, number> }) {
+  const sources = [
+    ["Wikidata", totals.source_wikidata ?? 0],
+    ["Sitios oficiales", totals.source_sitio ?? 0],
+    ["Noticias", totals.source_noticia ?? 0],
+    ["Búsqueda web con IA", totals.source_web ?? 0],
+  ] as const;
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-[12.5px] text-ork-mist">
+        Hallazgos por fuente:{" "}
+        {sources.map(([label, n], i) => (
+          <span key={label}>
+            {i > 0 && " · "}
+            {label} <strong className="text-ork-graphite">{n}</strong>
+          </span>
+        ))}
+        {totals.ai_rejected ? ` · ${totals.ai_rejected} nombres descartados por no tener evidencia` : ""}
+      </p>
+      {(totals.people ?? 0) < 5 && (
+        <p className="text-[12.5px] text-ork-mist">
+          ¿Pocos decisores? Revisa qué fuente falla en{" "}
+          <Link to="/configuracion/integraciones" className="font-semibold text-ork-blue hover:underline">
+            Configuración → Integraciones → Probar conexiones
+          </Link>
+          .
+        </p>
+      )}
+      {totals.ai_fatal_clave ? (
+        <Alert>La clave de Gemini no es válida: la búsqueda web con IA no se usó. Revisa GEMINI_API_KEY en Render.</Alert>
+      ) : totals.ai_fatal_cuota ? (
+        <Alert>Se agotó la cuota gratuita de Gemini por ahora; la búsqueda web con IA se usó parcialmente. Vuelve a intentar más tarde.</Alert>
+      ) : null}
     </div>
   );
 }

@@ -86,6 +86,8 @@ class Candidate:
     phones: dict[str, str] = field(default_factory=dict)
     people_found: int = 0
     site_status: str = ""
+    pages_read: int = 0
+    ai_people: int = 0
 
     def data(self, country: str) -> dict[str, Any]:
         return {
@@ -107,6 +109,8 @@ class Candidate:
             "phones": sorted(self.phones),
             "people_found": self.people_found,
             "site_status": self.site_status,
+            "pages_read": self.pages_read,
+            "ai_people": self.ai_people,
         }
 
 
@@ -226,7 +230,8 @@ class Run:
         self.companies: dict[str, Candidate] = {}
         self.people: dict[str, list[Prospect]] = {}
         self.filtered_out = 0
-        self.source_counts = {"wikidata": 0, "sitio": 0, "noticia": 0}
+        self.source_counts = {"wikidata": 0, "sitio": 0, "noticia": 0, "web": 0}
+        self.ai = gemini.AiStats()
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -464,16 +469,17 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
         if added:
             run.log(f"{added} empresas más de tu base cumplen los filtros.")
 
-    if gemini.enabled() and not filters.companies and len(found) < filters.limit:
+    if gemini.enabled() and not filters.companies and len(found) < 2 * filters.limit:
         country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
         run.log("Buscando más empresas en la web con IA…")
         extra = gemini.companies(
             fetcher,
+            run.ai,
             country=country_name,
             industries=[INDUSTRY_LABELS.get(i, i) for i in filters.industries],
             city=filters.city,
             keywords=filters.keywords,
-            limit=min(25, filters.limit - len(found) + 5),
+            limit=min(30, 2 * filters.limit - len(found) + 5),
         )
         known_domains = {c.domain for c in found.values() if c.domain}
         added = 0
@@ -505,14 +511,15 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
     ranked = sorted(
         found.values(), key=lambda c: (c.employees is None, -(c.employees or 0), c.name)
     )
-    return ranked[: filters.limit]
+    # Reserva de candidatas: si las primeras no publican decisores, se sigue con las demás.
+    return ranked[: 2 * filters.limit]
 
 
 # --- Paso 2: decisores ----------------------------------------------------------------------
 
 
-def _wikidata_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
-    by_qid = {c.qid: c for c in run.companies.values() if c.qid}
+def _wikidata_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
+    by_qid = {c.qid: c for c in batch if c.qid}
     if not by_qid:
         return
     try:
@@ -548,6 +555,7 @@ def _site(run: Run, fetcher: Fetcher, company: Candidate, filters: Filters) -> N
         return
     result = website.investigate(fetcher, company.domain, company.website)
     with run.lock:
+        company.pages_read = result.pages_read
         if result.pages_read == 0:
             company.site_status = "sin_acceso"
         else:
@@ -583,8 +591,8 @@ def _site(run: Run, fetcher: Fetcher, company: Candidate, filters: Filters) -> N
     run.save_company(company, filters.country)
 
 
-def _news(run: Run, fetcher: Fetcher, filters: Filters) -> None:
-    targets = {c.key: c.name for c in run.companies.values() if len(c.name) >= 4}
+def _news(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
+    targets = {c.key: c.name for c in batch if len(c.name) >= 4}
     if not targets:
         return
     found = news.search(fetcher, targets)
@@ -609,7 +617,7 @@ def _news(run: Run, fetcher: Fetcher, filters: Filters) -> None:
     run.log(f"Noticias: {len(found)} menciones de directivos en los últimos 3 meses.")
 
 
-def _ai_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
+def _ai_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
     """Búsqueda web con IA por empresa, respetando el ritmo del plan gratuito."""
     if not gemini.enabled():
         return
@@ -617,19 +625,20 @@ def _ai_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
     total = 0
 
     def one(company: Candidate) -> int:
-        if run.expired():
+        if run.expired() or run.ai.fatal:
             return 0
-        found = gemini.decision_makers(
-            fetcher,
-            company=company.name,
-            domain=company.domain,
-            country=country,
-            levels=filters.levels,
-            areas=[AREA_LABELS.get(a, a) for a in filters.areas],
-        )
+        args: dict[str, Any] = {
+            "company": company.name,
+            "domain": company.domain,
+            "country": country,
+            "levels": filters.levels,
+            "areas": [AREA_LABELS.get(a, a) for a in filters.areas],
+        }
+        found = gemini.decision_makers(fetcher, run.ai, **args)
+        if not found and not run.ai.fatal and not run.expired():
+            found = gemini.decision_makers(fetcher, run.ai, variant=1, **args)
         for person in found:
             source = {"type": "web", "label": person.source_label, "url": person.url}
-            linkedin = person.url if "linkedin.com/in/" in person.url else ""
             prospect = run.merge_person(
                 company,
                 full_name=person.full_name,
@@ -637,17 +646,19 @@ def _ai_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
                 last_name=person.last_name,
                 source=source,
                 title=person.title,
-                title_confidence=70,
-                linkedin=linkedin,
+                title_confidence=person.confidence,
+                linkedin=person.linkedin,
             )
             with run.lock:
-                run.source_counts["web"] = run.source_counts.get("web", 0) + 1
+                run.source_counts["web"] += 1
             _publish(run, prospect, filters)
+        with run.lock:
+            company.ai_people = len(found)
         return len(found)
 
     # Tres consultas a la vez; el ritmo global lo limita ``gemini.MIN_INTERVAL``.
     with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {pool.submit(one, c): c for c in run.companies.values()}
+        futures = {pool.submit(one, c): c for c in batch}
         for future in as_completed(futures):
             company = futures[future]
             try:
@@ -657,8 +668,17 @@ def _ai_people(run: Run, fetcher: Fetcher, filters: Filters) -> None:
                 continue
             total += n
             if n:
-                run.log(f"Búsqueda web · {company.name}: {n} decisores con fuente")
-    run.log(f"Búsqueda web con IA: {total} decisores respaldados por resultados de Google.")
+                run.log(f"Búsqueda web · {company.name}: {n} decisores verificados")
+    stats = run.ai
+    if stats.fatal == "clave":
+        run.log("Búsqueda web con IA: la clave GEMINI_API_KEY no es válida. Revísala en Render.")
+    elif stats.fatal == "cuota":
+        run.log("Búsqueda web con IA: se agotó la cuota gratuita de Gemini por ahora.")
+    else:
+        run.log(
+            f"Búsqueda web con IA: {total} decisores verificados "
+            f"({stats.rejected} descartados por no tener evidencia)."
+        )
 
 
 def _short(url: str) -> str:
@@ -710,29 +730,18 @@ def infer_emails(run: Run, filters: Filters) -> int:
 # --- Orquestación ---------------------------------------------------------------------------
 
 
-def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
-    companies = discover(run, fetcher, filters)
-    run.companies = {c.key: c for c in companies}
-    for company in companies:
-        run.save_company(company, filters.country)
-    run.total = len(companies)
-    if not companies:
-        run.log("Ninguna empresa cumple los filtros. Prueba con menos filtros o escribe empresas.")
-        return {"companies": 0, "people": 0}
-    run.log(
-        f"Investigando {len(companies)} empresas: directivos, sitios oficiales y noticias…",
-        step="decisores",
-        done=0,
-    )
-    done = 0
+def _investigate(
+    run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate], done: int
+) -> int:
+    """Todas las fuentes de decisores, en paralelo, para un grupo de empresas."""
     with ThreadPoolExecutor(max_workers=SITE_WORKERS + 2) as pool:
         side: list[Callable[[], None]] = [
-            lambda: _wikidata_people(run, fetcher, filters),
-            lambda: _news(run, fetcher, filters),
-            lambda: _ai_people(run, fetcher, filters),
+            lambda: _wikidata_people(run, fetcher, filters, batch),
+            lambda: _news(run, fetcher, filters, batch),
+            lambda: _ai_people(run, fetcher, filters, batch),
         ]
         side_futures = [pool.submit(fn) for fn in side]
-        site_futures = {pool.submit(_site, run, fetcher, c, filters): c for c in companies}
+        site_futures = {pool.submit(_site, run, fetcher, c, filters): c for c in batch}
         for future in as_completed(site_futures):
             company = site_futures[future]
             done += 1
@@ -743,7 +752,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
             except Exception:
                 logger.exception("site_failed %s", company.domain)
             found = len(run.people.get(company.key, []))
-            detail = f"{found} decisores" if found else "sin datos públicos"
+            detail = f"{found} decisores en su sitio" if found else "sitio sin equipo publicado"
             run.log(f"{company.name}: {detail}", done=done)
         for future in side_futures:
             try:
@@ -752,6 +761,43 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
                 raise
             except Exception:
                 logger.exception("side_source_failed")
+    return done
+
+
+def _productive(run: Run, filters: Filters) -> int:
+    return sum(1 for people in run.people.values() if any(filters.wants(p) for p in people))
+
+
+def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    pool = discover(run, fetcher, filters)
+    first, reserve = pool[: filters.limit], pool[filters.limit :]
+    companies = list(first)
+    run.companies = {c.key: c for c in companies}
+    for company in companies:
+        run.save_company(company, filters.country)
+    run.total = len(companies)
+    if not companies:
+        run.log("Ninguna empresa cumple los filtros. Prueba con menos filtros o escribe empresas.")
+        return {"companies": 0, "people": 0}
+    run.log(
+        f"Investigando {len(companies)} empresas: directivos, sitios oficiales, noticias"
+        + (" y búsqueda web con IA…" if gemini.enabled() else "…"),
+        step="decisores",
+        done=0,
+    )
+    done = _investigate(run, fetcher, filters, companies, 0)
+    # Segunda ola: si varias empresas no publican a sus decisores, se prueban otras que
+    # también cumplen los filtros, hasta completar el objetivo o agotar el tiempo.
+    missing = filters.limit - _productive(run, filters)
+    if missing > 0 and reserve and not run.expired() and not run.ai.fatal:
+        extra = reserve[: max(missing, 3)]
+        run.log(f"Ampliando la búsqueda a {len(extra)} empresas más para completar decisores…")
+        for company in extra:
+            run.companies[company.key] = company
+            run.save_company(company, filters.country)
+        companies += extra
+        run.total = len(companies)
+        done = _investigate(run, fetcher, filters, extra, done)
     run.log("Deduciendo patrones de correo…", step="correos")
     estimated = infer_emails(run, filters)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
@@ -766,6 +812,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
+        **run.ai.totals(),
     }
 
 

@@ -297,16 +297,17 @@ def _gemini_reply(text: str, supported: list[str], titles: list[str]) -> dict:
     }
 
 
-PEOPLE_TEXT = """Mariela Solano Quirós | Gerente General | https://cr.linkedin.com/in/mariela-solano
-Inventado Pérez | CFO | https://ejemplo.com
-- Óscar Vindas | Director de Tecnología | https://www.bancoandino.co/prensa"""
+PEOPLE_TEXT = """Mariela Solano Quirós | Gerente General | Banco Andino S.A. | https://cr.linkedin.com/in/mariela-solano
+Inventado Pérez | CFO | Banco Andino | https://ejemplo.com
+- Óscar Vindas | Director de Tecnología | Banco Andino | https://www.bancoandino.co/prensa
+Pedro Ajeno | CEO | Otra Compañía Distinta | https://otra.com"""
 COMPANIES_TEXT = """Coopeservidores | https://www.coopeservidores.fi.cr
 Banco Fantasma | https://fantasma.cr"""
 
 
 def _gemini(request: httpx.Request) -> httpx.Response:
     prompt = json.loads(request.content)["contents"][0]["parts"][0]["text"]
-    if "Lista hasta" in prompt:
+    if "empresas reales" in prompt:
         return httpx.Response(200, json=_gemini_reply(
             COMPANIES_TEXT, ["Coopeservidores | https://www.coopeservidores.fi.cr"],
             ["coopeservidores.fi.cr"]))  # fmt: skip
@@ -354,6 +355,9 @@ def test_ai_web_search_adds_grounded_people_and_companies(
     assert ("Banco Andino", "Óscar Vindas") in people
     # El nombre sin respaldo en la búsqueda se descarta: no se inventan personas.
     assert all(name != "Inventado Pérez" for _, name in people)
+    # Si el modelo dice que la persona trabaja en otra empresa, no se le atribuye a esta.
+    assert all(name != "Pedro Ajeno" for _, name in people)
+    assert {c for c, n in people if n == "Mariela Solano Quirós"} == {"Banco Andino"}
     assert run["totals"]["source_web"] >= 2
 
 
@@ -362,4 +366,115 @@ def test_ai_reply_without_search_backing_is_ignored(
 ) -> None:
     from orkesta.research import gemini
 
-    assert gemini._parse({"candidates": [{"content": {"parts": [{"text": PEOPLE_TEXT}]}}]}) is None
+    reply = {"candidates": [{"content": {"parts": [{"text": PEOPLE_TEXT}]}}]}
+    assert gemini._parse(reply) == (None, "sin_busqueda")
+
+
+def test_ai_answers_in_markdown_or_prose_are_read() -> None:
+    from orkesta.research.extract import Document, people_in
+    from orkesta.research.gemini import answer_lines
+
+    text = """Estos son los directivos encontrados:
+
+| Nombre | Cargo | Fuente |
+|---|---|---|
+| **Mariela Solano Quirós** | Gerente General | [LinkedIn](https://cr.linkedin.com/in/mariela-solano) |
+1. **Óscar Vindas** – Director de Tecnología ([fuente](https://www.bancoandino.co/prensa)) [1]
+* Ronny Monge: Director Financiero https://www.nacion.com/economia/nota.html
+"""
+    lines = answer_lines(text)
+    found = {}
+    for line, urls in lines:
+        for person in people_in(Document(lines=[line])):
+            found[person.full_name] = (person.title, urls)
+    assert found["Mariela Solano Quirós"] == (
+        "Gerente General",
+        ["https://cr.linkedin.com/in/mariela-solano"],
+    )
+    assert found["Óscar Vindas"] == (
+        "Director de Tecnología",
+        ["https://www.bancoandino.co/prensa"],
+    )
+    assert found["Ronny Monge"][0] == "Director Financiero"
+    assert "Nombre" not in " ".join(found)
+
+
+def test_verification_ladder(with_gemini: None, session_factory: sessionmaker[Session]) -> None:
+    from orkesta.research.fetch import Fetcher
+    from orkesta.research.gemini import Grounded, _verify
+
+    grounded = Grounded(
+        text="", chunks=[{"uri": "https://vertex/r/0", "title": "linkedin.com"}], supports=[]
+    )
+    with Fetcher(session_factory) as fetcher:
+        # Peldaño 2: la página citada existe y menciona a la persona.
+        ok = _verify(fetcher, grounded, "Laura Gómez", "Laura", "Gómez",
+                     ["https://www.bancoandino.co/nosotros/equipo-directivo"])  # fmt: skip
+        assert ok is not None and ok[2] == 80
+        # Peldaño 3: perfil público con su nombre en la dirección y LinkedIn en los resultados.
+        li = _verify(fetcher, grounded, "Mariela Solano", "Mariela", "Solano",
+                     ["https://cr.linkedin.com/in/mariela-solano-1a2b"])  # fmt: skip
+        assert li is not None and li[2] == 60
+        # Sin evidencia: la página no la menciona y el perfil no lleva su nombre.
+        assert _verify(fetcher, grounded, "Inventado Pérez", "Inventado", "Pérez",
+                       ["https://www.bancoandino.co/", "https://cr.linkedin.com/in/otra-persona"]) is None  # fmt: skip
+
+
+def test_invalid_key_stops_and_is_reported(
+    client: TestClient, session_factory: sessionmaker[Session], with_gemini: None
+) -> None:
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "generativelanguage.googleapis.com":
+            return httpx.Response(400, json={"error": {"message": "API key not valid."}})
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, industries=["banca_finanzas"])
+    assert run["status"] == "completed"
+    assert run["totals"]["ai_fatal_clave"] == 1
+    assert run["totals"]["ai_calls"] == 1  # no insiste después de saber que la clave es mala
+    assert any("GEMINI_API_KEY" in line["text"] for line in run["progress"]["log"])
+
+
+def test_model_fallback_when_model_is_unavailable(
+    client: TestClient, session_factory: sessionmaker[Session], with_gemini: None
+) -> None:
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "generativelanguage.googleapis.com":
+            if "gemini-2.5-flash" in request.url.path:
+                return httpx.Response(429, json={"error": {"message": "quota"}})
+            return _gemini(request)
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, companies=["Banco Andino"])
+    names = [p["data"]["full_name"] for p in run["people"]]
+    assert "Mariela Solano Quirós" in names
+
+
+def test_diagnostics_report_each_connection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, with_gemini: None
+) -> None:
+    from orkesta.research import diagnostics, router
+
+    router.diag_limiter.hits.clear()
+
+    def route(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host == "generativelanguage.googleapis.com":
+            return _gemini(request)
+        if host in ("query.wikidata.org", "www.wikipedia.org"):
+            return httpx.Response(200, json={"boolean": True})
+        if host == "api.gdeltproject.org":
+            return httpx.Response(200, json=GDELT)
+        return httpx.Response(503)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    monkeypatch.setattr(diagnostics, "_smtp", lambda: (False, "Puerto 25 bloqueado"))
+    register(client, "ana@lacteos.co")
+    checks = {c["name"]: c for c in client.get("/api/research/diagnostics").json()["checks"]}
+    assert all(c["ok"] for n, c in checks.items() if "SMTP" not in n), checks
+    assert "resultados de Google" in checks["Búsqueda web con IA (Gemini + Google)"]["detail"]
+    assert checks["Verificación de buzones (SMTP)"]["ok"] is False
