@@ -150,8 +150,8 @@ export function ProspectingPage() {
   return (
     <>
       <PageHeader
-        title="Prospección con IA"
-        description="Describe a tu cliente ideal y el agente investiga por ti: catálogo abierto de Wikidata, sitios oficiales de cada empresa y noticias recientes. Cada dato muestra su fuente."
+        title="Prospección"
+        description="Define a tu cliente ideal: ORKESTA busca en Google perfiles públicos de LinkedIn que cumplan los filtros (sin entrar a LinkedIn), identifica la empresa de cada lead y arma su correo con el formato de esa empresa."
       />
       {options.data && !options.data.web_search && (
         <div className="mb-5">
@@ -679,7 +679,22 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
                           <div className="flex items-center gap-2.5">
                             <Avatar name={p.data.full_name} email="" size={32} />
                             <div className="min-w-0">
-                              <p className="truncate text-[14px] font-semibold text-ork-ink">{p.data.full_name}</p>
+                              <p className="flex items-center gap-1.5 truncate text-[14px] font-semibold text-ork-ink">
+                                {p.data.full_name}
+                                {p.data.linkedin && (
+                                  <a
+                                    href={p.data.linkedin}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-ork-blue hover:opacity-80"
+                                    title="Ver perfil público"
+                                    aria-label={`Ver perfil público de ${p.data.full_name}`}
+                                  >
+                                    <ExternalLink className="size-3.5" aria-hidden />
+                                  </a>
+                                )}
+                              </p>
                               <p className="truncate text-[12.5px] text-ork-mist">{p.data.title || "Cargo no publicado"}</p>
                             </div>
                           </div>

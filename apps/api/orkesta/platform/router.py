@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime
 from typing import Annotated, Any
@@ -134,7 +135,8 @@ def _issue(db: Db, tokens: svc.Tokens, response: Response) -> dict[str, Any]:
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    # Render expone el commit desplegado; la app lo usa para avisar que hay versión nueva.
+    return {"status": "ok", "version": os.environ.get("RENDER_GIT_COMMIT", "dev")[:12]}
 
 
 @router.get("/auth/config")

@@ -87,6 +87,7 @@ class Candidate:
     people_found: int = 0
     site_status: str = ""
     pages_read: int = 0
+    site_patterns: list[str] = field(default_factory=list)
 
     def data(self, country: str) -> dict[str, Any]:
         return {
@@ -554,11 +555,15 @@ def _wikidata_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[C
     run.log(f"Wikidata: {len(people)} directivos vigentes en las empresas encontradas.")
 
 
-def _site(run: Run, fetcher: Fetcher, company: Candidate, filters: Filters) -> None:
+def _site(
+    run: Run, fetcher: Fetcher, company: Candidate, filters: Filters, add_people: bool = True
+) -> None:
+    """Lee el sitio oficial. Con ``add_people=False`` (modo leads) no suma personas del sitio:
+    solo usa sus correos publicados para completar a los leads que ya se tienen."""
     if not company.domain or run.expired():
         return
     result = website.investigate(fetcher, company.domain, company.website)
-    if not result.people and result.pages_read and serp.enabled():
+    if add_people and not result.people and result.pages_read and serp.enabled():
         extra = [u for u in serp.team_pages(fetcher, run.serp, company.domain)]
         if extra:
             website.read_pages(fetcher, result, extra)
@@ -576,6 +581,26 @@ def _site(run: Run, fetcher: Fetcher, company: Candidate, filters: Filters) -> N
                 company.emails.setdefault(email, url)
         company.phones.update({p: u for p, u in result.phones.items() if p not in company.phones})
     personal = {e: u for e, u in result.emails.items() if not is_generic_email(e)}
+    if not add_people:
+        with run.lock:
+            for prospect in run.people.get(company.key, []):
+                for email, email_url in personal.items():
+                    if not prospect.email and email_matches_person(
+                        email, prospect.first_name, prospect.last_name
+                    ):
+                        label = f"Sitio web · {_short(email_url)}"
+                        prospect.set("email", email, {"label": label, "url": email_url}, 95)
+                        prospect.email_status = "publicado"
+                        _publish(run, prospect, filters)
+            # Correos con nombre en el sitio: sirven de evidencia del formato de la empresa.
+            company.site_patterns = [
+                pattern
+                for person, _ in result.people
+                for email in personal
+                if (pattern := detect_pattern(person.first_name, person.last_name, email))
+            ]
+        run.save_company(company, filters.country)
+        return
     for person, url in result.people:
         source = {"type": "sitio", "label": f"Sitio web · {_short(url)}", "url": url}
         prospect = run.merge_person(
@@ -834,15 +859,18 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         if run.expired():
             return
         patterns[company.key] = serp.email_pattern(fetcher, run.serp, company.domain)
-        _site(run, fetcher, company, filters)  # correos publicados y más decisores del sitio
+        _site(run, fetcher, company, filters, add_people=False)  # correos publicados del sitio
 
     with ThreadPoolExecutor(max_workers=5) as pool:
         list(pool.map(pattern_for, with_domain))
 
-    infer_emails(run, filters)  # primero, patrón de correos publicados junto a un nombre
     evidence_based = common = 0
     for company in with_domain:
         pattern, votes, example = patterns.get(company.key, ("", 0, ""))
+        if company.site_patterns:
+            # El sitio publica correos junto al nombre de su dueño: la evidencia más fuerte.
+            pattern = max(set(company.site_patterns), key=company.site_patterns.count)
+            votes, example = company.site_patterns.count(pattern), company.website
         if pattern:
             source = {"type": "patron", "url": example,
                       "label": f"Formato {pattern}@{company.domain} visto en {votes} correo(s) "

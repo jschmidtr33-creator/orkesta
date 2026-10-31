@@ -357,6 +357,9 @@ def test_leads_first_with_company_domain_and_email(
     # Leads de varias empresas a la vez; fuera: otra industria, otro país y cargos anteriores.
     assert set(people) >= {"Carlos Ruiz Pardo", "Sofía Lara"}
     assert not {"Raúl Mena", "Inés Soto", "Pablo Vega"} & set(people)
+    # Solo perfiles públicos: las personas leídas en sitios web no se suman como leads.
+    assert "Diana Castro Pérez" not in people and "Andrés Martínez" not in people
+    assert all(p["sources"][0]["type"] == "perfil" for p in run["people"])
     assert people["Sofía Lara"]["company"] == "Financiera Austral"
     assert people["Sofía Lara"]["domain"] == "financieraaustral.com.co"
     # El formato de correo se deduce de un correo público junto al nombre de su dueña.
