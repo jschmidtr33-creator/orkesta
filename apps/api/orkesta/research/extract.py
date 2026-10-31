@@ -273,9 +273,18 @@ def looks_like_person(text: str, *, strict: bool = True) -> bool:
     return level is None and area is None
 
 
+# Cargos que ya no se ocupan: no sirven para prospectar.
+_FORMER = re.compile(
+    r"(?:^|\s)(?:ex|ex-|former|anterior|antiguo|antigua|retirad[oa]|hasta 20\d\d)(?:\s|$)"
+    r"|^ex(?:gerente|presidente|presidenta|director|directora|vicepresidente|jefe|socio|ceo)"
+)
+
+
 def looks_like_title(text: str) -> bool:
     value = clean(text)
     if not 2 <= len(value) <= 120 or "@" in value or looks_like_person(value):
+        return False
+    if _FORMER.search(fold(value)):
         return False
     level, area = classify_title(value)
     return level is not None or (area is not None and len(value.split()) <= 8)

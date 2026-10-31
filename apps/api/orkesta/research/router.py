@@ -16,6 +16,7 @@ from orkesta.research import service as svc
 router = APIRouter(prefix="/api/research")
 Member = Annotated[Principal, Depends(require_roles("admin", "supervisor", "vendedor"))]
 run_limiter = RateLimiter(limit=30, window_seconds=3600)
+diag_limiter = RateLimiter(limit=20, window_seconds=3600)
 
 
 def _fail(exc: DataError) -> HTTPException:
@@ -39,6 +40,16 @@ class SaveIn(BaseModel):
     ids: list[uuid.UUID] = Field(max_length=1000)
     list_id: uuid.UUID | None = None
     new_list: str = Field(default="", max_length=120)
+
+
+@router.get("/diagnostics")
+def diagnostics(
+    _: Annotated[Principal, Depends(require_roles("admin", "supervisor"))],
+) -> dict[str, Any]:
+    diag_limiter.check("diagnostics")
+    from orkesta.research.diagnostics import run_all
+
+    return {"checks": run_all()}
 
 
 @router.get("/options")

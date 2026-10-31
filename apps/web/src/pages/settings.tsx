@@ -329,7 +329,9 @@ function IntegrationSettings() {
     },
   ] as const;
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="flex flex-col gap-4">
+      <DiagnosticsCard />
+      <div className="grid gap-4 md:grid-cols-2">
       {items.map((item) => (
         <Card key={item.name} className="flex items-start justify-between gap-4">
           <div>
@@ -341,7 +343,46 @@ function IntegrationSettings() {
           {item.status === "stage" && <Badge tone="violet">Etapa {"stage" in item ? item.stage : ""}</Badge>}
         </Card>
       ))}
+      </div>
     </div>
+  );
+}
+
+type DiagCheck = { name: string; ok: boolean; detail: string; ms: number };
+
+export function DiagnosticsCard() {
+  const { session } = useSession();
+  const allowed = session?.workspace?.role !== "vendedor";
+  const test = useMutation({ mutationFn: () => api<{ checks: DiagCheck[] }>("/api/research/diagnostics") });
+  if (!allowed) return null;
+  return (
+    <Card>
+      <CardHeader
+        title="Diagnóstico de conexiones"
+        description="Prueba en vivo las fuentes del motor de prospección y la verificación de correos."
+        action={
+          <Button size="sm" variant="secondary" loading={test.isPending} onClick={() => test.mutate()}>
+            Probar conexiones
+          </Button>
+        }
+      />
+      {test.error && <Alert>{test.error.message}</Alert>}
+      {test.data && (
+        <ul className="divide-y divide-ork-line">
+          {test.data.checks.map((c) => (
+            <li key={c.name} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+              <div>
+                <p className="text-[13.5px] font-semibold text-ork-ink">{c.name}</p>
+                <p className="text-[12.5px] text-ork-mist">
+                  {c.detail} · {(c.ms / 1000).toFixed(1)} s
+                </p>
+              </div>
+              <Badge tone={c.ok ? "ok" : "bad"}>{c.ok ? "Funciona" : "Falla"}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 
