@@ -425,3 +425,229 @@ def team_pages(fetcher: Fetcher, stats: SerpStats, domain: str) -> list[str]:
         if host and registrable_domain(host) == domain and not link.lower().endswith(".pdf"):
             links.append(link)
     return links[:4]
+
+
+# --- 4. Leads primero: personas por filtros, sin partir de una lista de empresas -------------
+
+INDUSTRY_TERMS = {
+    "seguros": ["seguros", "aseguradora", "insurance"],
+    "banca_finanzas": ["banco", "bank", "financiera", "financiero", "fintech"],
+    "telecomunicaciones": ["telecomunicaciones", "telecom", "telco"],
+    "tecnologia_software": ["software", "tecnología", "technology", "SaaS"],
+    "farmaceutica_salud": ["farmacéutica", "pharma", "salud", "hospital", "clínica"],
+    "alimentos_bebidas": ["alimentos", "bebidas", "food", "beverages"],
+    "agroindustria": ["agroindustria", "agrícola", "agro"],
+    "mineria_petroleo": ["minería", "mining", "petróleo", "oil gas"],
+    "energia": ["energía", "energy", "eléctrica"],
+    "automotriz": ["automotriz", "automotive", "vehículos"],
+    "transporte_logistica": ["logística", "logistics", "transporte"],
+    "construccion_inmobiliario": ["construcción", "inmobiliaria", "real estate"],
+    "retail_consumo": ["retail", "consumo masivo", "supermercados"],
+    "textil_moda": ["textil", "moda", "fashion"],
+    "quimica_materiales": ["química", "chemicals", "materiales"],
+    "manufactura_industrial": ["manufactura", "manufacturing", "industrial"],
+    "medios_entretenimiento": ["medios", "media", "entretenimiento"],
+    "turismo_hoteleria": ["hotel", "turismo", "hospitality"],
+    "educacion": ["universidad", "educación", "education"],
+    "gobierno": ["gobierno", "ministerio", "government"],
+    "ong": ["fundación", "ONG", "nonprofit"],
+    "servicios_profesionales": ["consultoría", "consulting", "abogados"],
+}
+# Subdominio de LinkedIn por país (cr.linkedin.com = Costa Rica).
+LINKEDIN_SUBDOMAIN = {**COUNTRY_GL, "US": "www"}
+
+
+@dataclass(frozen=True)
+class Lead:
+    full_name: str
+    first_name: str
+    last_name: str
+    title: str
+    employer: str
+    url: str
+    snippet: str
+
+
+def _location_ok(url: str, text: str, country: str, country_name: str, city: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    sub = LINKEDIN_SUBDOMAIN.get(country, "")
+    folded = fold(text)
+    if city and fold(city) not in folded and not host.startswith(f"{sub}."):
+        return False
+    if sub and sub != "www" and host.startswith(f"{sub}."):
+        return True
+    return fold(country_name) in folded or bool(city and fold(city) in folded)
+
+
+def people_queries(
+    *, levels: list[str], areas: list[str], industries: list[str], keywords: str,
+    country_name: str, city: str,
+) -> list[str]:  # fmt: skip
+    chosen = levels or ["c_level", "vp", "director", "gerente"]
+    role_groups = [LEVEL_TERMS[lv] for lv in chosen if lv in LEVEL_TERMS]
+    industry = list(dict.fromkeys(t for c in industries for t in INDUSTRY_TERMS.get(c, [])))[:5]
+    area = list(dict.fromkeys(t for a in areas for t in AREA_TERMS.get(a, [])))[:5]
+    place = f'"{city}"' if city else f'"{country_name}"'
+    parts_common = []
+    if industry:
+        parts_common.append(f"({' OR '.join(industry)})")
+    if area:
+        parts_common.append(f"({' OR '.join(area)})")
+    if keywords:
+        parts_common.append(keywords)
+    queries = []
+    for roles in role_groups:
+        roles = roles[:6]
+        q = f"site:linkedin.com/in ({' OR '.join(roles)}) {' '.join(parts_common)} {place}"
+        queries.append(" ".join(q.split()))
+    return queries
+
+
+def people_search(
+    fetcher: Fetcher,
+    stats: SerpStats,
+    *,
+    country: str,
+    country_name: str,
+    city: str,
+    levels: list[str],
+    areas: list[str],
+    industries: list[str],
+    keywords: str,
+    target: int,
+    max_pages: int = 6,
+) -> list[Lead]:
+    """Leads de perfiles públicos que cumplen los filtros, de muchas empresas a la vez."""
+    from orkesta.engine.taxonomy.industries import classify_all
+
+    queries = people_queries(
+        levels=levels, areas=areas, industries=industries, keywords=keywords,
+        country_name=country_name, city=city,
+    )  # fmt: skip
+    gl = COUNTRY_GL.get(country, "")
+    found: dict[str, Lead] = {}
+    exhausted: set[str] = set()
+    for page in range(1, max_pages + 1):
+        for query in queries:
+            if query in exhausted or len(found) >= target or stats.fatal:
+                continue
+            payload: dict[str, Any] = {"q": query, "num": 10, "hl": "es", "page": page}
+            if gl:
+                payload["gl"] = gl
+            data = call(fetcher, "search", payload, stats)
+            rows = (data or {}).get("organic", []) or []
+            if len(rows) < 5:
+                exhausted.add(query)
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                link = str(row.get("link", ""))
+                title_text, snippet = str(row.get("title", "")), str(row.get("snippet", ""))
+                if "linkedin.com/in/" not in link:
+                    continue
+                name, role, employer = parse_profile(title_text, snippet)
+                person = make_person(name, role) if looks_like_person(name, strict=False) else None
+                ok = person is not None and bool(role) and looks_like_title(role) and bool(employer)
+                ok = ok and _location_ok(link, f"{title_text} {snippet}", country, country_name,
+                                         city)  # fmt: skip
+                if ok and industries:
+                    codes = classify_all([employer, role, snippet])
+                    ok = not codes or bool(set(codes) & set(industries))
+                if not ok or person is None:
+                    with stats.lock:
+                        stats.rejected += 1
+                    continue
+                key = fold(f"{person.full_name}|{employer}")
+                if key not in found:
+                    found[key] = Lead(person.full_name, person.first_name, person.last_name,
+                                      person.title, employer, link, snippet)  # fmt: skip
+                    with stats.lock:
+                        stats.accepted += 1
+        if len(found) >= target or len(exhausted) == len(queries):
+            break
+    return list(found.values())[:target]
+
+
+SOCIAL = (
+    "linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com", "youtube.com",
+    "wikipedia.org", "bloomberg.com", "crunchbase.com", "glassdoor.com", "indeed.com",
+    "zoominfo.com", "rocketreach.co", "dnb.com", "tiktok.com", "computrabajo.com",
+)  # fmt: skip
+
+
+def _domain_like(domain: str, employer: str) -> bool:
+    label = fold(domain.split(".")[0]).replace("-", "")
+    words = [w for w in fold(employer).split() if len(w) > 2 and w not in _COMPANY_STOP]
+    if not words:
+        return False
+    initials = "".join(w[0] for w in fold(employer).split() if w not in _COMPANY_STOP)
+    return any(w in label or label in w for w in words if len(w) > 3) or (
+        len(initials) >= 2 and label.startswith(initials)
+    )
+
+
+def company_domain(
+    fetcher: Fetcher, stats: SerpStats, employer: str, country: str, country_name: str
+) -> str:
+    """Dominio oficial de una empresa a partir de su nombre (panel de Google o resultados)."""
+    payload: dict[str, Any] = {"q": f'"{employer}" {country_name} sitio oficial', "num": 10}
+    gl = COUNTRY_GL.get(country, "")
+    if gl:
+        payload["gl"] = gl
+    data = call(fetcher, "search", payload, stats)
+    if not data:
+        return ""
+    panel = data.get("knowledgeGraph") or {}
+    candidates = [str(panel.get("website", ""))] if isinstance(panel, dict) else []
+    candidates += [str(r.get("link", "")) for r in data.get("organic", []) or []
+                   if isinstance(r, dict)]  # fmt: skip
+    for i, url in enumerate(candidates):
+        host = normalize_host(url) if url else None
+        domain = registrable_domain(host) if host else None
+        if not domain or is_non_corporate(domain) or any(domain.endswith(s) for s in SOCIAL):
+            continue
+        if (i == 0 and panel) or _domain_like(domain, employer):
+            return domain
+    return ""
+
+
+EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,24})")
+_NAME_PAIR = re.compile(r"([A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)")
+
+
+def email_pattern(fetcher: Fetcher, stats: SerpStats, domain: str) -> tuple[str, int, str]:
+    """(patrón, cantidad de evidencias, URL de ejemplo) visto en correos públicos del dominio."""
+    from orkesta.research.extract import GENERIC_LOCAL, detect_pattern
+
+    data = call(fetcher, "search", {"q": f'"@{domain}"', "num": 20}, stats)
+    if not data:
+        return "", 0, ""
+    votes: dict[str, int] = {}
+    example = ""
+    for row in data.get("organic", []) or []:
+        if not isinstance(row, dict):
+            continue
+        text = f"{row.get('title', '')} {row.get('snippet', '')}"
+        for match in EMAIL_RE.finditer(text):
+            email = match.group(0).lower().strip(".")
+            if not email.endswith("@" + domain):
+                continue
+            local = email.split("@", 1)[0]
+            if local in GENERIC_LOCAL or any(ch.isdigit() for ch in local):
+                continue
+            pattern = ""
+            for first, last in _NAME_PAIR.findall(text):
+                pattern = detect_pattern(first, last, email) or ""
+                if pattern:
+                    break
+            if not pattern and re.fullmatch(r"[a-z]{2,}\.[a-z]{2,}", local):
+                pattern = "first.last"
+            elif not pattern and re.fullmatch(r"[a-z]{2,}_[a-z]{2,}", local):
+                pattern = "first_last"
+            if pattern:
+                votes[pattern] = votes.get(pattern, 0) + 1
+                example = example or str(row.get("link", ""))
+    if not votes:
+        return "", 0, ""
+    best = max(votes, key=lambda k: votes[k])
+    return best, votes[best], example

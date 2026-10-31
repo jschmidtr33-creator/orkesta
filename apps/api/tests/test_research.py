@@ -287,6 +287,20 @@ XRAY = {
         {"title": "Banco Andino | LinkedIn", "link": "https://co.linkedin.com/company/banco-andino"},
     ]
 }  # fmt: skip
+LEADS = {
+    "organic": [
+        {"title": "Carlos Ruiz Pardo - Gerente General - Banco Andino | LinkedIn",
+         "link": "https://co.linkedin.com/in/carlos-ruiz-pardo-12ab", "snippet": "Bogotá"},
+        {"title": "Sofía Lara - CFO - Financiera Austral | LinkedIn",
+         "link": "https://co.linkedin.com/in/sofia-lara", "snippet": "Medellín, Antioquia"},
+        {"title": "Raúl Mena - Director Comercial - Constructora Andes | LinkedIn",
+         "link": "https://co.linkedin.com/in/raul-mena", "snippet": "Constructora de vivienda"},
+        {"title": "Inés Soto - Gerente General - Banco del Norte | LinkedIn",
+         "link": "https://mx.linkedin.com/in/ines-soto", "snippet": "Monterrey, México"},
+        {"title": "Pablo Vega - Ex Gerente General - Banco Andino | LinkedIn",
+         "link": "https://co.linkedin.com/in/pablo-vega", "snippet": ""},
+    ]
+}  # fmt: skip
 PLACES = {
     "places": [
         {"title": "Banco Popular del Llano", "website": "https://www.bancollano.com.co/",
@@ -310,8 +324,22 @@ def with_serper(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict]]:
             asked.append({"path": request.url.path, **body})
             if request.url.path == "/places":
                 return httpx.Response(200, json=PLACES if body.get("page") == 1 else {"places": []})
-            if 'site:linkedin.com/in "Banco Andino"' in body["q"]:
+            q = body["q"]
+            if 'site:linkedin.com/in "Banco Andino"' in q:
                 return httpx.Response(200, json=XRAY)
+            if q.startswith("site:linkedin.com/in (") and body.get("page") == 1:
+                return httpx.Response(200, json=LEADS)
+            if q.startswith('"Banco Andino"') and "sitio oficial" in q:
+                return httpx.Response(200, json={"knowledgeGraph": {
+                    "title": "Banco Andino", "website": "https://www.bancoandino.co/"}})  # fmt: skip
+            if q.startswith('"Financiera Austral"') and "sitio oficial" in q:
+                return httpx.Response(200, json={"organic": [
+                    {"link": "https://www.linkedin.com/company/financiera-austral"},
+                    {"link": "https://www.financieraaustral.com.co/nosotros"}]})  # fmt: skip
+            if q == '"@financieraaustral.com.co"':
+                return httpx.Response(200, json={"organic": [{"title": "Contacto",
+                    "link": "https://directorio.co/fa", "snippet":
+                    "Escriba a Marta Ríos: marta.rios@financieraaustral.com.co o info@financieraaustral.com.co"}]})  # fmt: skip
             return httpx.Response(200, json={"organic": []})
         return _internet(request)
 
@@ -319,16 +347,36 @@ def with_serper(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict]]:
     yield asked
 
 
+def test_leads_first_with_company_domain_and_email(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, industries=["banca_finanzas"], limit=25)
+    assert run["status"] == "completed", run
+    people = {p["data"]["full_name"]: p["data"] for p in run["people"]}
+    # Leads de varias empresas a la vez; fuera: otra industria, otro país y cargos anteriores.
+    assert set(people) >= {"Carlos Ruiz Pardo", "Sofía Lara"}
+    assert not {"Raúl Mena", "Inés Soto", "Pablo Vega"} & set(people)
+    assert people["Sofía Lara"]["company"] == "Financiera Austral"
+    assert people["Sofía Lara"]["domain"] == "financieraaustral.com.co"
+    # El formato de correo se deduce de un correo público junto al nombre de su dueña.
+    assert people["Sofía Lara"]["email"] == "sofia.lara@financieraaustral.com.co"
+    assert people["Sofía Lara"]["email_status"] == "estimado"
+    # En Banco Andino el sitio publica dcastro@ junto a «Diana Castro»: formato inicial+apellido.
+    assert people["Carlos Ruiz Pardo"]["domain"] == "bancoandino.co"
+    assert people["Carlos Ruiz Pardo"]["email"] == "cruiz@bancoandino.co"
+    assert run["totals"]["domains"] == 2 and run["totals"]["estimated_emails"] >= 2
+    queries = [a["q"] for a in with_serper if a["q"].startswith("site:linkedin.com/in (")]
+    assert queries and all('"Colombia"' in q and "banco" in q for q in queries)
+
+
 def test_search_engine_finds_decision_makers_without_ai(
     client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
 ) -> None:
     register(client, "ana@lacteos.co")
     assert client.get("/api/research/options").json()["web_search"] is True
-    run = _run(client, session_factory, industries=["banca_finanzas"])
+    run = _run(client, session_factory, companies=["Banco Andino"])
     assert run["status"] == "completed", run
-    names = {c["data"]["name"] for c in run["companies"]}
-    # Google Maps suma empresas con sitio web; la que no tiene sitio no entra.
-    assert "Banco Popular del Llano" in names and "Cajero sin web" not in names
     people = {p["data"]["full_name"]: p for p in run["people"]}
     carlos = people["Carlos Ruiz Pardo"]
     assert carlos["data"]["title"] == "Gerente General"
@@ -338,13 +386,13 @@ def test_search_engine_finds_decision_makers_without_ai(
     assert people["Lucía Méndez"]["data"]["title"] == "Directora de Riesgos"
     # Otra empresa y cargos anteriores se descartan.
     assert "Pedro Otro" not in people and "Ana Pasado" not in people
-    assert run["totals"]["serp_calls"] >= 2 and run["totals"]["source_perfil"] >= 2
+    assert run["totals"]["serp_calls"] >= 1 and run["totals"]["source_perfil"] >= 2
     xray = [a for a in with_serper if a["path"] == "/search" and "linkedin" in a["q"]]
     assert all(a.get("gl") == "co" for a in xray)
 
     # Repetir la búsqueda usa la caché: no gasta créditos otra vez.
     calls_before = len(with_serper)
-    _run(client, session_factory, industries=["banca_finanzas"])
+    _run(client, session_factory, companies=["Banco Andino"])
     assert len(with_serper) == calls_before
 
 

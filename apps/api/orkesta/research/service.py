@@ -29,7 +29,7 @@ from orkesta.research.models import ResearchItem, ResearchRun
 from orkesta.research.wikidata import COUNTRY_QIDS
 
 MAX_ACTIVE_RUNS = 2
-LIMITS = (10, 25, 50)
+LIMITS = (10, 25, 50, 100)
 LEVEL_CHOICES = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
 
 

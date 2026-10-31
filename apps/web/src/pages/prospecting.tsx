@@ -319,7 +319,9 @@ function FilterPanel({
             <input type="checkbox" className="mt-0.5 size-4 accent-ork-blue" checked={filters.include_base} onChange={(e) => set("include_base", e.target.checked)} />
             Incluir empresas de mi base que cumplan los filtros
           </label>
-          <p className="mb-1.5 mt-3 text-[12px] font-semibold text-ork-graphite">Empresas a investigar</p>
+          <p className="mb-1.5 mt-3 text-[12px] font-semibold text-ork-graphite">
+            {options.web_search && !named ? "Leads a buscar" : "Empresas a investigar"}
+          </p>
           <div className="inline-flex rounded-xl border border-ork-line p-0.5">
             {options.limits.map((n) => (
               <button
@@ -431,12 +433,14 @@ function SourceChips({ sources }: { sources: SourceRef[] }) {
   );
 }
 
-function EmailCell({ data }: { data: PersonData }) {
-  if (!data.email) return <span className="text-[12.5px] text-ork-mist">No publicado</span>;
+function EmailCell({ data, confidence }: { data: PersonData; confidence?: number }) {
+  if (!data.email) return <span className="text-[12.5px] text-ork-mist">{data.domain ? "Sin formato" : "Sin dominio"}</span>;
+  const label =
+    data.email_status === "publicado" ? "Publicado" : (confidence ?? 0) >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
   return (
     <div className="min-w-0">
       <p className="truncate text-[13px] text-ork-ink">{data.email}</p>
-      <Badge tone={data.email_status === "publicado" ? "ok" : "warn"}>{data.email_status === "publicado" ? "Publicado" : "Estimado"}</Badge>
+      <Badge tone={data.email_status === "publicado" ? "ok" : (confidence ?? 0) >= 40 ? "violet" : "warn"}>{label}</Badge>
     </div>
   );
 }
@@ -685,7 +689,7 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
                           {p.data.domain && <p className="text-[12px] text-ork-mist">{p.data.domain}</p>}
                         </td>
                         <td className="max-w-[220px] px-2 py-3">
-                          <EmailCell data={p.data} />
+                          <EmailCell data={p.data} confidence={p.provenance.email?.confidence} />
                         </td>
                         <td className="px-4 py-3">
                           <SourceChips sources={p.sources} />
