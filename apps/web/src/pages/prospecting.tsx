@@ -30,6 +30,7 @@ type Options = {
   areas: Option[];
   limits: number[];
   ai_search: boolean;
+  web_search: boolean;
 };
 type Filters = {
   country: string;
@@ -116,6 +117,7 @@ const SOURCE_META: Record<string, { label: string; icon: ReactNode }> = {
   noticia: { label: "Noticia", icon: <Newspaper className="size-3" aria-hidden /> },
   base: { label: "Tu base", icon: <Building2 className="size-3" aria-hidden /> },
   web: { label: "Búsqueda web", icon: <Search className="size-3" aria-hidden /> },
+  perfil: { label: "Perfil público", icon: <ExternalLink className="size-3" aria-hidden /> },
   patron: { label: "Patrón", icon: <Wand2 className="size-3" aria-hidden /> },
 };
 
@@ -153,12 +155,11 @@ export function ProspectingPage() {
         title="Prospección con IA"
         description="Describe a tu cliente ideal y el agente investiga por ti: catálogo abierto de Wikidata, sitios oficiales de cada empresa y noticias recientes. Cada dato muestra su fuente."
       />
-      {options.data && !options.data.ai_search && (
+      {options.data && !options.data.web_search && (
         <div className="mb-5">
           <Alert tone="blue">
-            <strong>Activa la búsqueda web con IA para encontrar muchos más decisores.</strong> Es gratis: crea una clave en
-            aistudio.google.com/apikey y agrégala en Render como <code>GEMINI_API_KEY</code>. Sin ella, el agente solo usa
-            Wikidata, sitios oficiales y noticias.
+            <strong>Activa el buscador de Google para encontrar decisores en volumen.</strong> Crea una clave gratis (2.500 búsquedas, sin tarjeta) en
+            serper.dev y agrégala en Render como <code>SERPER_API_KEY</code>. Sin ella, el agente solo usa Wikidata, sitios oficiales y noticias.
           </Alert>
         </div>
       )}
@@ -360,7 +361,7 @@ function RecentRuns({ runs, loading, onOpen }: { runs?: Run[]; loading: boolean;
               { icon: <Database className="size-4" />, title: "Wikidata", text: "Catálogo abierto de empresas, tamaño, sede y directivos vigentes." },
               { icon: <Globe className="size-4" />, title: "Sitios oficiales", text: "Páginas de equipo y directivos, correos y teléfonos publicados." },
               { icon: <Newspaper className="size-4" />, title: "Noticias", text: "Nombramientos de los últimos 3 meses en medios de todo el mundo." },
-              { icon: <Search className="size-4" />, title: "Búsqueda web con IA", text: "Google + Gemini: solo personas con una fuente pública que lo respalde." },
+              { icon: <Search className="size-4" />, title: "Buscador de Google", text: "Perfiles públicos de decisores y empresas en Google Maps, a gran escala y bajo costo." },
             ].map((s) => (
               <div key={s.title} className="rounded-xl border border-ork-line bg-white/80 p-3.5">
                 <span className="inline-flex size-7 items-center justify-center rounded-lg bg-ork-blue/10 text-ork-blue">{s.icon}</span>
@@ -781,6 +782,7 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
     ["Wikidata", totals.source_wikidata ?? 0],
     ["Sitios oficiales", totals.source_sitio ?? 0],
     ["Noticias", totals.source_noticia ?? 0],
+    ["Perfiles públicos (buscador)", totals.source_perfil ?? 0],
     ["Búsqueda web con IA", totals.source_web ?? 0],
   ] as const;
   return (
@@ -804,6 +806,11 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
           .
         </p>
       )}
+      {totals.serp_fatal_clave ? (
+        <Alert>La clave de Serper no es válida: el buscador de Google no se usó. Revisa SERPER_API_KEY en Render.</Alert>
+      ) : totals.serp_fatal_creditos ? (
+        <Alert>Se acabaron los créditos de Serper: el buscador se usó parcialmente. Recarga en serper.dev.</Alert>
+      ) : null}
       {totals.ai_fatal_clave ? (
         <Alert>La clave de Gemini no es válida: la búsqueda web con IA no se usó. Revisa GEMINI_API_KEY en Render.</Alert>
       ) : totals.ai_quota_sin_plan ? (

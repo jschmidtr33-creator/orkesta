@@ -121,6 +121,32 @@ def _gemini() -> tuple[bool, str]:
     return False, last
 
 
+def _serper() -> tuple[bool, str]:
+    key = get_settings().serper_api_key
+    if not key:
+        return False, "Falta SERPER_API_KEY en Render (2.500 búsquedas gratis en serper.dev)"
+    with _client(20) as c:
+        r = c.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": key},
+            json={"q": 'site:linkedin.com/in "Ecopetrol" presidente', "num": 10},
+        )
+    if r.status_code in (401, 403):
+        if "credit" in r.text.lower():
+            return False, "Sin créditos en Serper: recarga en serper.dev"
+        return False, "La clave SERPER_API_KEY no es válida"
+    if r.status_code != 200:
+        return False, f"HTTP {r.status_code}"
+    try:
+        data = json.loads(r.text)
+    except ValueError:
+        return False, "respuesta no válida"
+    n = len(data.get("organic", []) or [])
+    cost = data.get("credits")
+    extra = f" · {cost} crédito(s) por consulta" if cost else ""
+    return n > 0, f"{n} resultados de Google{extra}"
+
+
 def _smtp() -> tuple[bool, str]:
     try:
         with socket.create_connection(("gmail-smtp-in.l.google.com", 25), timeout=6) as conn:
@@ -135,7 +161,8 @@ def run_all() -> list[Check]:
         "Wikidata (catálogo de empresas y directivos)": _wikidata,
         "Sitios web de empresas": _sites,
         "Noticias (GDELT)": _gdelt,
-        "Búsqueda web con IA (Gemini + Google)": _gemini,
+        "Buscador de Google (Serper) · motor principal": _serper,
+        "Búsqueda web con IA (Gemini + Google) · opcional": _gemini,
         "Verificación de buzones (SMTP)": _smtp,
     }
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:

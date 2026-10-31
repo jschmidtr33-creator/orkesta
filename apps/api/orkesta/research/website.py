@@ -195,3 +195,14 @@ def _guess_paths(fetcher: Fetcher, result: SiteResult, home_url: str, visited: s
         _collect(result, parse_html(page.text), page.final_url)
         if len(result.people) > before:
             break
+
+
+def read_pages(fetcher: Fetcher, result: SiteResult, urls: list[str]) -> int:
+    """Lee páginas adicionales del sitio (por ejemplo, las que encontró el buscador)."""
+    before = len(result.people)
+    for url in urls:
+        page = fetcher.get(url, respect_robots=True)
+        if page is None or not page.ok or "html" not in (page.content_type or "text/html"):
+            continue
+        _collect(result, parse_html(page.text), page.final_url)
+    return len(result.people) - before
