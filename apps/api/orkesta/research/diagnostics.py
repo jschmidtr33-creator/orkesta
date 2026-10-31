@@ -17,7 +17,7 @@ import httpx
 from orkesta.core.config import get_settings
 from orkesta.research import fetch
 from orkesta.research.fetch import USER_AGENT
-from orkesta.research.gemini import API, _models, _parse
+from orkesta.research.gemini import API, FALLBACK_MODELS, _parse, quota_info
 
 Check = dict[str, Any]
 
@@ -86,7 +86,9 @@ def _gemini() -> tuple[bool, str]:
         "tools": [{"google_search": {}}],
     }  # fmt: skip
     last = ""
-    for model in _models():
+    daily = 0
+    configured = get_settings().gemini_model
+    for model in dict.fromkeys([configured, *FALLBACK_MODELS]):
         with _client(60) as c:
             r = c.post(API.format(model=model), params={"key": settings.gemini_api_key}, json=body)
         if r.status_code == 200:
@@ -100,8 +102,21 @@ def _gemini() -> tuple[bool, str]:
         text = r.text.lower()
         if "api key" in text or r.status_code in (401, 403):
             return False, "La clave GEMINI_API_KEY no es válida"
-        last = f"{model}: HTTP {r.status_code}" + (
-            " (cuota agotada)" if r.status_code == 429 else ""
+        if r.status_code == 429:
+            kind, _ = quota_info(r.text)
+            if kind == "sin_plan":
+                return False, (
+                    f"{model}: tu plan gratuito no incluye búsqueda con Google (límite 0). "
+                    "Requiere activar facturación en Google AI Studio"
+                )
+            daily += kind == "diaria"
+            last = f"{model}: cuota {'diaria' if kind == 'diaria' else 'por minuto'} agotada"
+            continue
+        last = f"{model}: HTTP {r.status_code}"
+    if daily:
+        return False, (
+            f"Cuota diaria gratuita agotada en {daily} modelos; se reinicia hacia las 2–3 a. m. "
+            "(hora de Colombia)"
         )
     return False, last
 

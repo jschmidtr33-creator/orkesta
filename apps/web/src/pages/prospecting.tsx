@@ -806,8 +806,17 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
       )}
       {totals.ai_fatal_clave ? (
         <Alert>La clave de Gemini no es válida: la búsqueda web con IA no se usó. Revisa GEMINI_API_KEY en Render.</Alert>
+      ) : totals.ai_quota_sin_plan ? (
+        <Alert>
+          El plan gratuito de tu clave de Gemini no incluye búsquedas con Google (límite 0), así que la búsqueda web con IA no se usó. Para habilitarla hay que activar la
+          facturación del proyecto en Google AI Studio.
+        </Alert>
+      ) : totals.ai_fatal_cuota && totals.ai_quota_diaria ? (
+        <Alert>
+          Se agotó la cuota diaria gratuita de Gemini: la búsqueda web con IA se usó parcialmente. Se reinicia hacia las 2:00–3:00 a. m. (hora de Colombia).
+        </Alert>
       ) : totals.ai_fatal_cuota ? (
-        <Alert>Se agotó la cuota gratuita de Gemini por ahora; la búsqueda web con IA se usó parcialmente. Vuelve a intentar más tarde.</Alert>
+        <Alert>Gemini pidió esperar por el límite por minuto; la búsqueda web con IA se usó parcialmente. Vuelve a intentar en unos minutos.</Alert>
       ) : null}
     </div>
   );
