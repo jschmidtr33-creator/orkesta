@@ -522,7 +522,7 @@ def dashboard(principal: Member, db: Db) -> dict[str, Any]:
         },
         "integrations": {
             "google_sign_in": get_settings().google_enabled,
-            "ai_search": bool(get_settings().gemini_api_key),
+            "web_search": bool(get_settings().serper_api_key),
         },
     }
 

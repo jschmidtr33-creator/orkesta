@@ -41,7 +41,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import gemini, news, serp, website, wikidata
+from orkesta.research import news, serp, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -87,7 +87,6 @@ class Candidate:
     people_found: int = 0
     site_status: str = ""
     pages_read: int = 0
-    ai_people: int = 0
 
     def data(self, country: str) -> dict[str, Any]:
         return {
@@ -110,7 +109,6 @@ class Candidate:
             "people_found": self.people_found,
             "site_status": self.site_status,
             "pages_read": self.pages_read,
-            "ai_people": self.ai_people,
         }
 
 
@@ -233,7 +231,6 @@ class Run:
         self.source_counts = {
             "wikidata": 0, "sitio": 0, "noticia": 0, "web": 0, "perfil": 0,
         }  # fmt: skip
-        self.ai = gemini.AiStats()
         self.serp = serp.SerpStats()
 
     @contextmanager
@@ -419,7 +416,7 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
             if not options:
                 key = company_key(entry)
                 found.setdefault(key, Candidate(key=key, name=entry))
-                if not gemini.enabled():
+                if not serp.enabled():
                     run.log(f"«{entry}» no está en Wikidata. Escribe su dominio (empresa.com).")
                 continue
             best = next((o for o in options if fold(entry) in fold(o.name)), options[0])
@@ -513,44 +510,6 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
             found[key] = candidate
             added += 1
         run.log(f"Google Maps: {added} empresas con sitio web.")
-
-    if gemini.enabled() and not filters.companies and len(found) < 2 * filters.limit:
-        country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
-        run.log("Buscando más empresas en la web con IA…")
-        extra = gemini.companies(
-            fetcher,
-            run.ai,
-            country=country_name,
-            industries=[INDUSTRY_LABELS.get(i, i) for i in filters.industries],
-            city=filters.city,
-            keywords=filters.keywords,
-            limit=min(30, 2 * filters.limit - len(found) + 5),
-        )
-        known_domains = {c.domain for c in found.values() if c.domain}
-        added = 0
-        for hit in extra:
-            key = company_key(hit.name)
-            if hit.domain in known_domains or key in found:
-                continue
-            code = filters.industries[0] if len(filters.industries) == 1 else ""
-            found[key] = Candidate(
-                key=key,
-                name=hit.name,
-                domain=hit.domain,
-                website=hit.website,
-                city=filters.city,
-                industry=INDUSTRY_LABELS.get(code, ""),
-                industry_code=code,
-                sources=[
-                    {
-                        "type": "web",
-                        "label": f"Búsqueda web · {gemini.short_host(hit.url)}",
-                        "url": hit.url,
-                    }
-                ],
-            )
-            added += 1
-        run.log(f"Búsqueda web: {added} empresas más.")
 
     # Primero las empresas con tamaño conocido, de mayor a menor.
     ranked = sorted(
@@ -667,14 +626,9 @@ def _news(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) 
 
 
 def _web_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
-    """Buscador de Google (motor principal) y, solo para las empresas que queden vacías,
-    la IA opcional."""
+    """Buscador de Google: perfiles públicos de decisores."""
     if serp.enabled():
         _serp_people(run, fetcher, filters, batch)
-    if gemini.enabled():
-        empty = [c for c in batch if not run.people.get(c.key)] if serp.enabled() else batch
-        if empty:
-            _ai_people(run, fetcher, filters, empty)
 
 
 def _serp_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
@@ -721,86 +675,6 @@ def _serp_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candi
         run.log("Buscador: se acabaron los créditos de Serper. Recarga en serper.dev.")
     else:
         run.log(f"Buscador de Google: {total} decisores ({run.serp.calls} consultas usadas).")
-
-
-def _ai_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candidate]) -> None:
-    """Búsqueda web con IA en grupos de empresas, cuidando la cuota gratuita."""
-    if not gemini.enabled():
-        return
-    country = COUNTRIES.get(filters.country, (filters.country,))[0]
-
-    areas = [AREA_LABELS.get(a, a) for a in filters.areas]
-
-    def record(company: Candidate, found: list[gemini.FoundPerson]) -> int:
-        for person in found:
-            source = {"type": "web", "label": person.source_label, "url": person.url}
-            prospect = run.merge_person(
-                company,
-                full_name=person.full_name,
-                first_name=person.first_name,
-                last_name=person.last_name,
-                source=source,
-                title=person.title,
-                title_confidence=person.confidence,
-                linkedin=person.linkedin,
-            )
-            with run.lock:
-                run.source_counts["web"] += 1
-            _publish(run, prospect, filters)
-        with run.lock:
-            company.ai_people += len(found)
-        return len(found)
-
-    def group(companies: list[Candidate], variant: int) -> list[Candidate]:
-        """Una consulta para el grupo; devuelve las empresas que quedaron sin decisores."""
-        if run.expired() or run.ai.fatal:
-            return []
-        found = gemini.decision_makers_batch(
-            fetcher, run.ai, companies=[(c.name, c.domain) for c in companies],
-            country=country, levels=filters.levels, areas=areas, variant=variant,
-        )  # fmt: skip
-        empty = []
-        for i, company in enumerate(companies):
-            n = record(company, found.get(i, []))
-            if n:
-                run.log(f"Búsqueda web · {company.name}: {n} decisores verificados")
-            else:
-                empty.append(company)
-        return empty
-
-    # Grupos de 5 empresas por consulta: la cuota gratuita de Google se cuenta por consulta.
-    size = 5
-    groups = [batch[i : i + size] for i in range(0, len(batch), size)]
-    leftovers: list[Candidate] = []
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        for empty in pool.map(lambda g: group(g, 0), groups):
-            leftovers += empty
-    # Segundo intento, en inglés, solo para las empresas que quedaron vacías.
-    if leftovers and not run.ai.fatal and not run.expired():
-        retry = [leftovers[i : i + size] for i in range(0, len(leftovers), size)]
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(lambda g: group(g, 1), retry))
-    total = sum(c.ai_people for c in batch)
-    stats = run.ai
-    if stats.fatal == "clave":
-        run.log("Búsqueda web con IA: la clave GEMINI_API_KEY no es válida. Revísala en Render.")
-    elif stats.fatal == "cuota" and stats.quota == "sin_plan":
-        run.log(
-            "Búsqueda web con IA: el plan gratuito de Gemini de esta clave no incluye búsquedas "
-            "con Google (límite 0). Activa la facturación en Google AI Studio para usarla."
-        )
-    elif stats.fatal == "cuota" and stats.quota == "diaria":
-        run.log(
-            "Búsqueda web con IA: se agotó la cuota DIARIA gratuita de Gemini. Se reinicia "
-            "hacia las 2:00–3:00 a. m. (hora de Colombia)."
-        )
-    elif stats.fatal == "cuota":
-        run.log("Búsqueda web con IA: Gemini pidió esperar (límite por minuto). Reintenta luego.")
-    else:
-        run.log(
-            f"Búsqueda web con IA: {total} decisores verificados "
-            f"({stats.rejected} descartados por no tener evidencia)."
-        )
 
 
 def _short(url: str) -> str:
@@ -903,7 +777,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         return {"companies": 0, "people": 0}
     run.log(
         f"Investigando {len(companies)} empresas: directivos, sitios oficiales, noticias"
-        + (" y búsqueda web con IA…" if gemini.enabled() else "…"),
+        + (" y buscador de Google…" if serp.enabled() else "…"),
         step="decisores",
         done=0,
     )
@@ -911,7 +785,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
     # Segunda ola: si varias empresas no publican a sus decisores, se prueban otras que
     # también cumplen los filtros, hasta completar el objetivo o agotar el tiempo.
     missing = filters.limit - _productive(run, filters)
-    if missing > 0 and reserve and not run.expired() and not run.ai.fatal:
+    if missing > 0 and reserve and not run.expired() and not run.serp.fatal:
         extra = reserve[: max(missing, 3)]
         run.log(f"Ampliando la búsqueda a {len(extra)} empresas más para completar decisores…")
         for company in extra:
@@ -934,7 +808,6 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
-        **run.ai.totals(),
         **run.serp.totals(),
     }
 

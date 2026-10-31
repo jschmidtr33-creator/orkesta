@@ -310,7 +310,7 @@ function TeamSettings() {
 
 function IntegrationSettings() {
   const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<{ google: boolean }>("/api/auth/config") });
-  const research = useQuery({ queryKey: ["research-options"], queryFn: () => api<{ ai_search: boolean; web_search: boolean }>("/api/research/options") });
+  const research = useQuery({ queryKey: ["research-options"], queryFn: () => api<{ web_search: boolean }>("/api/research/options") });
   const items = [
     {
       name: "Inicio de sesión con Google",
@@ -326,13 +326,6 @@ function IntegrationSettings() {
         ? "Motor principal de prospección: decisores con perfil público y empresas en Google Maps."
         : "2.500 búsquedas gratis en serper.dev; agrega la clave en Render como SERPER_API_KEY.",
       status: research.data?.web_search ? "connected" : "pending",
-    },
-    {
-      name: "Búsqueda web con IA (Gemini, opcional)",
-      detail: research.data?.ai_search
-        ? "El agente de prospección busca decisores en Google y cita cada fuente."
-        : "Gratis: crea una clave en aistudio.google.com/apikey y agrégala en Render como GEMINI_API_KEY.",
-      status: research.data?.ai_search ? "connected" : "pending",
     },
   ] as const;
   return (

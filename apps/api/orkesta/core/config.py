@@ -46,12 +46,9 @@ class Settings(BaseSettings):
     smtp_probe: bool = True
     worker_threads: int = Field(default=2, ge=1, le=8)
 
-    # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).
-    # Búsqueda web con IA (Gemini + Google Search, plan gratuito de Google AI Studio).
-    gemini_api_key: str = ""
     # Buscador de Google por API (Serper.dev): motor principal de prospección.
     serper_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).
     google_client_id: str = ""
     google_client_secret: str = ""
 

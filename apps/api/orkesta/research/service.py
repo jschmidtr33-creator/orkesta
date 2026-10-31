@@ -23,7 +23,7 @@ from orkesta.data.service import (
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS, SIZE_BANDS, classify
 from orkesta.engine.taxonomy.titles import AREA_LABELS, LEVEL_LABELS, classify_title
-from orkesta.research import gemini, serp
+from orkesta.research import serp
 from orkesta.research.agent import RESEARCH_JOB, company_key
 from orkesta.research.models import ResearchItem, ResearchRun
 from orkesta.research.wikidata import COUNTRY_QIDS
@@ -44,7 +44,6 @@ def options() -> dict[str, Any]:
         "levels": [{"value": k, "label": LEVEL_LABELS[k]} for k in LEVEL_CHOICES],
         "areas": [{"value": k, "label": v} for k, v in AREA_LABELS.items()],
         "limits": list(LIMITS),
-        "ai_search": gemini.enabled(),
         "web_search": serp.enabled(),
     }
 
