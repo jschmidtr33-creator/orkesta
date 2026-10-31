@@ -29,7 +29,6 @@ type Options = {
   levels: Option[];
   areas: Option[];
   limits: number[];
-  ai_search: boolean;
   web_search: boolean;
 };
 type Filters = {
@@ -87,7 +86,6 @@ type CompanyData = {
   people_found: number;
   site_status: string;
   pages_read?: number;
-  ai_people?: number;
 };
 type RunDetail = Run & { companies: Item<CompanyData>[]; people: Item<PersonData>[] };
 
@@ -116,7 +114,7 @@ const SOURCE_META: Record<string, { label: string; icon: ReactNode }> = {
   sitio: { label: "Sitio web", icon: <Globe className="size-3" aria-hidden /> },
   noticia: { label: "Noticia", icon: <Newspaper className="size-3" aria-hidden /> },
   base: { label: "Tu base", icon: <Building2 className="size-3" aria-hidden /> },
-  web: { label: "Búsqueda web", icon: <Search className="size-3" aria-hidden /> },
+  web: { label: "Buscador", icon: <Search className="size-3" aria-hidden /> },
   perfil: { label: "Perfil público", icon: <ExternalLink className="size-3" aria-hidden /> },
   patron: { label: "Patrón", icon: <Wand2 className="size-3" aria-hidden /> },
 };
@@ -748,7 +746,6 @@ function RunView({ runId, onReuse, onBack }: { runId: string; onReuse: (r: Run) 
                       <Badge tone={c.data.people_found ? "blue" : "neutral"}>{c.data.people_found}</Badge>
                       <p className="mt-1 text-[11px] text-ork-mist">
                         {c.data.site_status === "sin_acceso" ? "Sitio sin acceso" : `Sitio: ${c.data.pages_read ?? 0} págs.`}
-                        {c.data.ai_people ? ` · Web: ${c.data.ai_people}` : ""}
                       </p>
                     </td>
                     <td className="px-5 py-3">
@@ -783,7 +780,6 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
     ["Sitios oficiales", totals.source_sitio ?? 0],
     ["Noticias", totals.source_noticia ?? 0],
     ["Perfiles públicos (buscador)", totals.source_perfil ?? 0],
-    ["Búsqueda web con IA", totals.source_web ?? 0],
   ] as const;
   return (
     <div className="mt-3 space-y-2">
@@ -795,7 +791,7 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
             {label} <strong className="text-ork-graphite">{n}</strong>
           </span>
         ))}
-        {totals.ai_rejected ? ` · ${totals.ai_rejected} nombres descartados por no tener evidencia` : ""}
+        {totals.serp_rejected ? ` · ${totals.serp_rejected} resultados descartados (otra empresa o cargo anterior)` : ""}
       </p>
       {(totals.people ?? 0) < 5 && (
         <p className="text-[12.5px] text-ork-mist">
@@ -810,20 +806,6 @@ function SourceSummary({ totals }: { totals: Record<string, number> }) {
         <Alert>La clave de Serper no es válida: el buscador de Google no se usó. Revisa SERPER_API_KEY en Render.</Alert>
       ) : totals.serp_fatal_creditos ? (
         <Alert>Se acabaron los créditos de Serper: el buscador se usó parcialmente. Recarga en serper.dev.</Alert>
-      ) : null}
-      {totals.ai_fatal_clave ? (
-        <Alert>La clave de Gemini no es válida: la búsqueda web con IA no se usó. Revisa GEMINI_API_KEY en Render.</Alert>
-      ) : totals.ai_quota_sin_plan ? (
-        <Alert>
-          El plan gratuito de tu clave de Gemini no incluye búsquedas con Google (límite 0), así que la búsqueda web con IA no se usó. Para habilitarla hay que activar la
-          facturación del proyecto en Google AI Studio.
-        </Alert>
-      ) : totals.ai_fatal_cuota && totals.ai_quota_diaria ? (
-        <Alert>
-          Se agotó la cuota diaria gratuita de Gemini: la búsqueda web con IA se usó parcialmente. Se reinicia hacia las 2:00–3:00 a. m. (hora de Colombia).
-        </Alert>
-      ) : totals.ai_fatal_cuota ? (
-        <Alert>Gemini pidió esperar por el límite por minuto; la búsqueda web con IA se usó parcialmente. Vuelve a intentar en unos minutos.</Alert>
       ) : null}
     </div>
   );

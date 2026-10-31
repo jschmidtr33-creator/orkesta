@@ -41,8 +41,6 @@ services:
         value: "true"
       - key: SERPER_API_KEY
         sync: false
-      - key: GEMINI_API_KEY
-        sync: false
       - key: PUBLIC_BASE_URL
         sync: false
       - key: GOOGLE_CLIENT_ID

@@ -17,7 +17,6 @@ import httpx
 from orkesta.core.config import get_settings
 from orkesta.research import fetch
 from orkesta.research.fetch import USER_AGENT
-from orkesta.research.gemini import API, FALLBACK_MODELS, _parse, quota_info
 
 Check = dict[str, Any]
 
@@ -76,51 +75,6 @@ def _gdelt() -> tuple[bool, str]:
     return True, f"{n} noticias de prueba"
 
 
-def _gemini() -> tuple[bool, str]:
-    settings = get_settings()
-    if not settings.gemini_api_key:
-        return False, "Falta GEMINI_API_KEY en Render"
-    body = {
-        "contents": [{"role": "user", "parts": [{"text":
-            "Busca en Google quién es el CEO actual de Ecopetrol. Responde en una línea."}]}],
-        "tools": [{"google_search": {}}],
-    }  # fmt: skip
-    last = ""
-    daily = 0
-    configured = get_settings().gemini_model
-    for model in dict.fromkeys([configured, *FALLBACK_MODELS]):
-        with _client(60) as c:
-            r = c.post(API.format(model=model), params={"key": settings.gemini_api_key}, json=body)
-        if r.status_code == 200:
-            try:
-                grounded, reason = _parse(json.loads(r.text))
-            except ValueError:
-                return False, f"{model}: respuesta no válida"
-            if grounded is None:
-                return False, f"{model}: respondió sin búsqueda de Google ({reason})"
-            return True, f"{model}: búsqueda con {len(grounded.chunks)} resultados de Google"
-        text = r.text.lower()
-        if "api key" in text or r.status_code in (401, 403):
-            return False, "La clave GEMINI_API_KEY no es válida"
-        if r.status_code == 429:
-            kind, _ = quota_info(r.text)
-            if kind == "sin_plan":
-                return False, (
-                    f"{model}: tu plan gratuito no incluye búsqueda con Google (límite 0). "
-                    "Requiere activar facturación en Google AI Studio"
-                )
-            daily += kind == "diaria"
-            last = f"{model}: cuota {'diaria' if kind == 'diaria' else 'por minuto'} agotada"
-            continue
-        last = f"{model}: HTTP {r.status_code}"
-    if daily:
-        return False, (
-            f"Cuota diaria gratuita agotada en {daily} modelos; se reinicia hacia las 2–3 a. m. "
-            "(hora de Colombia)"
-        )
-    return False, last
-
-
 def _serper() -> tuple[bool, str]:
     key = get_settings().serper_api_key
     if not key:
@@ -161,8 +115,7 @@ def run_all() -> list[Check]:
         "Wikidata (catálogo de empresas y directivos)": _wikidata,
         "Sitios web de empresas": _sites,
         "Noticias (GDELT)": _gdelt,
-        "Buscador de Google (Serper) · motor principal": _serper,
-        "Búsqueda web con IA (Gemini + Google) · opcional": _gemini,
+        "Buscador de Google (Serper)": _serper,
         "Verificación de buzones (SMTP)": _smtp,
     }
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
