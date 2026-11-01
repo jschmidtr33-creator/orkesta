@@ -507,3 +507,52 @@ def test_title_seniority_and_functions() -> None:
     titled = Filters.from_payload({"country": "CO", "titles": ["Gerente de Compras"]})
     assert titled.wants_title("Gerente Nacional de Compras")
     assert not titled.wants_title("Gerente de Ventas")
+
+
+COMPANY_PAGES = {
+    "organic": [
+        {"title": "Banco Andino | LinkedIn", "link": "https://co.linkedin.com/company/banco-andino",
+         "snippet": "Banco Andino | 120.000 seguidores en LinkedIn. Banca para personas y "
+                    "empresas en Colombia. Sector: Banca · Tamaño de la empresa: 1.001-5.000 empleados"},
+        {"title": "Fintech Mini | LinkedIn", "link": "https://co.linkedin.com/company/fintech-mini",
+         "snippet": "Pagos digitales en Colombia. Tamaño de la empresa: 2-10 empleados"},
+        {"title": "Empleos en Banco Andino", "link": "https://co.linkedin.com/company/banco-andino/jobs"},
+        {"title": "Banco del Norte | LinkedIn", "link": "https://mx.linkedin.com/company/banco-norte",
+         "snippet": "Banca en Monterrey, México"},
+    ]
+}  # fmt: skip
+
+
+def test_account_search(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    inner = fetch.TRANSPORT
+    assert inner is not None
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "google.serper.dev" and request.url.path == "/search":
+            body = json.loads(request.content)
+            if body["q"].startswith("site:linkedin.com/company"):
+                with_serper.append(body)
+                return httpx.Response(
+                    200, json=COMPANY_PAGES if body.get("page") == 1 else {"organic": []}
+                )
+        return inner.handle_request(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, mode="accounts", sectors=["banca"],
+               sizes=["1001-5000"], include_base=False)  # fmt: skip
+    assert run["status"] == "completed", run
+    assert run["summary"].startswith("Cuentas")
+    accounts = {c["data"]["name"]: c for c in run["companies"]}
+    # Fuera: otro país, otra plantilla y páginas internas de LinkedIn.
+    assert "Banco Andino" in accounts and "Banco del Norte" not in accounts
+    assert "Fintech Mini" not in accounts
+    andino = accounts["Banco Andino"]
+    assert andino["data"]["size"] == "1001-5000"
+    assert andino["data"]["linkedin"] == "https://co.linkedin.com/company/banco-andino"
+    assert andino["data"]["domain"] == "bancoandino.co"
+    assert run["people"] == []
+    saved = client.post(f"/api/research/runs/{run['id']}/accounts", json={"ids": [andino["id"]]})
+    assert saved.json() == {"saved": 1}

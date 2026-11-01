@@ -40,6 +40,7 @@ type Options = {
   web_search: boolean;
 };
 type Filters = {
+  mode: "leads" | "accounts";
   country: string;
   cities: string[];
   sectors: string[];
@@ -92,6 +93,8 @@ type PersonData = {
 };
 type CompanyData = {
   name: string;
+  location?: string;
+  saved?: boolean;
   domain: string;
   website: string;
   employees: number | null;
@@ -110,6 +113,7 @@ type CompanyData = {
 type RunDetail = Run & { companies: Item<CompanyData>[]; people: Item<PersonData>[] };
 
 const EMPTY: Filters = {
+  mode: "leads",
   country: "CO",
   cities: [],
   sectors: [],
@@ -168,12 +172,17 @@ export function ProspectingPage() {
     next.set("vista", t);
     setParams(next, { replace: true });
   };
-  const open = (id: string) => setParams({ corrida: id, vista: "personas" });
+  const open = (id: string, vista: Tab = "personas") => setParams({ corrida: id, vista });
 
   const start = useMutation({
     mutationFn: (f: Filters) => api<Run>("/api/research/runs", { method: "POST", json: f }),
-    onSuccess: (created) => open(created.id),
+    onSuccess: (created, f) => open(created.id, f.mode === "accounts" ? "empresas" : "personas"),
   });
+  const employees = (company: string, country: string) => {
+    const next = { ...EMPTY, country, companies: [company] };
+    setFilters(next);
+    start.mutate(next);
+  };
 
   const reuse = (r: Run) => {
     setFilters({ ...EMPTY, ...r.filters, cities: r.filters.cities ?? ((r.filters as { city?: string }).city ? [(r.filters as { city?: string }).city!] : []) });
@@ -242,14 +251,14 @@ export function ProspectingPage() {
                 loading={start.isPending}
                 error={start.error?.message}
               />
-              <SavedSearches runs={saved.data} loading={saved.isLoading} onOpen={open} />
+              <SavedSearches runs={saved.data} loading={saved.isLoading} onOpen={(id, mode) => open(id, mode === "accounts" ? "empresas" : "personas")} />
             </div>
           )}
           {tab !== "filtros" && !runId && (
             <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">Configura los filtros y presiona «Buscar», o abre una búsqueda guardada.</p>
           )}
           {tab === "personas" && run && <PeopleTable run={run} onChanged={() => detail.refetch()} />}
-          {tab === "empresas" && run && <CompaniesTable run={run} />}
+          {tab === "empresas" && run && <CompaniesTable run={run} onChanged={() => detail.refetch()} onEmployees={(name) => employees(name, run.filters.country ?? "CO")} busy={start.isPending} />}
         </div>
       </div>
     </>
@@ -450,6 +459,49 @@ function FilterPanel({
     filters.cities.length + filters.sectors.length + filters.exclude_sectors.length + filters.sizes.length + filters.seniority.length +
     filters.functions.length + filters.exclude_functions.length + filters.titles.length + filters.exclude_titles.length +
     filters.companies.length + filters.exclude_companies.length + (filters.first_name ? 1 : 0) + (filters.last_name ? 1 : 0) + (filters.keywords ? 1 : 0);
+  const accounts = filters.mode === "accounts";
+  const sizesRow = (title: string) => (
+    <FilterRow
+      title={title}
+      count={filters.sizes.length}
+      pills={filters.sizes.map((v) => <Pill key={v} label={`${labels.get(`h:${v}`) ?? v} empleados`} onRemove={() => set({ sizes: without(filters.sizes, v) })} />)}
+      hint="Se aplica a las empresas cuyo tamaño se conoce."
+    >
+      <div className="grid grid-cols-2 gap-1.5">
+        {options.headcount.map((o) => {
+          const on = filters.sizes.includes(o.value);
+          return (
+            <label key={o.value} className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-ork-ink hover:bg-ork-ink/[0.03]">
+              <input type="checkbox" className="size-4 accent-ork-blue" checked={on} onChange={() => set({ sizes: on ? without(filters.sizes, o.value) : [...filters.sizes, o.value] })} />
+              {o.label}
+            </label>
+          );
+        })}
+      </div>
+    </FilterRow>
+  );
+  const sectorRow = (title: string) => (
+    <FilterRow
+      title={title}
+      count={filters.sectors.length + filters.exclude_sectors.length}
+      pills={
+        <>
+          {filters.sectors.map((v) => <Pill key={`i${v}`} label={labels.get(`s:${v}`) ?? v} onRemove={() => set({ sectors: without(filters.sectors, v) })} />)}
+          {filters.exclude_sectors.map((v) => <Pill key={`e${v}`} label={labels.get(`s:${v}`) ?? v} excluded onRemove={() => set({ exclude_sectors: without(filters.exclude_sectors, v) })} />)}
+        </>
+      }
+    >
+      <OptionPicker
+        groups={options.sector_groups}
+        include={filters.sectors}
+        exclude={filters.exclude_sectors}
+        onChange={(sectors, exclude_sectors) => set({ sectors, exclude_sectors })}
+        allowExclude
+        placeholder="Agregar industrias"
+      />
+    </FilterRow>
+  );
+
   return (
     <form
       className="flex flex-col gap-4"
@@ -458,6 +510,25 @@ function FilterPanel({
         onSubmit();
       }}
     >
+      <div className="inline-flex self-start rounded-xl border border-ork-line bg-white p-1" role="tablist" aria-label="Tipo de búsqueda">
+        {(
+          [
+            ["leads", "Posible cliente"],
+            ["accounts", "Cuentas"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={filters.mode === value}
+            onClick={() => set({ mode: value })}
+            className={cx("ork-focus rounded-lg px-4 py-1.5 text-[13.5px] font-semibold transition", filters.mode === value ? "ork-gradient text-white shadow-sm" : "text-ork-graphite hover:text-ork-ink")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex flex-col gap-3 rounded-2xl border border-ork-line bg-ork-surface/60 p-3 sm:flex-row sm:items-center">
         <label className="relative flex-1">
           <span className="sr-only">Palabras clave</span>
@@ -505,6 +576,21 @@ function FilterPanel({
         </div>
       </div>
 
+      {accounts ? (
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <Section title="Características de la empresa">
+            {sizesRow("Empleados en la empresa")}
+            <FilterRow title="Ubicación de la sede central" count={filters.cities.length} pills={textPills("cities")} hint="El país se elige arriba. Agrega ciudades o regiones para acotar (hasta 5).">
+              <TextPicker placeholder="Ej.: Bogotá" onAdd={addText("cities", null, 5)} max={80} />
+            </FilterRow>
+            {sectorRow("Industria")}
+          </Section>
+          <label className="flex items-start gap-2 px-1 text-[13px] text-ork-graphite">
+            <input type="checkbox" className="mt-0.5 size-4 accent-ork-blue" checked={filters.include_base} onChange={(e) => set({ include_base: e.target.checked })} />
+            Incluir empresas de mi base que cumplan los filtros
+          </label>
+        </div>
+      ) : (
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
           <Section title="Empresa">
@@ -641,6 +727,7 @@ function FilterPanel({
           </label>
         </div>
       </div>
+      )}
       {error && <Alert>{error}</Alert>}
     </form>
   );
@@ -648,7 +735,7 @@ function FilterPanel({
 
 // --- Búsquedas guardadas --------------------------------------------------------------------
 
-function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boolean; onOpen: (id: string) => void }) {
+function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boolean; onOpen: (id: string, mode?: string) => void }) {
   const client = useQueryClient();
   const forget = useMutation({
     mutationFn: (id: string) => api(`/api/research/runs/${id}`, { method: "DELETE" }),
@@ -668,11 +755,11 @@ function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boole
         <ul className="divide-y divide-ork-line">
           {runs.map((r) => (
             <li key={r.id} className="flex items-start gap-2 py-2.5">
-              <button onClick={() => onOpen(r.id)} className="ork-focus min-w-0 flex-1 rounded-lg px-1 text-left hover:text-ork-blue">
+              <button onClick={() => onOpen(r.id, r.filters.mode)} className="ork-focus min-w-0 flex-1 rounded-lg px-1 text-left hover:text-ork-blue">
                 <p className="truncate text-[13.5px] font-semibold text-ork-ink">{r.saved_name}</p>
                 <p className="truncate text-[12px] text-ork-mist">{r.summary}</p>
                 <p className="text-[11.5px] text-ork-mist">
-                  {formatWhen(r.saved_at ?? r.created_at)} · {r.totals.people ?? 0} posibles clientes
+                  {formatWhen(r.saved_at ?? r.created_at)} · {r.filters.mode === "accounts" ? `${r.totals.companies ?? 0} cuentas` : `${r.totals.people ?? 0} posibles clientes`}
                 </p>
               </button>
               <button
@@ -753,6 +840,7 @@ const STEPS: Record<string, string> = {
   leads: "Buscando posibles clientes que cumplen tus filtros…",
   dominios: "Identificando la empresa de cada posible cliente…",
   correos: "Buscando el correo de contacto…",
+  cuentas: "Buscando cuentas que cumplen tus filtros…",
 };
 
 function RunHeader({
@@ -802,7 +890,9 @@ function RunHeader({
             {run.saved_name && `${run.summary} · `}
             {formatWhen(run.created_at)}
             {run.status === "completed" &&
-              ` · ${t.people ?? 0} posibles clientes · ${t.companies ?? 0} cuentas · ${(t.with_email ?? 0) + (t.estimated_emails ?? 0)} con correo`}
+              (run.filters.mode === "accounts"
+                ? ` · ${t.companies ?? 0} cuentas · ${t.with_domain ?? 0} con sitio web`
+                : ` · ${t.people ?? 0} posibles clientes · ${t.companies ?? 0} cuentas · ${(t.with_email ?? 0) + (t.estimated_emails ?? 0)} con correo`)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -863,7 +953,7 @@ function RunHeader({
           </div>
           <p className="mt-2 text-[12.5px] text-ork-graphite" aria-live="polite">
             {step}
-            {run.progress.step === "leads" && done ? ` ${done} encontrados hasta ahora` : ""}
+            {(run.progress.step === "leads" || run.progress.step === "cuentas") && done ? ` ${done} encontrados hasta ahora` : ""}
           </p>
         </div>
       )}
@@ -1183,48 +1273,180 @@ function PagerButton({ children, label, onClick, disabled, active }: { children:
   );
 }
 
-function CompaniesTable({ run }: { run: RunDetail }) {
-  if (run.companies.length === 0) {
-    return <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">{ACTIVE.has(run.status) ? "Buscando…" : "Sin empresas."}</p>;
+function CompanyLogo({ name, domain }: { name: string; domain: string }) {
+  const [failed, setFailed] = useState(false);
+  if (domain && !failed) {
+    return (
+      <img
+        src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`}
+        alt=""
+        onError={() => setFailed(true)}
+        className="size-14 shrink-0 rounded-xl border border-ork-line bg-white object-contain p-1.5"
+      />
+    );
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-[13.5px]">
-        <thead className="border-b border-ork-line bg-ork-ink/[0.02] text-[12.5px] text-ork-graphite">
-          <tr>
-            <th className="px-5 py-3 font-semibold">Empresa</th>
-            <th className="px-3 py-3 font-semibold">Sitio web</th>
-            <th className="px-3 py-3 font-semibold">Industria</th>
-            <th className="px-3 py-3 font-semibold">Contacto general</th>
-            <th className="px-5 py-3 font-semibold">Leads</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ork-line">
-          {run.companies.map((c) => (
-            <tr key={c.id}>
-              <td className="px-5 py-3 font-semibold text-ork-ink">{c.data.name}</td>
-              <td className="px-3 py-3">
-                {c.data.domain ? (
-                  <a href={c.data.website || `https://${c.data.domain}`} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-ork-blue hover:underline">
-                    <Globe className="size-3.5" aria-hidden /> {c.data.domain}
-                  </a>
-                ) : (
-                  <span className="text-ork-mist">No identificado</span>
+    <span className="ork-gradient flex size-14 shrink-0 items-center justify-center rounded-xl text-[17px] font-bold text-white" aria-hidden>
+      {initials(name)}
+    </span>
+  );
+}
+
+/** Cuentas como en Sales Navigator: logo, industria · plantilla, «Acerca de» y acciones. */
+function CompaniesTable({ run, onChanged, onEmployees, busy }: { run: RunDetail; onChanged: () => void; onEmployees: (name: string) => void; busy: boolean }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (ids: string[]) => api<{ saved: number }>(`/api/research/runs/${run.id}/accounts`, { method: "POST", json: { ids } }),
+    onSuccess: (r) => {
+      setMessage(`${r.saved} cuenta(s) guardadas en tu base.`);
+      setSelected(new Set());
+      onChanged();
+    },
+  });
+  useEffect(() => setPage(1), [run.id]);
+  if (run.companies.length === 0) {
+    return <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">{ACTIVE.has(run.status) ? "Las cuentas aparecerán aquí a medida que se encuentren." : "Sin cuentas con estos filtros."}</p>;
+  }
+  const size = 25;
+  const pages = Math.max(1, Math.ceil(run.companies.length / size));
+  const current = Math.min(page, pages);
+  const visible = run.companies.slice((current - 1) * size, current * size);
+  const allChecked = visible.length > 0 && visible.every((c) => selected.has(c.id));
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-ork-line px-4 py-3">
+        <label className="flex items-center gap-2 pr-2 text-[13px] font-semibold text-ork-ink">
+          <input
+            type="checkbox"
+            aria-label="Seleccionar todo en esta página"
+            className="size-4 accent-ork-blue"
+            checked={allChecked}
+            onChange={() => {
+              const next = new Set(selected);
+              visible.forEach((c) => (allChecked ? next.delete(c.id) : next.add(c.id)));
+              setSelected(next);
+            }}
+          />
+          Seleccionar todo
+        </label>
+        <Button size="sm" disabled={!selected.size} loading={save.isPending} icon={<Save className="size-3.5" aria-hidden />} onClick={() => save.mutate([...selected])}>
+          Guardar en mi base{selected.size ? ` (${selected.size})` : ""}
+        </Button>
+        <span className="ml-auto text-[13px] font-semibold text-ork-graphite">{run.companies.length} resultados</span>
+      </div>
+      {message && (
+        <div className="px-4 pt-3">
+          <Alert tone="ok">{message}</Alert>
+        </div>
+      )}
+      <ul className="divide-y divide-ork-line">
+        {visible.map((c) => {
+          const d = c.data;
+          const link = d.linkedin || d.website || (d.domain ? `https://${d.domain}` : "");
+          const open = expanded.has(c.id);
+          return (
+            <li key={c.id} className={cx("flex gap-3 px-4 py-4 sm:gap-4", selected.has(c.id) && "bg-ork-blue/[0.04]")}>
+              <input
+                type="checkbox"
+                aria-label={`Seleccionar ${d.name}`}
+                className="mt-5 size-4 shrink-0 accent-ork-blue"
+                checked={selected.has(c.id)}
+                onChange={() => {
+                  const next = new Set(selected);
+                  if (next.has(c.id)) next.delete(c.id);
+                  else next.add(c.id);
+                  setSelected(next);
+                }}
+              />
+              <CompanyLogo name={d.name} domain={d.domain} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {link ? (
+                    <a href={link} target="_blank" rel="noreferrer noopener" className="text-[15px] font-bold text-ork-blue hover:underline">
+                      {d.name}
+                    </a>
+                  ) : (
+                    <span className="text-[15px] font-bold text-ork-ink">{d.name}</span>
+                  )}
+                  {d.linkedin && (
+                    <a href={d.linkedin} target="_blank" rel="noreferrer noopener" aria-label={`LinkedIn de ${d.name}`} className="inline-flex size-5 items-center justify-center rounded bg-[#0A66C2] text-[10px] font-bold text-white">
+                      in
+                    </a>
+                  )}
+                  {d.saved && <Badge tone="ok">Guardada</Badge>}
+                </div>
+                <p className="mt-0.5 text-[13.5px] text-ork-ink">
+                  {[d.industry, d.employees ? `${new Intl.NumberFormat("es").format(d.employees)} empleados` : d.size ? `${d.size} empleados` : ""].filter(Boolean).join(" · ") || "Industria no publicada"}
+                </p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12.5px] text-ork-mist">
+                  {(d.location || d.city) && (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="size-3" aria-hidden /> {d.location || d.city}
+                    </span>
+                  )}
+                  {d.domain && (
+                    <a href={d.website || `https://${d.domain}`} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-ork-blue">
+                      <Globe className="size-3" aria-hidden /> {d.domain}
+                    </a>
+                  )}
+                  {d.phones[0] && (
+                    <span className="inline-flex items-center gap-1">
+                      <Phone className="size-3" aria-hidden /> {d.phones[0]}
+                    </span>
+                  )}
+                </div>
+                {d.description && (
+                  <p className={cx("mt-2 text-[13px] text-ork-graphite", !open && "line-clamp-2")}>
+                    <strong className="text-ork-ink">Acerca de:</strong> {d.description}{" "}
+                    {d.description.length > 140 && (
+                      <button
+                        type="button"
+                        className="font-semibold text-ork-ink hover:underline"
+                        onClick={() => {
+                          const next = new Set(expanded);
+                          if (open) next.delete(c.id);
+                          else next.add(c.id);
+                          setExpanded(next);
+                        }}
+                      >
+                        {open ? "Mostrar menos" : "Mostrar más"}
+                      </button>
+                    )}
+                  </p>
                 )}
-              </td>
-              <td className="px-3 py-3 text-ork-graphite">{c.data.industry || "—"}</td>
-              <td className="px-3 py-3 text-[12.5px] text-ork-graphite">
-                {c.data.emails[0] && <p>{c.data.emails[0]}</p>}
-                {c.data.phones[0] && <p>{c.data.phones[0]}</p>}
-                {!c.data.emails.length && !c.data.phones.length && "—"}
-              </td>
-              <td className="px-5 py-3">
-                <Badge tone={c.data.people_found ? "blue" : "neutral"}>{c.data.people_found}</Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <Button size="sm" variant={d.saved ? "secondary" : "primary"} disabled={d.saved} onClick={() => save.mutate([c.id])} icon={d.saved ? <Check className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}>
+                  {d.saved ? "Guardada" : "Guardar"}
+                </Button>
+                <Button size="sm" variant="ghost" loading={busy} icon={<Users className="size-3.5" aria-hidden />} onClick={() => onEmployees(d.name)}>
+                  Ver empleados actuales
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {pages > 1 && (
+        <div className="flex flex-wrap items-center justify-center gap-2 border-t border-ork-line px-4 py-3 text-[13px]">
+          <PagerButton label="Anterior" disabled={current <= 1} onClick={() => setPage(current - 1)}>
+            ‹
+          </PagerButton>
+          {Array.from({ length: pages }, (_, k) => k + 1)
+            .filter((n) => Math.abs(n - current) <= 2 || n === 1 || n === pages)
+            .map((n) => (
+              <PagerButton key={n} label={`Página ${n}`} active={n === current} onClick={() => setPage(n)}>
+                {n}
+              </PagerButton>
+            ))}
+          <PagerButton label="Siguiente" disabled={current >= pages} onClick={() => setPage(current + 1)}>
+            ›
+          </PagerButton>
+        </div>
+      )}
     </div>
   );
 }

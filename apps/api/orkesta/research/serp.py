@@ -407,6 +407,111 @@ def companies(
     return list(found.values())[:limit]
 
 
+# --- 2b. Cuentas: páginas de empresa de LinkedIn según Google -------------------------------
+
+
+@dataclass(frozen=True)
+class AccountHit:
+    name: str
+    linkedin: str
+    industry: str
+    size: str
+    about: str
+    location: str
+
+
+_SIZE_RE = re.compile(
+    r"(?:Tamaño de la empresa|Company size|Tamanho da empresa)\s*:?\s*"
+    r"(\d[\d.,]*)\s*(?:-\s*(\d[\d.,]*)|\+)?",
+    re.IGNORECASE,
+)
+_INDUSTRY_RE = re.compile(r"(?:Sector|Industria|Industry|Setor)\s*:\s*([^·|\n.]{3,80})", re.I)
+_FOLLOWERS = re.compile(r"\|?\s*[\d.,]+\s+(?:seguidores|followers)[^.|]*[.|]?", re.IGNORECASE)
+
+
+def _band(low: str, high: str | None) -> str:
+    from orkesta.engine.taxonomy.industries import SIZE_BANDS
+
+    lo = int(re.sub(r"[.,]", "", low) or 0)
+    for band, start, _ in SIZE_BANDS:
+        if lo == start or (lo == 2 and start == 1):
+            return band
+    return f"{lo}+" if not high else ""
+
+
+def account_queries(
+    *, sector_terms: list[str], keywords: str, places: list[str], exclude: list[str]
+) -> list[str]:
+    common = [_any(sector_terms)]
+    if keywords:
+        common.append(keywords)
+    common += [f"-{_quoted(t.strip(chr(34)))}" for t in exclude[:4]]
+    return [
+        " ".join(f"site:linkedin.com/company {' '.join(common)} {place}".split())
+        for place in places
+    ]
+
+
+def linkedin_companies(
+    fetcher: Fetcher,
+    stats: SerpStats,
+    *,
+    country: str,
+    country_name: str,
+    cities: list[str],
+    sector_terms: list[str],
+    exclude_terms: list[str],
+    keywords: str,
+    max_pages: int = 10,
+) -> list[AccountHit]:
+    """Empresas con página en LinkedIn que cumplen los filtros (sin entrar a LinkedIn)."""
+    places = [_quoted(c) for c in cities] or [_quoted(country_name)]
+    queries = account_queries(sector_terms=sector_terms, keywords=keywords, places=places,
+                              exclude=exclude_terms)  # fmt: skip
+    gl = COUNTRY_GL.get(country, "")
+    found: dict[str, AccountHit] = {}
+    for query in queries:
+        for page in range(1, max_pages + 1):
+            if stats.fatal:
+                return list(found.values())
+            payload: dict[str, Any] = {"q": query, "num": 10, "hl": "es", "page": page}
+            if gl:
+                payload["gl"] = gl
+            rows = (call(fetcher, "search", payload, stats) or {}).get("organic", []) or []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                link = str(row.get("link", "")).split("?")[0].rstrip("/")
+                if "linkedin.com/company/" not in link or link.count("/") > 4:
+                    continue  # páginas internas (empleos, publicaciones)
+                title, snippet = str(row.get("title", "")), str(row.get("snippet", ""))
+                name = clean(_SUFFIX.sub("", title).split(":")[0].split(" - ")[0])[:200]
+                if len(name) < 2:
+                    continue
+                text = f"{title} {snippet}"
+                if not _location_ok(link, text, country, country_name, ""):
+                    with stats.lock:
+                        stats.rejected += 1
+                    continue
+                size_match = _SIZE_RE.search(snippet)
+                industry_match = _INDUSTRY_RE.search(snippet)
+                about = clean(_FOLLOWERS.sub(" ", snippet.replace(name, "", 1)).strip(" |·.-"))
+                key = fold(name)
+                if key in found:
+                    continue
+                found[key] = AccountHit(
+                    name=name, linkedin=link,
+                    industry=clean(industry_match.group(1)) if industry_match else "",
+                    size=_band(size_match.group(1), size_match.group(2)) if size_match else "",
+                    about=about[:400], location=lead_location(snippet, link, country, country_name),
+                )  # fmt: skip
+                with stats.lock:
+                    stats.accepted += 1
+            if len(rows) < 10:
+                break
+    return list(found.values())
+
+
 # --- 3. Páginas de equipo en el sitio oficial -----------------------------------------------
 
 

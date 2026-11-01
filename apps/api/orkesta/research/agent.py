@@ -89,6 +89,8 @@ class Candidate:
     site_status: str = ""
     pages_read: int = 0
     site_patterns: list[str] = field(default_factory=list)
+    size_text: str = ""  # rango de empleados publicado (LinkedIn) cuando no hay cifra exacta
+    location: str = ""
 
     def data(self, country: str) -> dict[str, Any]:
         return {
@@ -97,7 +99,8 @@ class Candidate:
             "website": self.website or (f"https://{self.domain}" if self.domain else ""),
             "wikidata": self.qid,
             "employees": self.employees,
-            "size": size_band(self.employees),
+            "size": size_band(self.employees) or self.size_text or None,
+            "location": self.location,
             "city": self.city,
             "country": country,
             "country_name": COUNTRIES[country][0] if country in COUNTRIES else country,
@@ -212,6 +215,7 @@ class Filters:
     exclude_companies: list[str] = field(default_factory=list)
     first_name: str = ""
     last_name: str = ""
+    mode: str = "leads"  # leads (Posible cliente) | accounts (Cuentas)
 
     @classmethod
     def from_payload(cls, data: dict[str, Any]) -> Filters:
@@ -241,6 +245,7 @@ class Filters:
             exclude_companies=strings("exclude_companies"),
             first_name=clean(data.get("first_name")),
             last_name=clean(data.get("last_name")),
+            mode="accounts" if data.get("mode") == "accounts" else "leads",
         )
 
     def wants_title(self, title: str) -> bool:
@@ -1046,7 +1051,73 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
     }
 
 
+def execute_accounts(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    """Búsqueda de Cuentas (Sales Navigator): empresas que cumplen los filtros de empresa."""
+    country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+    run.log("Buscando cuentas que cumplen tus filtros…", step="cuentas")
+    found: dict[str, Candidate] = {}
+    excluded = set(li.sector_parents(filters.exclude_sectors)) - set(filters.industries)
+    if serp.enabled():
+        hits = serp.linkedin_companies(
+            fetcher, run.serp, country=filters.country, country_name=country_name,
+            cities=filters.cities, sector_terms=li.sector_terms(filters.sectors, 6),
+            exclude_terms=[li.SECTORS[c][2][0] for c in filters.exclude_sectors if c in li.SECTORS],
+            keywords=filters.keywords,
+        )  # fmt: skip
+        label = li.SECTORS[filters.sectors[0]][0] if len(filters.sectors) == 1 else ""
+        for hit in hits:
+            codes = set(classify_all([hit.industry, hit.name, hit.about]))
+            if filters.industries and codes and not codes & set(filters.industries):
+                continue
+            if excluded and codes and codes <= excluded:
+                continue
+            if filters.sizes and hit.size and hit.size not in filters.sizes:
+                continue
+            key = company_key(hit.name)
+            if not key or key in found:
+                continue
+            fallback = INDUSTRY_LABELS.get(min(codes), "") if codes else ""
+            source = {"type": "perfil", "label": "Página de LinkedIn", "url": hit.linkedin}
+            found[key] = Candidate(
+                key=key, name=hit.name, linkedin=hit.linkedin,
+                industry=hit.industry or label or fallback,
+                industry_code=min(codes) if codes else "", description=hit.about,
+                size_text=hit.size, location=hit.location,
+                city=hit.location.split(",")[0] if "," in hit.location else "",
+                sources=[source],
+            )  # fmt: skip
+            run.save_company(found[key], filters.country)
+        run.log(f"{len(found)} cuentas encontradas.", done=len(found))
+    for candidate in discover(run, fetcher, filters):
+        if candidate.key not in found:
+            found[candidate.key] = candidate
+            run.save_company(candidate, filters.country)
+    companies = list(found.values())
+    run.log(f"Identificando el sitio web de {len(companies)} cuentas…", step="dominios")
+
+    def resolve(company: Candidate) -> None:
+        if company.domain or run.expired() or run.serp.fatal or not serp.enabled():
+            return
+        company.domain = serp.company_domain(
+            fetcher, run.serp, company.name, filters.country, country_name
+        )
+        if company.domain:
+            company.website = company.website or f"https://{company.domain}"
+            run.save_company(company, filters.country)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(resolve, companies))
+    return {
+        "companies": len(companies),
+        "people": 0,
+        "with_domain": sum(1 for c in companies if c.domain),
+        **run.serp.totals(),
+    }
+
+
 def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    if filters.mode == "accounts":
+        return execute_accounts(run, filters, fetcher)
     if serp.enabled() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)

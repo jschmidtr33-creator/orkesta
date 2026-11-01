@@ -26,6 +26,7 @@ def _fail(exc: DataError) -> HTTPException:
 class FiltersIn(BaseModel):
     """Filtros de leads con la estructura de Sales Navigator."""
 
+    mode: str = Field(default="leads", max_length=10)
     country: str = Field(max_length=2)
     cities: list[str] = Field(default_factory=list, max_length=5)
     sectors: list[str] = Field(default_factory=list, max_length=60)
@@ -48,6 +49,10 @@ class FiltersIn(BaseModel):
     levels: list[str] = Field(default_factory=list, max_length=10)
     areas: list[str] = Field(default_factory=list, max_length=20)
     city: str = Field(default="", max_length=80)
+
+
+class AccountsIn(BaseModel):
+    ids: list[uuid.UUID] = Field(max_length=1000)
 
 
 class SaveSearchIn(BaseModel):
@@ -104,6 +109,14 @@ def runs(principal: Member, db: Db) -> list[dict[str, Any]]:
 def save_search(run_id: uuid.UUID, body: SaveSearchIn, principal: Member, db: Db) -> dict[str, Any]:
     try:
         return svc.run_dict(svc.save_search(db, principal.tenant_id, run_id, body.name))
+    except DataError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/runs/{run_id}/accounts")
+def save_accounts(run_id: uuid.UUID, body: AccountsIn, principal: Member, db: Db) -> dict[str, int]:
+    try:
+        return {"saved": svc.save_accounts(db, principal.tenant_id, run_id, body.ids)}
     except DataError as exc:
         raise _fail(exc) from exc
 
