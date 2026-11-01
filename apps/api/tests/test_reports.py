@@ -26,7 +26,7 @@ def test_overview_numbers(
     from orkesta.campaigns import service as svc
 
     original = svc._gap
-    svc._gap = lambda: timedelta(0)
+    svc._gap = lambda *a: timedelta(0)
     try:
         _flush(session_factory)
     finally:

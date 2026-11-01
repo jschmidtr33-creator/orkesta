@@ -116,7 +116,7 @@ def test_finished_without_reply_waits_and_skips_if_replied(
         "audience": {"contact_ids": ids[:2]},
     })  # fmt: skip
     client.post(f"/api/campaigns/{campaign['id']}/launch")
-    monkeypatch.setattr(campaigns, "_gap", lambda: timedelta(0))
+    monkeypatch.setattr(campaigns, "_gap", lambda *a: timedelta(0))
     campaigns.tick(session_factory)
     _rewind(database)
     campaigns.tick(session_factory)

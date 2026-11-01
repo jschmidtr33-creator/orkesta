@@ -936,12 +936,21 @@ export function GmailCard() {
                 label="Límite diario"
                 type="number"
                 min={1}
-                max={400}
+                max={2000}
                 defaultValue={m.daily_limit}
-                hint="Gmail gratis: ≤ 80. Workspace: ≤ 300."
-                className="max-w-[220px]"
-                onBlur={(e) => Number(e.target.value) !== m.daily_limit && patch.mutate({ id: m.id, daily_limit: Number(e.target.value) })}
+                hint="Google Workspace: hasta 2.000 al día. Gmail personal: hasta 500. ORKESTA reparte los envíos en tu horario para cumplir el límite."
+                className="max-w-[320px]"
+                onBlur={(e) => {
+                  const value = Math.max(1, Math.min(2000, Number(e.target.value) || 1));
+                  if (value !== m.daily_limit) patch.mutate({ id: m.id, daily_limit: value });
+                }}
               />
+              {m.daily_limit > 300 && (
+                <Alert tone="blue">
+                  Con más de 300 correos en frío al día, sube de forma gradual (por ejemplo 100 → 300 → 700 → 1.500 en dos semanas) y
+                  vigila el rebote: si Google detecta un salto brusco o muchos rebotes puede limitar temporalmente tu cuenta.
+                </Alert>
+              )}
               <SignatureEditor value={m.signature} saving={patch.isPending} onSave={(signature) => patch.mutate({ id: m.id, signature })} />
             </div>
           </li>

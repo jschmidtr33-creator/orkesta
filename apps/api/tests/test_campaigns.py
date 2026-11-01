@@ -172,7 +172,7 @@ def test_full_campaign_flow(
     # Ritmo humano: un correo por buzón por vuelta, con pausa entre envíos.
     assert _flush(session_factory) == 1
     assert _flush(session_factory) == 0
-    monkeypatch.setattr(svc, "_gap", lambda: timedelta(0))
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
     _rewind(database)
     assert _flush(session_factory, 3) == 3  # segundo destinatario + los dos seguimientos
     assert len(google.sent) == 4
@@ -354,3 +354,11 @@ def test_rich_html_body_signature_and_images(
     assert "https://orkesta.test/t/c/" in html and "cal.com" not in html.split("t/c/")[0][-20:]
     assert "max-width:100%" in html and "alert(1)" not in html
     assert "• Miami" in text and "Jennifer Schmidt" in text
+
+
+def test_gap_fits_daily_limit_in_window() -> None:
+    settings = {"start_hour": 8, "end_hour": 17}
+    fast = [svc._gap(settings, 1500).total_seconds() for _ in range(200)]
+    assert min(fast) >= 12 and max(fast) <= 31  # ~1.500 correos en 9 horas
+    slow = [svc._gap(settings, 80).total_seconds() for _ in range(200)]
+    assert min(slow) >= 70  # buzones pequeños: ritmo humano

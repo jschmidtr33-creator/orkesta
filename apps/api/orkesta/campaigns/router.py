@@ -97,7 +97,7 @@ def mail_callback(
 
 
 class MailboxPatch(BaseModel):
-    daily_limit: int | None = Field(default=None, ge=1, le=400)
+    daily_limit: int | None = Field(default=None, ge=1, le=2000)  # tope de Gmail Workspace
     signature: str | None = Field(default=None, max_length=50000)
     display_name: str | None = Field(default=None, max_length=160)
 
