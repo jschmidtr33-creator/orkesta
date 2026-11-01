@@ -60,6 +60,7 @@ type Recipient = {
   open_count: number;
   clicked: boolean;
   replied_at: string | null;
+  gmail_url: string | null;
   error: string | null;
 };
 
@@ -813,6 +814,11 @@ function Recipients({ campaignId }: { campaignId: string }) {
                     </span>
                     {r.replied_at && <Reply className="size-3.5 text-ok" aria-label="Respondió" />}
                   </span>
+                  {r.gmail_url && (
+                    <a href={r.gmail_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
+                      Ver en Gmail ↗
+                    </a>
+                  )}
                 </td>
                 <td className="px-5 py-2.5 text-right">
                   {["pending", "active"].includes(r.status) && (

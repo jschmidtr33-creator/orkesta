@@ -6,6 +6,7 @@ import base64
 import secrets
 import uuid
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -372,6 +373,8 @@ def recipients(
     campaign_id: uuid.UUID, principal: Member, db: Db, status: str = "", page: int = 1
 ) -> dict[str, Any]:
     campaign = _campaign(db, principal, campaign_id)
+    mailbox = db.get(Mailbox, campaign.mailbox_id) if campaign.mailbox_id else None
+    mailbox_email = mailbox.email if mailbox else ""
     query = (
         select(Recipient, Contact)
         .join(Contact, Contact.id == Recipient.contact_id)
@@ -405,6 +408,11 @@ def recipients(
                 "open_count": r.open_count,
                 "clicked": r.clicked_at is not None,
                 "replied_at": r.replied_at.isoformat() if r.replied_at else None,
+                "gmail_url": (
+                    f"https://mail.google.com/mail/?authuser={quote(mailbox_email)}#all/{r.thread_id}"
+                    if r.thread_id and mailbox_email
+                    else None
+                ),
                 "error": r.error,
             }
             for r, c in rows
