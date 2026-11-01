@@ -466,6 +466,29 @@ class Lead:
     employer: str
     url: str
     snippet: str
+    location: str = ""
+
+
+_LOCATION_LABEL = re.compile(r"(?:Ubicación|Location|Localización)\s*:\s*([^·|\n]+)", re.IGNORECASE)
+
+
+def lead_location(snippet: str, url: str, country: str, country_name: str) -> str:
+    """«Medellín, Colombia» a partir del fragmento de Google (o el país del perfil)."""
+    from orkesta.engine.normalize.location import parse_location
+
+    candidates = [m.group(1) for m in _LOCATION_LABEL.finditer(snippet)]
+    candidates += [part for part in re.split(r"[·|]", snippet) if len(part) < 80]
+    for text in candidates:
+        loc = parse_location(text)
+        if loc.country_code and loc.country_code != country:
+            continue
+        if loc.city:
+            return f"{loc.city}, {country_name}"
+    host = urlsplit(url).hostname or ""
+    sub = LINKEDIN_SUBDOMAIN.get(country, "")
+    if (sub and host.startswith(f"{sub}.")) or fold(country_name) in fold(snippet):
+        return country_name
+    return ""
 
 
 def _location_ok(url: str, text: str, country: str, country_name: str, city: str) -> bool:
@@ -559,8 +582,11 @@ def people_search(
                     continue
                 key = fold(f"{person.full_name}|{employer}")
                 if key not in found:
-                    found[key] = Lead(person.full_name, person.first_name, person.last_name,
-                                      person.title, employer, link, snippet)  # fmt: skip
+                    found[key] = Lead(
+                        person.full_name, person.first_name, person.last_name, person.title,
+                        employer, link, snippet,
+                        lead_location(snippet, link, country, country_name),
+                    )  # fmt: skip
                     with stats.lock:
                         stats.accepted += 1
         if len(found) >= target or len(exhausted) == len(queries):

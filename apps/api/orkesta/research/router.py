@@ -105,6 +105,16 @@ def cancel(run_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     return svc.run_dict(run)
 
 
+@router.post("/runs/{run_id}/remove")
+def remove_items(run_id: uuid.UUID, body: SaveIn, principal: Member, db: Db) -> dict[str, int]:
+    """Quita leads de los resultados de una investigación (no toca Contactos)."""
+    try:
+        removed = svc.remove_items(db, principal.tenant_id, run_id, body.ids)
+    except DataError as exc:
+        raise _fail(exc) from exc
+    return {"removed": removed}
+
+
 @router.post("/runs/{run_id}/save")
 def save(
     run_id: uuid.UUID, body: SaveIn, request: Request, principal: Member, db: Db
