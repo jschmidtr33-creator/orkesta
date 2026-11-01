@@ -90,6 +90,7 @@ class Candidate:
     pages_read: int = 0
     site_patterns: list[str] = field(default_factory=list)
     size_text: str = ""  # rango de empleados publicado (LinkedIn) cuando no hay cifra exacta
+    mail_provider: str = ""  # google | microsoft | propio | sin_correo …
     location: str = ""
 
     def data(self, country: str) -> dict[str, Any]:
@@ -101,6 +102,7 @@ class Candidate:
             "employees": self.employees,
             "size": size_band(self.employees) or self.size_text or None,
             "location": self.location,
+            "mail_provider": self.mail_provider,
             "city": self.city,
             "country": country,
             "country_name": COUNTRIES[country][0] if country in COUNTRIES else country,
@@ -930,7 +932,7 @@ def assign_emails(
     run: Run, fetcher: Fetcher, filters: Filters, companies: list[Candidate]
 ) -> dict[str, int]:
     """Correo de cada lead con empresa conocida, con la mejor evidencia disponible."""
-    counts = {"learned": 0, "evidence": 0, "common": 0}
+    counts = {"learned": 0, "evidence": 0, "common": 0, "no_mx": 0}
     lock = threading.Lock()
     deep = len(companies) <= 60  # leer los sitios web toma tiempo: solo en búsquedas medianas
 
@@ -938,6 +940,14 @@ def assign_emails(
         missing = [p for p in run.people.get(company.key, []) if not p.email]
         if not company.domain or not missing or run.expired():
             return
+        hosts = memory.mail_servers(fetcher, company.domain)
+        if hosts == []:
+            with lock:
+                counts["no_mx"] += 1  # el dominio no recibe correo: no se inventa uno
+            company.mail_provider = "sin_correo"
+            return
+        provider, provider_label = memory.mail_provider(hosts or [])
+        company.mail_provider = provider
         pattern, confidence, label = memory.known_pattern(fetcher.factory, company.domain)
         kind = "learned"
         example = ""
@@ -956,8 +966,10 @@ def assign_emails(
                 shown = memory.PATTERN_LABELS.get(pattern, pattern)
                 label = f"Formato {shown}@{company.domain} visto en {votes} correo(s) públicos"
         if not pattern:
-            pattern, kind, confidence = COMMON_PATTERN, "common", 20
+            pattern, kind, confidence = COMMON_PATTERN, "common", 30 if provider else 20
             label = f"Formato más común (nombre.apellido@{company.domain}); por validar"
+            if provider_label:
+                label += f" · el dominio recibe correo ({provider_label})"
         source = {"type": "patron", "url": example, "label": label}
         for prospect in missing:
             email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
@@ -1097,6 +1109,7 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         "learned_emails": counts["learned"],
         "pattern_emails": counts["evidence"],
         "common_emails": counts["common"],
+        "domains_without_mail": counts["no_mx"],
         "domains": len(with_domain),
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},

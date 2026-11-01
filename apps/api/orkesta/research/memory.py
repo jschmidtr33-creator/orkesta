@@ -11,12 +11,17 @@ Solo guarda datos de empresas (dominio y formato), nunca datos de personas.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.research.models import CompanyDomain, DomainPattern
+
+if TYPE_CHECKING:
+    from orkesta.research.fetch import Fetcher
 
 logger = logging.getLogger(__name__)
 
@@ -139,3 +144,71 @@ def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
         row.confirmed += 1
     elif outcome == "bounced":
         row.bounced += 1
+
+
+# --- Servidores de correo del dominio (DNS, sin terceros ni puerto 25) ----------------------
+
+PROVIDERS = (
+    ("google", "Google Workspace", ("google.com", "googlemail.com")),
+    ("microsoft", "Microsoft 365", ("outlook.com", "protection.outlook.com")),
+    ("zoho", "Zoho Mail", ("zoho.com", "zoho.eu")),
+    ("proofpoint", "Proofpoint", ("pphosted.com", "ppe-hosted.com")),
+    ("mimecast", "Mimecast", ("mimecast.com",)),
+)
+
+
+def mail_provider(hosts: list[str]) -> tuple[str, str]:
+    for code, label, suffixes in PROVIDERS:
+        if any(h.lower().endswith(s) for h in hosts for s in suffixes):
+            return code, label
+    return ("propio", "servidor propio") if hosts else ("", "")
+
+
+def mail_servers(fetcher: Fetcher, domain: str) -> list[str] | None:
+    """Servidores MX del dominio (caché 30 días). ``[]`` = el dominio no recibe correo;
+    ``None`` = no se pudo consultar."""
+    import json
+    from datetime import timedelta
+
+    from orkesta.research.fetch import Page
+
+    url = f"mx://{domain}"
+    cached = fetcher._cached(url, timedelta(days=30))
+    if cached is not None and cached.status == 200:
+        try:
+            return list(json.loads(cached.text))
+        except ValueError:
+            pass
+    hosts = (MX_RESOLVER or _resolve_mx)(domain)
+    if hosts is None:
+        return None
+    fetcher._store(Page(url, url, 200, "application/json", json.dumps(hosts)))
+    return hosts
+
+
+def _resolve_mx(domain: str) -> list[str] | None:
+    """MX por DNS. Distingue «no recibe correo» ([]) de «no se pudo consultar» (None)."""
+    import dns.exception
+    import dns.resolver
+
+    resolver = dns.resolver.Resolver()
+    resolver.lifetime = 5.0
+    try:
+        answers = resolver.resolve(domain, "MX")
+        hosts = [str(r.exchange).rstrip(".") for r in sorted(answers, key=lambda r: r.preference)]
+        return [h for h in hosts if h and h != "."]
+    except dns.resolver.NXDOMAIN:
+        return []
+    except dns.resolver.NoAnswer:
+        try:
+            resolver.resolve(domain, "A")
+            return [domain]  # sin MX pero con sitio: el propio dominio puede recibir (RFC 5321)
+        except dns.resolver.NXDOMAIN:
+            return []
+        except dns.exception.DNSException:
+            return None
+    except dns.exception.DNSException:
+        return None
+
+
+MX_RESOLVER: Callable[[str], list[str] | None] | None = None  # pruebas
