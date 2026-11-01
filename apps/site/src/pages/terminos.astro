@@ -1,0 +1,36 @@
+---
+import Logo from "../components/Logo.astro";
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Términos de uso · ORKESTA" description="Condiciones de uso de ORKESTA.">
+  <header class="border-b border-white/5">
+    <div class="mx-auto flex h-16 max-w-3xl items-center px-5"><a href="/" aria-label="ORKESTA, inicio"><Logo size={26} /></a></div>
+  </header>
+  <main class="mx-auto max-w-3xl px-5 py-14 text-white/80">
+    <p class="text-[12.5px] font-semibold uppercase tracking-[0.18em] text-ork-mist">Versión preliminar · noviembre de 2026</p>
+    <h1 class="mt-3 text-[34px] font-bold tracking-tight text-white">Términos de uso</h1>
+    <div class="mt-8 space-y-6 text-[15.5px] leading-relaxed">
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">El servicio</h2>
+        <p class="mt-2">ORKESTA es una plataforma para prospección comercial B2B: investigación de empresas y decisores, gestión de contactos, campañas de correo, CRM y propuestas comerciales.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Uso responsable</h2>
+        <p class="mt-2">Te comprometes a usar ORKESTA para comunicaciones comerciales legítimas y a cumplir las leyes de protección de datos y de comunicaciones electrónicas que te apliquen. No está permitido enviar spam, suplantar identidades ni escribir a quien pidió no recibir correos. Las bajas se respetan de forma automática y permanente.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Tus datos</h2>
+        <p class="mt-2">Los datos que incorporas a tu espacio de trabajo son tuyos y eres responsable de ellos. El tratamiento de datos personales se describe en la <a class="text-ork-blue underline" href="/privacidad">Política de privacidad</a>.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Cuentas conectadas</h2>
+        <p class="mt-2">Al conectar Gmail autorizas a ORKESTA a enviar los correos de tus campañas desde tu buzón. Puedes desconectarlo en cualquier momento. Los límites de envío de tu proveedor de correo también aplican.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Contacto</h2>
+        <p class="mt-2">Escríbenos desde el <a class="text-ork-blue underline" href="/#demo">formulario de contacto</a>.</p>
+      </section>
+    </div>
+  </main>
+</Base>
