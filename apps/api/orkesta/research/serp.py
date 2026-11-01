@@ -502,28 +502,94 @@ def _location_ok(url: str, text: str, country: str, country_name: str, city: str
     return fold(country_name) in folded or bool(city and fold(city) in folded)
 
 
+@dataclass(frozen=True)
+class LeadSpec:
+    """Filtros de Sales Navigator que se traducen a la búsqueda de perfiles."""
+
+    cities: tuple[str, ...] = ()
+    sectors: tuple[str, ...] = ()
+    exclude_sectors: tuple[str, ...] = ()
+    seniority: tuple[str, ...] = ()
+    functions: tuple[str, ...] = ()
+    titles: tuple[str, ...] = ()
+    exclude_titles: tuple[str, ...] = ()
+    companies: tuple[str, ...] = ()
+    exclude_companies: tuple[str, ...] = ()
+    first_name: str = ""
+    last_name: str = ""
+    accept: Any = None  # Callable[[str, str, str, str], bool]: cargo, empresa, nombre, apellido
+
+    @classmethod
+    def from_filters(cls, f: Any) -> LeadSpec:
+        def accept(title: str, employer: str, first: str, last: str) -> bool:
+            return bool(
+                f.wants_title(title) and f.wants_employer(employer) and f.wants_name(first, last)
+            )
+
+        return cls(
+            cities=tuple(f.cities), sectors=tuple(f.sectors),
+            exclude_sectors=tuple(f.exclude_sectors), seniority=tuple(f.seniority),
+            functions=tuple(f.functions), titles=tuple(f.titles),
+            exclude_titles=tuple(f.exclude_titles), companies=tuple(f.companies),
+            exclude_companies=tuple(f.exclude_companies), first_name=f.first_name,
+            last_name=f.last_name, accept=accept,
+        )  # fmt: skip
+
+
+def _quoted(value: str) -> str:
+    value = value.replace('"', "").strip()
+    return f'"{value}"' if value else ""
+
+
+def _any(terms: list[str]) -> str:
+    terms = [t for t in terms if t]
+    if not terms:
+        return ""
+    return terms[0] if len(terms) == 1 else f"({' OR '.join(terms)})"
+
+
 def people_queries(
     *, levels: list[str], areas: list[str], industries: list[str], keywords: str,
-    country_name: str, city: str,
+    country_name: str, city: str, spec: LeadSpec | None = None,
 ) -> list[str]:  # fmt: skip
-    chosen = levels or ["c_level", "vp", "director", "gerente"]
-    role_groups = [LEVEL_TERMS[lv] for lv in chosen if lv in LEVEL_TERMS]
-    industry = list(dict.fromkeys(t for c in industries for t in INDUSTRY_TERMS.get(c, [])))[:5]
-    area = list(dict.fromkeys(t for a in areas for t in AREA_TERMS.get(a, [])))[:5]
-    place = f'"{city}"' if city else f'"{country_name}"'
-    parts_common = []
-    if industry:
-        parts_common.append(f"({' OR '.join(industry)})")
-    if area:
-        parts_common.append(f"({' OR '.join(area)})")
+    """Consultas al buscador con la lógica de Sales Navigator: Y entre filtros, O dentro de
+    cada filtro y exclusiones con «-»."""
+    from orkesta.engine.taxonomy import linkedin as li
+
+    spec = spec or LeadSpec()
+    if spec.titles:
+        role_groups = [[_quoted(t) for t in spec.titles[:6]]]
+    elif spec.seniority:
+        role_groups = [li.seniority_terms(code)[:6] for code in spec.seniority]
+    else:
+        chosen = levels or ["c_level", "vp", "director", "gerente"]
+        role_groups = [LEVEL_TERMS[lv][:6] for lv in chosen if lv in LEVEL_TERMS]
+    if spec.sectors:
+        industry = li.sector_terms(list(spec.sectors), 6)
+    else:
+        industry = list(dict.fromkeys(t for c in industries for t in INDUSTRY_TERMS.get(c, [])))[:5]
+    if spec.titles:
+        area: list[str] = []  # el cargo escrito ya dice la función
+    elif spec.functions:
+        area = li.function_terms(list(spec.functions), 6)
+    else:
+        area = list(dict.fromkeys(t for a in areas for t in AREA_TERMS.get(a, [])))[:5]
+    cities = list(spec.cities) or ([city] if city else [])
+    place = _any([_quoted(c) for c in cities]) if cities else _quoted(country_name)
+    common = [_any(industry), _any(area), _any([_quoted(c) for c in spec.companies[:5]])]
+    name = " ".join(p for p in (spec.first_name, spec.last_name) if p)
+    if name:
+        common.append(_quoted(name))
     if keywords:
-        parts_common.append(keywords)
+        common.append(keywords)
+    excluded = [*spec.exclude_titles, *spec.exclude_companies]
+    excluded += [li.SECTORS[c][2][0] for c in spec.exclude_sectors if c in li.SECTORS]
+    common += [f"-{_quoted(t.strip(chr(34)))}" for t in excluded[:6]]
     queries = []
     for roles in role_groups:
-        roles = roles[:6]
-        q = f"site:linkedin.com/in ({' OR '.join(roles)}) {' '.join(parts_common)} {place}"
+        q = f"site:linkedin.com/in {_any(roles)} {' '.join(common)} {place}"
         queries.append(" ".join(q.split()))
-    return queries
+    return list(dict.fromkeys(queries))
 
 
 def people_search(
@@ -539,14 +605,19 @@ def people_search(
     keywords: str,
     target: int,
     max_pages: int = 6,
+    spec: LeadSpec | None = None,
 ) -> list[Lead]:
     """Leads de perfiles públicos que cumplen los filtros, de muchas empresas a la vez."""
     from orkesta.engine.taxonomy.industries import classify_all
+    from orkesta.engine.taxonomy.linkedin import sector_parents
 
+    spec = spec or LeadSpec()
     queries = people_queries(
         levels=levels, areas=areas, industries=industries, keywords=keywords,
-        country_name=country_name, city=city,
+        country_name=country_name, city=city, spec=spec,
     )  # fmt: skip
+    excluded_parents = set(sector_parents(list(spec.exclude_sectors))) - set(industries)
+    cities = list(spec.cities) or ([city] if city else [])
     gl = COUNTRY_GL.get(country, "")
     found: dict[str, Lead] = {}
     exhausted: set[str] = set()
@@ -571,11 +642,20 @@ def people_search(
                 name, role, employer = parse_profile(title_text, snippet)
                 person = make_person(name, role) if looks_like_person(name, strict=False) else None
                 ok = person is not None and bool(role) and looks_like_title(role) and bool(employer)
-                ok = ok and _location_ok(link, f"{title_text} {snippet}", country, country_name,
-                                         city)  # fmt: skip
-                if ok and industries:
-                    codes = classify_all([employer, role, snippet])
-                    ok = not codes or bool(set(codes) & set(industries))
+                text = f"{title_text} {snippet}"
+                ok = ok and (
+                    any(_location_ok(link, text, country, country_name, c) for c in cities)
+                    if cities
+                    else _location_ok(link, text, country, country_name, "")
+                )
+                if ok and (industries or excluded_parents):
+                    codes = set(classify_all([employer, role, snippet]))
+                    if industries:
+                        ok = not codes or bool(codes & set(industries))
+                    if ok and excluded_parents and codes:
+                        ok = not codes <= excluded_parents
+                if ok and person is not None and spec.accept is not None:
+                    ok = spec.accept(role, employer, person.first_name, person.last_name)
                 if not ok or person is None:
                     with stats.lock:
                         stats.rejected += 1

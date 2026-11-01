@@ -6,6 +6,7 @@ import logging
 import random
 import secrets
 import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -732,6 +733,7 @@ class Scheduler(threading.Thread):
         self.stop_event = threading.Event()
 
     def run(self) -> None:
+        last_purge = 0.0
         while not self.stop_event.wait(self.every):
             try:
                 tick(self.factory)
@@ -743,6 +745,14 @@ class Scheduler(threading.Thread):
                 due_task_reminders(self.factory)
             except Exception:
                 logger.exception("reminders_failed")
+            if time.monotonic() - last_purge > 600:
+                last_purge = time.monotonic()
+                try:
+                    from orkesta.research.service import purge_all_unsaved
+
+                    purge_all_unsaved(self.factory)
+                except Exception:
+                    logger.exception("research_purge_failed")
 
     def stop(self) -> None:
         self.stop_event.set()

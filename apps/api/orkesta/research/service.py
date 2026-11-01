@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit_many
+from orkesta.core.db import set_context
 from orkesta.core.jobs import enqueue
 from orkesta.data.models import Contact, DataPoint
 from orkesta.data.service import (
@@ -22,8 +24,9 @@ from orkesta.data.service import (
     search_text,
 )
 from orkesta.engine.normalize.location import COUNTRIES
+from orkesta.engine.taxonomy import linkedin as li
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS, SIZE_BANDS, classify
-from orkesta.engine.taxonomy.titles import AREA_LABELS, LEVEL_LABELS, classify_title
+from orkesta.engine.taxonomy.titles import AREA_LABELS, classify_title
 from orkesta.research import serp
 from orkesta.research.agent import RESEARCH_JOB, company_key
 from orkesta.research.models import ResearchItem, ResearchRun
@@ -32,6 +35,7 @@ from orkesta.research.wikidata import COUNTRY_QIDS
 MAX_ACTIVE_RUNS = 2
 LIMITS = (10, 25, 50, 100)
 LEVEL_CHOICES = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
+UNSAVED_TTL = timedelta(hours=12)
 
 
 def options() -> dict[str, Any]:
@@ -40,34 +44,54 @@ def options() -> dict[str, Any]:
             ({"value": k, "label": COUNTRIES[k][0]} for k in COUNTRY_QIDS if k in COUNTRIES),
             key=lambda c: c["label"],
         ),
-        "industries": [{"value": k, "label": v} for k, v in INDUSTRY_LABELS.items()],
-        "sizes": [{"value": band, "label": f"{band} empleados"} for band, _, _ in SIZE_BANDS],
-        "levels": [{"value": k, "label": LEVEL_LABELS[k]} for k in LEVEL_CHOICES],
-        "areas": [{"value": k, "label": v} for k, v in AREA_LABELS.items()],
+        "sector_groups": [
+            {"label": group, "options": [{"value": c, "label": li.SECTORS[c][0]} for c in codes]}
+            for group, codes in li.SECTOR_GROUPS
+        ],
+        "functions": [{"value": k, "label": v[0]} for k, v in li.FUNCTIONS.items()],
+        "seniority": [{"value": k, "label": v[0]} for k, v in li.SENIORITY.items()],
+        "default_seniority": list(li.DEFAULT_SENIORITY),
+        "headcount": [{"value": k, "label": v} for k, v in li.HEADCOUNT],
         "limits": list(LIMITS),
         "web_search": serp.enabled(),
     }
 
 
+def _names(values: list[str], table: dict[str, Any], n: int = 2) -> str:
+    shown = [table[v][0] if v in table else v for v in values[:n]]
+    more = len(values) - n
+    return ", ".join(shown) + (f" y {more} más" if more > 0 else "")
+
+
 def _summary(filters: dict[str, Any]) -> str:
-    parts = [COUNTRIES.get(filters["country"], (filters["country"],))[0]]
+    country = COUNTRIES.get(filters["country"], (filters["country"],))[0]
+    parts = [", ".join(filters["cities"][:2]) or country]
     if filters["companies"]:
-        names = ", ".join(filters["companies"][:3])
-        more = len(filters["companies"]) - 3
-        parts = [names + (f" y {more} más" if more > 0 else "")]
-    parts += [INDUSTRY_LABELS.get(i, i) for i in filters["industries"][:2]]
-    if filters["city"]:
-        parts.append(filters["city"])
-    if filters["levels"]:
-        parts.append(", ".join(LEVEL_LABELS.get(lv, lv) for lv in filters["levels"][:2]))
-    if filters["areas"]:
-        parts.append(", ".join(AREA_LABELS.get(a, a) for a in filters["areas"][:2]))
+        parts.insert(0, _names(filters["companies"], {}, 3))
+    if filters["titles"]:
+        parts.append(_names(filters["titles"], {}))
+    if filters["seniority"]:
+        parts.append(_names(filters["seniority"], li.SENIORITY))
+    if filters["functions"]:
+        parts.append(_names(filters["functions"], li.FUNCTIONS))
+    if filters["sectors"]:
+        parts.append(_names(filters["sectors"], li.SECTORS))
+    elif filters["industries"]:
+        parts.append(", ".join(INDUSTRY_LABELS.get(i, i) for i in filters["industries"][:2]))
+    if filters["first_name"] or filters["last_name"]:
+        parts.append(f"{filters['first_name']} {filters['last_name']}".strip())
     if filters["keywords"]:
         parts.append(f"«{filters['keywords']}»")
     return " · ".join(parts)[:300]
 
 
+def _text(value: Any, size: int = 80) -> str:
+    return " ".join(str(value or "").split())[:size]
+
+
 def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
+    """Filtros de Sales Navigator (Empresa, Rol, Personal, Palabras clave) ya limpios, más sus
+    equivalentes internos para el agente (industrias, niveles y áreas)."""
     country = str(data.get("country") or "").upper()
     if country not in COUNTRY_QIDS:
         raise DataError("Elige un país.")
@@ -76,25 +100,95 @@ def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
         values = data.get(name) or []
         if not isinstance(values, list):
             raise DataError("Filtros no válidos.")
-        return [str(v) for v in values if str(v) in allowed][:20]
+        return list(dict.fromkeys(str(v) for v in values if str(v) in allowed))[:30]
 
-    companies = data.get("companies") or []
-    if not isinstance(companies, list):
-        raise DataError("Filtros no válidos.")
-    companies = [" ".join(str(c).split())[:120] for c in companies if str(c).strip()][:25]
+    def texts(name: str, top: int, size: int = 120) -> list[str]:
+        values = data.get(name) or []
+        if not isinstance(values, list):
+            raise DataError("Filtros no válidos.")
+        return list(dict.fromkeys(_text(v, size) for v in values if _text(v, size)))[:top]
+
+    sectors = pick("sectors", li.SECTORS)
+    exclude_sectors = [s for s in pick("exclude_sectors", li.SECTORS) if s not in sectors]
+    functions = pick("functions", li.FUNCTIONS)
+    exclude_functions = [f for f in pick("exclude_functions", li.FUNCTIONS) if f not in functions]
+    seniority = pick("seniority", li.SENIORITY)
+    legacy_levels = pick("levels", LEVEL_CHOICES)
+    legacy_areas = pick("areas", AREA_LABELS)
+    cities = texts("cities", 5, 80) or ([_text(data.get("city"))] if data.get("city") else [])
     limit = int(data.get("limit") or 25)
     return {
         "country": country,
-        "industries": pick("industries", INDUSTRY_LABELS),
+        "cities": cities,
+        "city": cities[0] if len(cities) == 1 else "",
+        "sectors": sectors,
+        "exclude_sectors": exclude_sectors,
+        "industries": li.sector_parents(sectors) or pick("industries", INDUSTRY_LABELS),
         "sizes": pick("sizes", {band for band, _, _ in SIZE_BANDS}),
-        "levels": pick("levels", LEVEL_CHOICES),
-        "areas": pick("areas", AREA_LABELS),
-        "city": " ".join(str(data.get("city") or "").split())[:80],
-        "keywords": " ".join(str(data.get("keywords") or "").split())[:80],
-        "companies": companies,
+        "seniority": seniority,
+        "levels": li.seniority_levels(seniority) if seniority else legacy_levels,
+        "functions": functions,
+        "exclude_functions": exclude_functions,
+        "areas": li.function_areas(functions) if functions else legacy_areas,
+        "titles": texts("titles", 10, 80),
+        "exclude_titles": texts("exclude_titles", 10, 80),
+        "companies": texts("companies", 25),
+        "exclude_companies": texts("exclude_companies", 25),
+        "first_name": _text(data.get("first_name"), 60),
+        "last_name": _text(data.get("last_name"), 60),
+        "keywords": _text(data.get("keywords")),
         "include_base": bool(data.get("include_base", True)),
         "limit": limit if limit in LIMITS else 25,
     }
+
+
+def purge_unsaved(
+    session: Session, tenant_id: uuid.UUID, *, user_id: uuid.UUID | None = None
+) -> int:
+    """El historial solo guarda las búsquedas que el usuario guarda: las demás se borran al
+    empezar otra búsqueda o pasadas unas horas."""
+    query = delete(ResearchRun).where(
+        ResearchRun.tenant_id == tenant_id,
+        ResearchRun.saved_at.is_(None),
+        ResearchRun.status.not_in(("queued", "running")),
+    )
+    if user_id is not None:
+        query = query.where(ResearchRun.created_by == user_id)
+    else:
+        query = query.where(ResearchRun.created_at < now() - UNSAVED_TTL)
+    result = session.execute(query)
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
+def purge_all_unsaved(factory: sessionmaker[Session]) -> int:
+    from orkesta.platform.models import Tenant
+
+    with factory() as session:
+        tenants = list(session.scalars(select(Tenant.id)))
+    total = 0
+    for tenant_id in tenants:
+        with factory.begin() as session:
+            set_context(session, tenant_id=tenant_id)
+            total += purge_unsaved(session, tenant_id)
+    return total
+
+
+def save_search(
+    session: Session, tenant_id: uuid.UUID, run_id: uuid.UUID, name: str
+) -> ResearchRun:
+    run = get_run(session, tenant_id, run_id)
+    clean = _text(name, 120)
+    if len(clean) < 2:
+        raise DataError("Ponle un nombre a la búsqueda.")
+    run.saved_name, run.saved_at = clean, now()
+    return run
+
+
+def forget_search(session: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
+    run = get_run(session, tenant_id, run_id)
+    if run.status in ("queued", "running"):
+        raise DataError("Detén la búsqueda antes de borrarla.", 409)
+    session.delete(run)
 
 
 def create_run(
@@ -106,6 +200,7 @@ def create_run(
         .select_from(ResearchRun)
         .where(ResearchRun.tenant_id == tenant_id, ResearchRun.status.in_(("queued", "running")))
     )
+    purge_unsaved(session, tenant_id, user_id=user_id)
     if (active or 0) >= MAX_ACTIVE_RUNS:
         raise DataError("Ya hay 2 investigaciones en curso. Espera a que termine una.", 429)
     run = ResearchRun(
@@ -142,6 +237,8 @@ def run_dict(run: ResearchRun) -> dict[str, Any]:
         "status": run.status,
         "filters": run.filters,
         "summary": run.summary,
+        "saved_name": run.saved_name,
+        "saved_at": run.saved_at.isoformat() if run.saved_at else None,
         "progress": run.progress,
         "totals": run.totals,
         "error": run.error,
@@ -150,12 +247,19 @@ def run_dict(run: ResearchRun) -> dict[str, Any]:
     }
 
 
-def recent_runs(session: Session, tenant_id: uuid.UUID, limit: int = 15) -> list[ResearchRun]:
+def saved_runs(
+    session: Session, tenant_id: uuid.UUID, user_id: uuid.UUID, limit: int = 50
+) -> list[ResearchRun]:
+    """Búsquedas guardadas por el usuario (el historial no guarda las demás)."""
     return list(
         session.scalars(
             select(ResearchRun)
-            .where(ResearchRun.tenant_id == tenant_id)
-            .order_by(ResearchRun.created_at.desc())
+            .where(
+                ResearchRun.tenant_id == tenant_id,
+                ResearchRun.created_by == user_id,
+                ResearchRun.saved_at.is_not(None),
+            )
+            .order_by(ResearchRun.saved_at.desc())
             .limit(limit)
         )
     )
