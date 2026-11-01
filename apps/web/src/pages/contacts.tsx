@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileUp, ListPlus, MailCheck, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Download, ExternalLink, FileUp, ListPlus, MailCheck, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -19,7 +19,7 @@ import {
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
-import { EMAIL_FILTERS, EmailBadge, ValidateModal, ValidationBanner } from "./validation";
+import { EMAIL_FILTERS, EmailBadge, EnrichModal, EnrichmentBanner, ValidateModal, ValidationBanner } from "./validation";
 import { money, NewDealModal, Timeline, useStages, type Deal } from "./crm";
 
 export type Option = { value: string; label: string };
@@ -48,6 +48,7 @@ type ContactRow = {
   status_label: string;
   email_status: string | null;
   email_check_reason: string | null;
+  linkedin_url: string | null;
 };
 type ContactPage = {
   items: ContactRow[];
@@ -125,6 +126,7 @@ export function ContactsPage() {
   const [editing, setEditing] = useState<ContactDetail | "new" | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);
+  const [enrichOpen, setEnrichOpen] = useState(false);
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -169,6 +171,9 @@ export function ContactsPage() {
             <Link to="/contactos/importar" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-white px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
               <FileUp className="size-4" aria-hidden /> Importar
             </Link>
+            <Button variant="secondary" icon={<Sparkles className="size-4" aria-hidden />} onClick={() => setEnrichOpen(true)}>
+              Enriquecer
+            </Button>
             <Button variant="secondary" icon={<MailCheck className="size-4" aria-hidden />} onClick={() => setValidateOpen(true)}>
               Validar correos
             </Button>
@@ -224,6 +229,7 @@ export function ContactsPage() {
             <Download className="size-4" aria-hidden /> Exportar
           </a>
         </div>
+        <EnrichmentBanner />
         <ValidationBanner />
         {activeList && (
           <div className="mx-4 mb-3 flex items-center justify-between rounded-xl bg-ork-violet/5 px-3 py-2 text-[13px] text-ork-violet">
@@ -240,6 +246,9 @@ export function ContactsPage() {
             <span className="text-[13px] font-semibold text-ork-blue">{selected.size} seleccionados</span>
             <Button size="sm" variant="secondary" icon={<ListPlus className="size-3.5" aria-hidden />} onClick={() => setListOpen(true)}>
               Agregar a lista
+            </Button>
+            <Button size="sm" variant="secondary" icon={<Sparkles className="size-3.5" aria-hidden />} onClick={() => setEnrichOpen(true)}>
+              Enriquecer
             </Button>
             <Button size="sm" variant="secondary" icon={<MailCheck className="size-3.5" aria-hidden />} onClick={() => setValidateOpen(true)}>
               Validar correos
@@ -312,7 +321,14 @@ export function ContactsPage() {
                       <div className="flex items-center gap-3">
                         <Avatar name={c.full_name} email={c.email ?? ""} size={32} />
                         <div className="min-w-0">
-                          <p className="truncate font-semibold text-ork-ink">{c.full_name}</p>
+                          <p className="flex items-center gap-1.5 truncate font-semibold text-ork-ink">
+                            {c.full_name}
+                            {c.linkedin_url && (
+                              <a href={c.linkedin_url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} className="text-ork-blue" aria-label={`Perfil público de ${c.full_name}`}>
+                                <ExternalLink className="size-3.5" aria-hidden />
+                              </a>
+                            )}
+                          </p>
                           <p className="flex items-center gap-1.5 truncate text-[12.5px] text-ork-mist">
                             {c.email ?? "Correo pendiente"}
                             {c.email && c.email_status !== "sin_validar" && <EmailBadge status={c.email_status} />}
@@ -352,6 +368,7 @@ export function ContactsPage() {
       <ContactDrawer id={openId} onClose={() => setOpenId(null)} onEdit={(c) => setEditing(c)} />
       {editing && <ContactForm contact={editing === "new" ? null : editing} meta={meta.data} onClose={() => setEditing(null)} onSaved={(id) => setOpenId(id)} />}
       <AddToListModal open={listOpen} onOpenChange={setListOpen} ids={[...selected]} onDone={() => setSelected(new Set())} />
+      <EnrichModal open={enrichOpen} onOpenChange={setEnrichOpen} ids={[...selected]} filters={filters} onStarted={() => setSelected(new Set())} />
       <ValidateModal
         open={validateOpen}
         onOpenChange={setValidateOpen}
@@ -455,6 +472,11 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                   <Dialog.Description className="text-[13px] text-ork-mist">
                     {[c.job_title, c.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa"}
                   </Dialog.Description>
+                  {c.linkedin_url && (
+                    <a href={c.linkedin_url} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ork-blue hover:underline">
+                      <ExternalLink className="size-3" aria-hidden /> Perfil público
+                    </a>
+                  )}
                 </div>
               </div>
             ) : (
