@@ -180,6 +180,8 @@ def test_dashboard_reports_only_real_data(client: TestClient) -> None:
     # Los módulos que aún no existen no muestran cifras inventadas.
     kpis = summary["kpis"]
     assert kpis.pop("emails_validated") == 0  # real: todavía no hay correos validados
+    assert kpis.pop("open_opportunities") == 0  # real: todavía no hay oportunidades
+    assert kpis.pop("conversion_rate") is None  # sin oportunidades cerradas no hay tasa
     assert set(kpis.values()) == {None}
 
 

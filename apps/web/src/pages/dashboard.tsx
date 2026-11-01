@@ -90,7 +90,12 @@ export function DashboardPage() {
           return (
             <Card key={key} className="flex flex-col gap-3">
               <p className="text-[13px] font-medium text-ork-mist">{label}</p>
-              {value === null || value === undefined ? (
+              {key === "conversion_rate" && value === null ? (
+                <>
+                  <p className="text-[28px] font-bold leading-none text-ork-ink/25">—</p>
+                  <span className="text-[12.5px] text-ork-mist">Aún no hay oportunidades cerradas</span>
+                </>
+              ) : value === null || value === undefined ? (
                 <>
                   <p className="text-[28px] font-bold leading-none text-ork-ink/25">—</p>
                   <span className="self-start">
@@ -100,7 +105,10 @@ export function DashboardPage() {
                   </span>
                 </>
               ) : (
-                <p className="text-[28px] font-bold leading-none text-ork-ink">{value.toLocaleString("es")}</p>
+                <p className="text-[28px] font-bold leading-none text-ork-ink">
+                  {value.toLocaleString("es")}
+                  {key === "conversion_rate" ? " %" : ""}
+                </p>
               )}
             </Card>
           );

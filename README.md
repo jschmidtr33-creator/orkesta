@@ -12,7 +12,8 @@ La propuesta técnica completa (análisis, arquitectura, tecnología, estructura
 | 1 | Datos comerciales: importación Excel/CSV con mapeo de columnas, deduplicación, procedencia por dato, contactos, listas y exportación | Entregada |
 | 2 | Prospección con IA: filtros → agente que investiga empresas y decisores en Wikidata, sitios oficiales y noticias (GDELT), con fuente por dato y guardado en Contactos | Entregada |
 | 3 | Validación de correos: formato, dominio/MX, desechables, buzón por SMTP con detección catch-all; búsqueda de correos faltantes y corrección de estimados | Esta entrega |
-| 4–6 | Enriquecimiento, campañas, CRM | MVP |
+| 6 | CRM: pipeline con etapas editables, oportunidades en tablero y tabla, línea de tiempo por contacto, tareas e indicadores reales | Entregada |
+| 4–5, 7 | Enriquecimiento de bases importadas, propuestas comerciales, campañas | Siguiente |
 | 7–10 | Propuestas, inteligencia comercial, analítica, SaaS comercial | Después del MVP |
 
 La versión anterior de ORKESTA quedó guardada en la rama `legado-v0`.
