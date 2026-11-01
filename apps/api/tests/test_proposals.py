@@ -95,3 +95,41 @@ def test_proposals_are_isolated_and_unknown_links_fail(client: TestClient) -> No
     assert client.get(f"/api/proposals/{p['id']}").status_code == 404
     assert client.get("/api/proposals").json() == []
     assert client.get("/api/public/proposals/no-existe").status_code == 404
+
+
+def test_brand_design_templates_and_language(client: TestClient) -> None:
+    contact_id, deal_id = _setup(client)
+    brand = client.get("/api/proposal-brand").json()
+    assert len(brand["templates"]) == 5 and set(brand["languages"]) == {"es", "en", "pt"}
+    assert brand["brand"]["legal_name"] == "Lácteos Inventados"
+    saved = client.put("/api/proposal-brand", json={
+        "primary": "#0f766e", "accent": "#f59e0b", "template": "moderna", "language": "en",
+        "logo_url": "https://cdn.example.com/logo.png", "website": "lacteos.co",
+    }).json()["brand"]  # fmt: skip
+    assert saved["primary"] == "#0F766E" and saved["template"] == "moderna"
+    assert client.put("/api/proposal-brand", json={"logo_url": "javascript:x"}).status_code == 400
+
+    p = client.post("/api/proposals", json={"deal_id": deal_id}).json()
+    assert p["design"]["template"] == "moderna" and p["design"]["language"] == "en"
+    assert p["title"] == "Proposal for Banco Andino"
+    assert p["sections"][0]["title"] == "Executive summary"
+    assert p["design"]["executive"]["name"] == "Ana López"
+
+    updated = client.patch(f"/api/proposals/{p['id']}", json={"design": {
+        "template": "audaz", "language": "pt", "primary": "#111827",
+        "executive": {"name": "Ana López", "title": "Gerente comercial", "phone": "+57 300"},
+    }}).json()  # fmt: skip
+    assert updated["look"]["template"] == "audaz" and updated["look"]["primary"] == "#111827"
+    assert updated["look"]["accent"] == "#F59E0B"  # heredado de la marca
+    regen = client.post(f"/api/proposals/{p['id']}/regenerate").json()
+    assert regen["sections"][0]["title"] == "Resumo executivo"
+    assert regen["title"] == "Proposta para Banco Andino"
+
+    view = client.get(
+        f"/api/public/proposals/{p['public_id']}", params={"vista_previa": True}
+    ).json()
+    assert view["look"]["executive"]["title"] == "Gerente comercial"
+    assert view["look"]["logo_url"] == "https://cdn.example.com/logo.png"
+    # La siguiente propuesta recuerda los datos del ejecutivo.
+    nxt = client.post("/api/proposals", json={"contact_id": contact_id}).json()
+    assert nxt["design"]["executive"]["title"] == "Gerente comercial"

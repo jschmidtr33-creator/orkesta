@@ -99,6 +99,10 @@ class Proposal(IdMixin, Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_by: Mapped[str | None] = mapped_column(String(160))
     decision_note: Mapped[str | None] = mapped_column(String(500))
+    # Diseño de esta propuesta: plantilla, idioma, colores, portada y datos del ejecutivo.
+    design: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
@@ -116,4 +120,18 @@ class ProposalLink(Base):
     )
     proposal_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("proposals.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class ProposalBrand(Base):
+    """Identidad visual de la empresa para sus propuestas (una por espacio de trabajo)."""
+
+    __tablename__ = "proposal_brands"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )

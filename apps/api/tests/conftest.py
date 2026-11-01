@@ -68,7 +68,7 @@ def session_factory(engine: Engine, database: tuple[str, str]) -> Iterator[sessi
     yield sessionmaker(bind=engine, expire_on_commit=False)
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE orkesta.automation_runs, orkesta.automation_rules, orkesta.email_assets, orkesta.tracking_tokens, orkesta.campaign_messages, orkesta.campaign_recipients, orkesta.campaigns, orkesta.mailboxes, orkesta.suppressions, orkesta.proposal_links, orkesta.proposals, orkesta.products, orkesta.enrichment_runs, orkesta.activities, orkesta.deals, orkesta.pipeline_stages, orkesta.jobs, orkesta.data_points, orkesta.list_members, "
+            "TRUNCATE orkesta.proposal_brands, orkesta.automation_runs, orkesta.automation_rules, orkesta.email_assets, orkesta.tracking_tokens, orkesta.campaign_messages, orkesta.campaign_recipients, orkesta.campaigns, orkesta.mailboxes, orkesta.suppressions, orkesta.proposal_links, orkesta.proposals, orkesta.products, orkesta.enrichment_runs, orkesta.activities, orkesta.deals, orkesta.pipeline_stages, orkesta.jobs, orkesta.data_points, orkesta.list_members, "
             "orkesta.contact_lists, orkesta.imports, orkesta.contacts, orkesta.companies, "
             "orkesta.audit_logs, orkesta.invitations, orkesta.memberships, "
             "orkesta.sessions, orkesta.login_attempts, orkesta.demo_requests, orkesta.users, "

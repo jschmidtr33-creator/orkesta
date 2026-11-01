@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from orkesta.core.web import Db, Principal, RateLimiter, client_ip, require_roles
 from orkesta.platform.service import audit
+from orkesta.proposals import design
 from orkesta.proposals import service as svc
 from orkesta.proposals.models import Product
 
@@ -62,6 +63,7 @@ class UpdateIn(BaseModel):
     sections: list[SectionIn] | None = Field(default=None, max_length=20)
     tax_rate: float | None = Field(default=None, ge=0, le=100)
     valid_until: date | None = None
+    design: dict[str, Any] | None = None
 
 
 class DecisionIn(BaseModel):
@@ -114,6 +116,25 @@ def delete_product(product_id: uuid.UUID, principal: Manager, db: Db) -> dict[st
 
 
 # --- Propuestas -----------------------------------------------------------------------------
+
+
+@router.get("/api/proposal-brand")
+def brand(principal: Member, db: Db) -> dict[str, Any]:
+    return {
+        "brand": design.get_brand(db, principal.tenant_id),
+        "templates": design.TEMPLATES,
+        "languages": design.LANGUAGES,
+        "fonts": design.FONTS,
+        "can_edit": principal.role in ("admin", "supervisor"),
+    }
+
+
+@router.put("/api/proposal-brand")
+def save_brand(body: dict[str, Any], principal: Manager, db: Db) -> dict[str, Any]:
+    try:
+        return {"brand": design.save_brand(db, principal.tenant_id, body)}
+    except design.DesignError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/api/proposals")

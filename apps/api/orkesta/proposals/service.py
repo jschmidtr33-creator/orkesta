@@ -25,6 +25,13 @@ from orkesta.crm.service import move_deal
 from orkesta.data.models import Company, Contact
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS
 from orkesta.platform.models import Tenant, User
+from orkesta.proposals.design import (
+    DesignError,
+    clean_design,
+    default_design,
+    get_brand,
+    resolved,
+)
 from orkesta.proposals.models import STATUS_LABELS, Product, Proposal, ProposalLink
 
 CENT = Decimal("0.01")
@@ -221,55 +228,136 @@ def _context(session: Session, tenant_id: uuid.UUID, deal: Deal | None,
     )
 
 
+COPY: dict[str, dict[str, str]] = {
+    "es": {
+        "hello": "Hola, {name}:", "hello_anon": "Hola:", "their_org": "su organización",
+        "us": "nuestro equipo",
+        "intro": "{hello}\n\nGracias por el tiempo y la confianza. En esta propuesta, {us} "
+                 "presenta cómo podemos acompañar a {company}{deal}, con un alcance claro, "
+                 "entregables concretos y una inversión transparente.",
+        "deal": " en «{deal}»",
+        "generic": GENERIC_CONTEXT,
+        "sector": "Para el sector de {sector}: {need}",
+        "identified": "En nuestras conversaciones identificamos:",
+        "solution": "Proponemos la siguiente solución:",
+        "solution_empty": "Describe aquí la solución propuesta y el valor que genera para el "
+                          "cliente.",
+        "scope_empty": "• Entregable 1\n• Entregable 2\n• Entregable 3",
+        "deadline": "la fecha indicada",
+        "steps": "1. Revisión de esta propuesta y resolución de dudas.\n2. Aceptación desde "
+                 "este mismo documento.\n3. Reunión de arranque y plan de trabajo detallado en "
+                 "la primera semana.",
+        "terms": "• Valores expresados en {currency}, más impuestos aplicables.\n• Propuesta "
+                 "válida hasta {deadline}.\n• Forma de pago: 50 % al inicio y 50 % contra "
+                 "entrega, salvo acuerdo distinto.\n• La información compartida se trata de "
+                 "forma confidencial.",
+        "t_resumen": "Resumen", "t_necesidad": "Entendimiento de la necesidad",
+        "t_solucion": "Solución propuesta", "t_alcance": "Alcance y entregables",
+        "t_pasos": "Próximos pasos", "t_terminos": "Términos y condiciones",
+        "title": "Propuesta para {company}", "title_anon": "Propuesta comercial",
+    },
+    "en": {
+        "hello": "Hi {name},", "hello_anon": "Hello,", "their_org": "your organization",
+        "us": "our team",
+        "intro": "{hello}\n\nThank you for your time and trust. In this proposal, {us} "
+                 "outlines how we can support {company}{deal}, with a clear scope, concrete "
+                 "deliverables and a transparent investment.",
+        "deal": " on “{deal}”",
+        "generic": "We understand the goal is to grow efficiently, with measurable results "
+                   "from the first weeks.",
+        "sector": "For the {sector} sector: {need}",
+        "identified": "In our conversations we identified:",
+        "solution": "We propose the following solution:",
+        "solution_empty": "Describe the proposed solution and the value it creates for the "
+                          "client.",
+        "scope_empty": "• Deliverable 1\n• Deliverable 2\n• Deliverable 3",
+        "deadline": "the stated date",
+        "steps": "1. Review this proposal and clarify any questions.\n2. Accept it directly "
+                 "from this document.\n3. Kick-off meeting and detailed work plan during the "
+                 "first week.",
+        "terms": "• Prices in {currency}, plus applicable taxes.\n• Proposal valid until "
+                 "{deadline}.\n• Payment: 50% upfront and 50% upon delivery, unless otherwise "
+                 "agreed.\n• All shared information is treated as confidential.",
+        "t_resumen": "Executive summary", "t_necesidad": "Understanding your needs",
+        "t_solucion": "Proposed solution", "t_alcance": "Scope and deliverables",
+        "t_pasos": "Next steps", "t_terminos": "Terms and conditions",
+        "title": "Proposal for {company}", "title_anon": "Business proposal",
+    },
+    "pt": {
+        "hello": "Olá, {name}:", "hello_anon": "Olá:", "their_org": "sua organização",
+        "us": "nossa equipe",
+        "intro": "{hello}\n\nObrigado pelo tempo e pela confiança. Nesta proposta, {us} "
+                 "apresenta como podemos apoiar {company}{deal}, com escopo claro, entregas "
+                 "concretas e um investimento transparente.",
+        "deal": " em “{deal}”",
+        "generic": "Entendemos que o objetivo é crescer com eficiência, com resultados "
+                   "mensuráveis desde as primeiras semanas.",
+        "sector": "Para o setor de {sector}: {need}",
+        "identified": "Em nossas conversas identificamos:",
+        "solution": "Propomos a seguinte solução:",
+        "solution_empty": "Descreva aqui a solução proposta e o valor que ela gera para o "
+                          "cliente.",
+        "scope_empty": "• Entrega 1\n• Entrega 2\n• Entrega 3",
+        "deadline": "a data indicada",
+        "steps": "1. Revisão desta proposta e esclarecimento de dúvidas.\n2. Aceite neste "
+                 "mesmo documento.\n3. Reunião de kick-off e plano de trabalho detalhado na "
+                 "primeira semana.",
+        "terms": "• Valores em {currency}, mais impostos aplicáveis.\n• Proposta válida até "
+                 "{deadline}.\n• Pagamento: 50% no início e 50% na entrega, salvo acordo "
+                 "diferente.\n• As informações compartilhadas são tratadas como "
+                 "confidenciais.",
+        "t_resumen": "Resumo executivo", "t_necesidad": "Entendimento da necessidade",
+        "t_solucion": "Solução proposta", "t_alcance": "Escopo e entregas",
+        "t_pasos": "Próximos passos", "t_terminos": "Termos e condições",
+        "title": "Proposta para {company}", "title_anon": "Proposta comercial",
+    },
+}  # fmt: skip
+
+
 def draft_sections(ctx: Context, items: list[dict[str, Any]], valid_until: date | None,
-                   currency: str) -> list[dict[str, str]]:  # fmt: skip
-    hello = f"Hola, {ctx.contact_first}:" if ctx.contact_first else "Hola:"
-    company = ctx.company or "su organización"
+                   currency: str, language: str = "es") -> list[dict[str, str]]:  # fmt: skip
+    t = COPY.get(language, COPY["es"])
+    hello = t["hello"].format(name=ctx.contact_first) if ctx.contact_first else t["hello_anon"]
+    company = ctx.company or t["their_org"]
     sector = INDUSTRY_LABELS.get(ctx.industry, "")
-    intro = (
-        f"{hello}\n\nGracias por el tiempo y la confianza. En esta propuesta, "
-        f"{ctx.tenant or 'nuestro equipo'} presenta cómo podemos acompañar a {company}"
-        + (f" en «{ctx.deal_title}»" if ctx.deal_title else "")
-        + ", con un alcance claro, entregables concretos y una inversión transparente."
-    )
-    need = INDUSTRY_CONTEXT.get(ctx.industry, GENERIC_CONTEXT)
-    if sector and ctx.industry not in INDUSTRY_CONTEXT:
-        need = f"Para el sector de {sector.lower()}: {need}"
+    intro = t["intro"].format(
+        hello=hello, us=ctx.tenant or t["us"], company=company,
+        deal=t["deal"].format(deal=ctx.deal_title) if ctx.deal_title else "",
+    )  # fmt: skip
+    if language == "es":
+        need = INDUSTRY_CONTEXT.get(ctx.industry, GENERIC_CONTEXT)
+        if sector and ctx.industry not in INDUSTRY_CONTEXT:
+            need = t["sector"].format(sector=sector.lower(), need=need)
+    else:
+        need = t["generic"]
     if ctx.notes:
         bullets = "\n".join(f"• {n.strip()[:300]}" for n in ctx.notes if n.strip())
-        need += f"\n\nEn nuestras conversaciones identificamos:\n{bullets}"
+        need += f"\n\n{t['identified']}\n{bullets}"
     if items:
-        solution = "Proponemos la siguiente solución:\n" + "\n".join(
-            f"• {i['name']}" + (f": {i['description'].strip()}" if i.get("description") else "")
-            for i in items
+        solution = (
+            t["solution"]
+            + "\n"
+            + "\n".join(
+                f"• {i['name']}" + (f": {i['description'].strip()}" if i.get("description") else "")
+                for i in items
+            )
         )
         scope = "\n".join(
             f"• {i['name']} — {i['quantity']:g} {i.get('unit') or ''}".rstrip() for i in items
         )
     else:
-        solution = "Describe aquí la solución propuesta y el valor que genera para el cliente."
-        scope = "• Entregable 1\n• Entregable 2\n• Entregable 3"
-    deadline = valid_until.strftime("%d/%m/%Y") if valid_until else "la fecha indicada"
-    steps = (
-        "1. Revisión de esta propuesta y resolución de dudas.\n"
-        "2. Aceptación desde este mismo documento.\n"
-        "3. Reunión de arranque y plan de trabajo detallado en la primera semana."
-    )
-    terms = (
-        f"• Valores expresados en {currency}, más impuestos aplicables."
-        + f"\n• Propuesta válida hasta {deadline}."
-        "\n• Forma de pago: 50 % al inicio y 50 % contra entrega, salvo acuerdo distinto."
-        "\n• La información compartida se trata de forma confidencial."
-    )
+        solution, scope = t["solution_empty"], t["scope_empty"]
+    deadline = valid_until.strftime("%d/%m/%Y") if valid_until else t["deadline"]
     contact_line = f"\n\n{ctx.owner}" + (f" · {ctx.owner_email}" if ctx.owner_email else "")
     return [
-        {"key": "resumen", "title": "Resumen", "body": intro},
-        {"key": "necesidad", "title": "Entendimiento de la necesidad", "body": need},
-        {"key": "solucion", "title": "Solución propuesta", "body": solution},
-        {"key": "alcance", "title": "Alcance y entregables", "body": scope},
-        {"key": "pasos", "title": "Próximos pasos", "body": steps + contact_line},
-        {"key": "terminos", "title": "Términos y condiciones", "body": terms},
-    ]
+        {"key": "resumen", "title": t["t_resumen"], "body": intro},
+        {"key": "necesidad", "title": t["t_necesidad"], "body": need},
+        {"key": "solucion", "title": t["t_solucion"], "body": solution},
+        {"key": "alcance", "title": t["t_alcance"], "body": scope},
+        {"key": "pasos", "title": t["t_pasos"], "body": t["steps"] + contact_line},
+        {"key": "terminos", "title": t["t_terminos"],
+         "body": t["terms"].format(currency=currency, deadline=deadline)},
+    ]  # fmt: skip
 
 
 # --- Propuestas -----------------------------------------------------------------------------
@@ -319,7 +407,9 @@ def create_proposal(
                   "unit_price": float(deal.value), "discount": 0.0}]  # fmt: skip
     valid_until = (now() + timedelta(days=30)).date()
     ctx = _context(session, tenant_id, deal, contact, user)
-    title = f"Propuesta para {ctx.company}" if ctx.company else "Propuesta comercial"
+    design = default_design(session, tenant_id, user)
+    lang = COPY.get(design["language"], COPY["es"])
+    title = lang["title"].format(company=ctx.company) if ctx.company else lang["title_anon"]
     proposal = Proposal(
         tenant_id=tenant_id,
         number=_next_number(session, tenant_id),
@@ -329,10 +419,11 @@ def create_proposal(
         title=title[:200],
         currency=currency,
         items=items,
-        sections=draft_sections(ctx, items, valid_until, currency),
+        sections=draft_sections(ctx, items, valid_until, currency, design["language"]),
         tax_rate=Decimal(0),
         valid_until=valid_until,
         public_id=secrets.token_urlsafe(24),
+        design=design,
     )
     session.add(proposal)
     session.flush()
@@ -388,6 +479,11 @@ def update_proposal(session: Session, proposal: Proposal, data: dict[str, Any]) 
         proposal.tax_rate = rate
     if "valid_until" in data:
         proposal.valid_until = data["valid_until"]
+    if "design" in data:
+        try:
+            proposal.design = clean_design(dict(data["design"] or {}), dict(proposal.design or {}))
+        except DesignError as exc:
+            raise ProposalError(str(exc)) from exc
     return proposal
 
 
@@ -395,8 +491,19 @@ def regenerate(session: Session, proposal: Proposal, user: User) -> Proposal:
     deal = session.get(Deal, proposal.deal_id) if proposal.deal_id else None
     contact = session.get(Contact, proposal.contact_id) if proposal.contact_id else None
     ctx = _context(session, proposal.tenant_id, deal, contact, user)
+    language = (proposal.design or {}).get("language") or get_brand(session, proposal.tenant_id)[
+        "language"
+    ]
     proposal.sections = draft_sections(ctx, proposal.items, proposal.valid_until,
-                                       proposal.currency)  # fmt: skip
+                                       proposal.currency, language)  # fmt: skip
+    # Si el título es el automático, también se traduce.
+    automatic = {t["title"].format(company=ctx.company) for t in COPY.values()} | {
+        t["title_anon"] for t in COPY.values()
+    }
+    if proposal.title in automatic:
+        lang = COPY.get(language, COPY["es"])
+        proposal.title = (lang["title"].format(company=ctx.company) if ctx.company
+                          else lang["title_anon"])[:200]  # fmt: skip
     return proposal
 
 
@@ -437,6 +544,7 @@ def duplicate(session: Session, proposal: Proposal, user: User) -> Proposal:
         tax_rate=proposal.tax_rate,
         valid_until=(now() + timedelta(days=30)).date(),
         public_id=secrets.token_urlsafe(24),
+        design=dict(proposal.design or {}),
     )
     session.add(copy)
     session.flush()
@@ -475,7 +583,9 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
     if full:
-        data.update(items=p.items, sections=p.sections, tax_rate=float(p.tax_rate))
+        brand = get_brand(session, p.tenant_id)
+        data.update(items=p.items, sections=p.sections, tax_rate=float(p.tax_rate),
+                    design=p.design or {}, look=resolved(brand, p.design or {}))  # fmt: skip
     return data
 
 
@@ -545,6 +655,7 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
         "contact_name": data["contact"]["full_name"] if data["contact"] else None,
         "issuer": tenant.name if tenant else "",
         "owner": {"name": owner.full_name or owner.email, "email": owner.email} if owner else None,
+        "look": data["look"],
         "decided_at": data["decided_at"],
         "decided_by": data["decided_by"],
         "created_at": data["created_at"],
