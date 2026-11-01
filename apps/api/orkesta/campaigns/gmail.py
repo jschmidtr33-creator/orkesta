@@ -149,6 +149,30 @@ def refresh_access_token(refresh_token: str) -> tuple[str, datetime]:
     return str(data["access_token"]), expires
 
 
+def _explain(response: httpx.Response) -> GmailError:
+    """Traduce los 403 de Google a la causa concreta y cómo arreglarla."""
+    try:
+        error = response.json().get("error", {})
+    except ValueError:
+        error = {}
+    text = str(error).lower()
+    if "accessnotconfigured" in text or "service_disabled" in text or "has not been used" in text:
+        return GmailError(
+            "La API de Gmail no está habilitada en Google Cloud: APIs y servicios → Biblioteca → "
+            "Gmail API → Habilitar."
+        )
+    if "insufficient" in text or "scope" in text:
+        return GmailError(
+            "Falta el permiso de enviar correos: desconecta y vuelve a conectar Gmail marcando "
+            "todas las casillas.",
+            auth=True,
+        )
+    if "ratelimit" in text or "quota" in text or "limitexceeded" in text:
+        return GmailError("Gmail limitó los envíos por ahora (límite de la cuenta).")
+    detail = str(error.get("message", ""))[:160] if isinstance(error, dict) else ""
+    return GmailError(f"Gmail no respondió ({response.status_code}). {detail}".strip())
+
+
 def send(access_token: str, raw: bytes, thread_id: str | None = None) -> dict[str, Any]:
     body: dict[str, Any] = {"raw": base64.urlsafe_b64encode(raw).decode()}
     if thread_id:
@@ -163,6 +187,8 @@ def send(access_token: str, raw: bytes, thread_id: str | None = None) -> dict[st
         raise GmailError("Gmail limitó los envíos por ahora (límite de la cuenta).")
     if response.status_code == 400:
         raise GmailError("Gmail rechazó este correo (dirección no válida).", recipient=True)
+    if response.status_code == 403:
+        raise _explain(response)
     if response.status_code != 200:
         raise GmailError(f"Gmail no respondió ({response.status_code}).")
     return dict(response.json())

@@ -286,3 +286,19 @@ def test_next_window(monkeypatch: pytest.MonkeyPatch) -> None:
     nxt = svc.next_window(dict(svc.DEFAULT_SETTINGS))
     assert nxt is not None and nxt.isoweekday() == 1 and nxt.hour == 8
     assert svc.next_window({**svc.DEFAULT_SETTINGS, "days": [7]}) is None
+
+
+def test_gmail_403_explained() -> None:
+    from orkesta.campaigns import gmail
+
+    def route(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": {"code": 403, "message": "Gmail API has not "
+                              "been used in project 1 before or it is disabled.",
+                              "errors": [{"reason": "accessNotConfigured"}]}})  # fmt: skip
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    try:
+        with pytest.raises(gmail.GmailError, match="no está habilitada"):
+            gmail.send("t", b"raw")
+    finally:
+        fetch.TRANSPORT = None
