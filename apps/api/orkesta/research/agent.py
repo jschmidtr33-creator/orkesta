@@ -34,6 +34,7 @@ from orkesta.data.models import Company
 from orkesta.engine.normalize.company import normalize_company
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.engine.normalize.text import clean, fold
+from orkesta.engine.taxonomy import linkedin as li
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS, classify_all, size_band
 from orkesta.engine.taxonomy.titles import (
     AREA_LABELS,
@@ -183,6 +184,11 @@ class Prospect:
         }
 
 
+def _words_in(phrase: str, text: str) -> bool:
+    words = fold(phrase).split()
+    return bool(words) and all(w in text for w in words)
+
+
 @dataclass
 class Filters:
     country: str
@@ -195,28 +201,85 @@ class Filters:
     keywords: str
     include_base: bool
     limit: int
+    cities: list[str] = field(default_factory=list)
+    sectors: list[str] = field(default_factory=list)
+    exclude_sectors: list[str] = field(default_factory=list)
+    seniority: list[str] = field(default_factory=list)
+    functions: list[str] = field(default_factory=list)
+    exclude_functions: list[str] = field(default_factory=list)
+    titles: list[str] = field(default_factory=list)
+    exclude_titles: list[str] = field(default_factory=list)
+    exclude_companies: list[str] = field(default_factory=list)
+    first_name: str = ""
+    last_name: str = ""
 
     @classmethod
     def from_payload(cls, data: dict[str, Any]) -> Filters:
+        def strings(name: str) -> list[str]:
+            return [clean(v) for v in data.get(name) or [] if clean(v)]
+
+        city = clean(data.get("city"))
         return cls(
             country=str(data.get("country", "")),
             industries=list(data.get("industries") or []),
-            city=clean(data.get("city")),
+            city=city,
             sizes=list(data.get("sizes") or []),
-            companies=[clean(c) for c in data.get("companies") or [] if clean(c)],
+            companies=strings("companies"),
             levels=list(data.get("levels") or []),
             areas=list(data.get("areas") or []),
             keywords=clean(data.get("keywords")),
             include_base=bool(data.get("include_base", True)),
             limit=int(data.get("limit") or 25),
+            cities=strings("cities") or ([city] if city else []),
+            sectors=list(data.get("sectors") or []),
+            exclude_sectors=list(data.get("exclude_sectors") or []),
+            seniority=list(data.get("seniority") or []),
+            functions=list(data.get("functions") or []),
+            exclude_functions=list(data.get("exclude_functions") or []),
+            titles=strings("titles"),
+            exclude_titles=strings("exclude_titles"),
+            exclude_companies=strings("exclude_companies"),
+            first_name=clean(data.get("first_name")),
+            last_name=clean(data.get("last_name")),
         )
 
-    def wants(self, prospect: Prospect) -> bool:
-        level, area = prospect.classification()
-        levels = self.levels or list(DECISION_LEVELS)
-        if level not in levels:
+    def wants_title(self, title: str) -> bool:
+        """El cargo cumple Nivel de responsabilidad, Función y Cargo actual (Sales Navigator)."""
+        folded = fold(title)
+        if self.seniority:
+            if li.title_seniority(title) not in self.seniority:
+                return False
+        elif not self.titles:
+            level, _ = classify_title(title)
+            if level not in (self.levels or list(DECISION_LEVELS)):
+                return False
+        functions = li.title_functions(title)
+        if self.functions and not functions & set(self.functions):
             return False
-        return not self.areas or area in self.areas
+        if self.exclude_functions and functions & set(self.exclude_functions):
+            return False
+        if not self.functions and self.areas and not self.seniority:
+            _, area = classify_title(title)
+            if area not in self.areas:
+                return False
+        if self.titles and not any(_words_in(t, folded) for t in self.titles):
+            return False
+        return not any(_words_in(t, folded) for t in self.exclude_titles)
+
+    def wants_employer(self, employer: str) -> bool:
+        folded = fold(employer)
+        return not any(_words_in(c, folded) for c in self.exclude_companies)
+
+    def wants_name(self, first: str, last: str) -> bool:
+        full = fold(f"{first} {last}")
+        return all(not part or _words_in(part, full) for part in (self.first_name, self.last_name))
+
+    def wants(self, prospect: Prospect) -> bool:
+        return (
+            self.wants_title(prospect.title)
+            and self.wants_employer(prospect.company.name)
+            and self.wants_name(prospect.first_name, prospect.last_name)
+        )
 
 
 class Run:
@@ -805,6 +868,7 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         fetcher, run.serp, country=filters.country, country_name=country_name,
         city=filters.city, levels=filters.levels, areas=filters.areas,
         industries=filters.industries, keywords=filters.keywords, target=target,
+        spec=serp.LeadSpec.from_filters(filters),
     )  # fmt: skip
     run.log(f"{len(leads)} leads encontrados que cumplen los filtros.", done=len(leads))
     code = filters.industries[0] if len(filters.industries) == 1 else ""

@@ -449,3 +449,61 @@ def test_diagnostics_report_each_connection(
     assert not any("Gemini" in n for n in checks)
     assert all(c["ok"] for n, c in checks.items() if "SMTP" not in n), checks
     assert "resultados de Google" in checks["Buscador de Google (Serper)"]["detail"]
+
+
+def test_sales_navigator_filters(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    register(client, "ana@lacteos.co")
+    options = client.get("/api/research/options").json()
+    groups = {g["label"]: g["options"] for g in options["sector_groups"]}
+    assert "Tecnología" in groups and "Financieros y consultoría" in groups
+    assert any(o["label"] == "Desarrollo de software" for o in groups["Tecnología"])
+    assert {o["value"] for o in options["seniority"]} >= {"cxo", "vp", "practicas"}
+    assert any(o["label"] == "Tecnología de la información" for o in options["functions"])
+
+    run = _run(
+        client, session_factory, sectors=["banca", "servicios_financieros"],
+        seniority=["cxo"], exclude_companies=["Financiera Austral"], limit=25,
+    )  # fmt: skip
+    assert run["status"] == "completed", run
+    names = {p["data"]["full_name"] for p in run["people"]}
+    assert "Carlos Ruiz Pardo" in names and "Sofía Lara" not in names  # empresa excluida
+    assert run["filters"]["industries"] == ["banca_finanzas"]
+    query = next(a["q"] for a in with_serper if a["q"].startswith("site:linkedin.com/in"))
+    assert '"gerente general"' in query and "banco" in query and '-"Financiera Austral"' in query
+
+    # El historial solo guarda lo que el usuario guarda.
+    assert client.get("/api/research/runs").json() == []
+    saved = client.post(f"/api/research/runs/{run['id']}/saved", json={"name": "Bancos CXO"})
+    assert saved.status_code == 200 and saved.json()["saved_name"] == "Bancos CXO"
+    assert [r["saved_name"] for r in client.get("/api/research/runs").json()] == ["Bancos CXO"]
+    other = _run(client, session_factory, sectors=["banca"], titles=["Gerente General"])
+    assert other["status"] == "completed"
+    third = client.post("/api/research/runs", json={"country": "CO"}).json()
+    # Al empezar otra búsqueda se borra la anterior que no se guardó; la guardada sigue.
+    assert client.get(f"/api/research/runs/{other['id']}").status_code == 404
+    assert client.get(f"/api/research/runs/{run['id']}").status_code == 200
+    client.post(f"/api/research/runs/{third['id']}/cancel")
+    assert client.delete(f"/api/research/runs/{run['id']}").status_code == 200
+    assert client.get("/api/research/runs").json() == []
+
+
+def test_title_seniority_and_functions() -> None:
+    from orkesta.engine.taxonomy import linkedin as li
+    from orkesta.research.agent import Filters
+
+    assert li.title_seniority("Gerente General") == "cxo"
+    assert li.title_seniority("Gerente de Compras") == "gestion_experiencia"
+    assert li.title_seniority("Practicante de Marketing") == "practicas"
+    assert li.title_seniority("Analista de datos") == "sin_experiencia"
+    assert "compras" in li.title_functions("Jefe de Abastecimiento")
+    assert "ti" in li.title_functions("Director de Tecnología")
+    f = Filters.from_payload({"country": "CO", "functions": ["ti"], "seniority": ["director"],
+                              "exclude_titles": ["interino"]})  # fmt: skip
+    assert f.wants_title("Director de Sistemas")
+    assert not f.wants_title("Director Comercial")
+    assert not f.wants_title("Director de TI interino")
+    titled = Filters.from_payload({"country": "CO", "titles": ["Gerente de Compras"]})
+    assert titled.wants_title("Gerente Nacional de Compras")
+    assert not titled.wants_title("Gerente de Ventas")

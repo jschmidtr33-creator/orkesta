@@ -24,16 +24,34 @@ def _fail(exc: DataError) -> HTTPException:
 
 
 class FiltersIn(BaseModel):
+    """Filtros de leads con la estructura de Sales Navigator."""
+
     country: str = Field(max_length=2)
-    industries: list[str] = Field(default_factory=list, max_length=30)
+    cities: list[str] = Field(default_factory=list, max_length=5)
+    sectors: list[str] = Field(default_factory=list, max_length=60)
+    exclude_sectors: list[str] = Field(default_factory=list, max_length=60)
     sizes: list[str] = Field(default_factory=list, max_length=10)
+    seniority: list[str] = Field(default_factory=list, max_length=10)
+    functions: list[str] = Field(default_factory=list, max_length=30)
+    exclude_functions: list[str] = Field(default_factory=list, max_length=30)
+    titles: list[str] = Field(default_factory=list, max_length=10)
+    exclude_titles: list[str] = Field(default_factory=list, max_length=10)
+    companies: list[str] = Field(default_factory=list, max_length=25)
+    exclude_companies: list[str] = Field(default_factory=list, max_length=25)
+    first_name: str = Field(default="", max_length=60)
+    last_name: str = Field(default="", max_length=60)
+    keywords: str = Field(default="", max_length=80)
+    include_base: bool = True
+    limit: int = 25
+    # Compatibilidad con la versión anterior de los filtros.
+    industries: list[str] = Field(default_factory=list, max_length=30)
     levels: list[str] = Field(default_factory=list, max_length=10)
     areas: list[str] = Field(default_factory=list, max_length=20)
     city: str = Field(default="", max_length=80)
-    keywords: str = Field(default="", max_length=80)
-    companies: list[str] = Field(default_factory=list, max_length=25)
-    include_base: bool = True
-    limit: int = 25
+
+
+class SaveSearchIn(BaseModel):
+    name: str = Field(max_length=120)
 
 
 class SaveIn(BaseModel):
@@ -78,7 +96,25 @@ def create_run(body: FiltersIn, request: Request, principal: Member, db: Db) -> 
 
 @router.get("/runs")
 def runs(principal: Member, db: Db) -> list[dict[str, Any]]:
-    return [svc.run_dict(r) for r in svc.recent_runs(db, principal.tenant_id)]
+    """Búsquedas guardadas del usuario."""
+    return [svc.run_dict(r) for r in svc.saved_runs(db, principal.tenant_id, principal.user.id)]
+
+
+@router.post("/runs/{run_id}/saved")
+def save_search(run_id: uuid.UUID, body: SaveSearchIn, principal: Member, db: Db) -> dict[str, Any]:
+    try:
+        return svc.run_dict(svc.save_search(db, principal.tenant_id, run_id, body.name))
+    except DataError as exc:
+        raise _fail(exc) from exc
+
+
+@router.delete("/runs/{run_id}")
+def forget_search(run_id: uuid.UUID, principal: Member, db: Db) -> dict[str, bool]:
+    try:
+        svc.forget_search(db, principal.tenant_id, run_id)
+    except DataError as exc:
+        raise _fail(exc) from exc
+    return {"ok": True}
 
 
 @router.get("/runs/{run_id}")

@@ -54,6 +54,9 @@ class ResearchRun(IdMixin, Base):
     totals: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Solo las búsquedas guardadas quedan en el historial; las demás se borran solas.
+    saved_name: Mapped[str | None] = mapped_column(String(120))
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ResearchItem(IdMixin, Base):

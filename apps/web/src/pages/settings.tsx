@@ -310,7 +310,6 @@ function TeamSettings() {
 
 function IntegrationSettings() {
   const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<{ google: boolean }>("/api/auth/config") });
-  const research = useQuery({ queryKey: ["research-options"], queryFn: () => api<{ web_search: boolean }>("/api/research/options") });
   const items = [
     {
       name: "Inicio de sesión con Google",
@@ -318,13 +317,6 @@ function IntegrationSettings() {
       status: config.data?.google ? "connected" : "pending",
     },
     { name: "Microsoft 365 y Outlook", detail: "Campañas desde buzones de Microsoft.", status: "stage", stage: 8 },
-    {
-      name: "Buscador de Google (Serper)",
-      detail: research.data?.web_search
-        ? "Motor principal de prospección: decisores con perfil público y empresas en Google Maps."
-        : "2.500 búsquedas gratis en serper.dev; agrega la clave en Render como SERPER_API_KEY.",
-      status: research.data?.web_search ? "connected" : "pending",
-    },
   ] as const;
   return (
     <div className="flex flex-col gap-4">
@@ -351,7 +343,8 @@ type DiagCheck = { name: string; ok: boolean; detail: string; ms: number };
 
 export function DiagnosticsCard() {
   const { session } = useSession();
-  const allowed = session?.workspace?.role !== "vendedor";
+  // Detalle técnico del motor: solo para el equipo de ORKESTA, no para los clientes.
+  const allowed = Boolean(session?.user.platform_admin) && session?.workspace?.role !== "vendedor";
   const test = useMutation({ mutationFn: () => api<{ checks: DiagCheck[] }>("/api/research/diagnostics") });
   if (!allowed) return null;
   return (
