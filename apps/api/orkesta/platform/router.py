@@ -456,6 +456,7 @@ def accept(
 
 
 ACTION_LABELS = {
+    "proposal.created": "creó una propuesta comercial",
     "enrichment.started": "inició un enriquecimiento de contactos",
     "deal.created": "creó una oportunidad",
     "deal.deleted": "eliminó una oportunidad",
