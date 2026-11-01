@@ -159,3 +159,29 @@ def test_rich_catalog_with_image_and_payment_link(client: TestClient) -> None:
     assert "Club Elite Persona: Pase VIP Anual" in solution and "<" not in solution
     view = client.get(f"/api/public/proposals/{p['public_id']}", params={"vista_previa": True})
     assert view.json()["items"][0]["payment_url"] == "https://pay.example.com/club"
+
+
+def test_variables_are_personalized_for_the_client(client: TestClient) -> None:
+    _, deal_id = _setup(client)
+    p = client.post("/api/proposals", json={"deal_id": deal_id}).json()
+    assert "cargo" in p["variables"] and p["values"]["nombre"] == "Laura"
+    client.patch(f"/api/proposals/{p['id']}", json={
+        "title": "Propuesta para {{empresa}}",
+        "sections": [{"key": "resumen", "title": "Para {{nombre_completo}}",
+                      "body": "Estimado/a {{nombre}} ({{cargo|equipo directivo}}): "
+                              "{{mi_empresa}} presenta su propuesta. Atentamente, {{ejecutivo}}."}],
+        "items": [{"name": "Plan {{empresa}}", "description": "<p>Para <b>{{nombre}}</b></p>",
+                   "quantity": 1, "unit_price": 100}],
+    })  # fmt: skip
+    view = client.get(
+        f"/api/public/proposals/{p['public_id']}", params={"vista_previa": True}
+    ).json()
+    assert view["title"] == "Propuesta para Banco Andino"
+    assert view["sections"][0]["title"] == "Para Laura Gómez"
+    body = view["sections"][0]["body"]
+    assert body.startswith("Estimado/a Laura (equipo directivo): Lácteos Inventados presenta")
+    assert body.endswith("Atentamente, Ana López.")
+    assert view["items"][0]["name"] == "Plan Banco Andino"
+    assert "<b>Laura</b>" in view["items"][0]["description"]
+    # El editor conserva las variables para reutilizar el texto.
+    assert "{{nombre}}" in client.get(f"/api/proposals/{p['id']}").json()["sections"][0]["body"]

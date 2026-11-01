@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Eye, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import type { Editor } from "@tiptap/react";
@@ -362,6 +362,14 @@ function StepsEditor({ c }: { c: Campaign }) {
   const save = useSaveCampaign(c.id);
   const vars = useCampaigns().data?.variables ?? {};
   const focused = useRef<{ index: number; el?: HTMLInputElement; editor?: Editor } | null>(null);
+  const caret = useRef<{ el: HTMLInputElement; pos: number } | null>(null);
+  useLayoutEffect(() => {
+    const c = caret.current;
+    if (!c) return;
+    caret.current = null;
+    c.el.focus();
+    c.el.setSelectionRange(c.pos, c.pos);
+  });
   useEffect(() => {
     if (!dirty) setSteps(c.steps ?? []);
   }, [c.steps, dirty]);
@@ -382,11 +390,8 @@ function StepsEditor({ c }: { c: Campaign }) {
     const value = steps[f.index].subject;
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
+    caret.current = { el, pos: start + token.length };
     update(f.index, { subject: value.slice(0, start) + token + value.slice(end) });
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + token.length, start + token.length);
-    });
   };
   return (
     <Card>

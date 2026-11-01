@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
@@ -35,7 +35,16 @@ type ProposalRow = {
   decision_note: string | null;
   created_at: string;
 };
-type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number; design: Design };
+type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number; design: Design; variables: Record<string, string>; values: Record<string, string> };
+
+/** Reemplaza {{variable|alternativo}} con los datos del cliente (igual que el servidor). */
+function fill(text: string, values: Record<string, string>, escape = false): string {
+  return text.replace(/\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g, (_, name: string, fallback?: string) => {
+    const v = values[name] ?? "";
+    if (v) return escape ? v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : v;
+    return fallback !== undefined ? fallback.trim() : "";
+  });
+}
 type Product = { id: string; name: string; description: string; unit_price: number; currency: string; unit: string; active: boolean; image_url: string; payment_url: string };
 
 const STATUS_TONE = { draft: "neutral", sent: "blue", viewed: "violet", accepted: "ok", rejected: "bad" } as const;
@@ -385,6 +394,28 @@ export function ProposalEditor() {
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
   const [openItem, setOpenItem] = useState<number | null>(null);
+  const caret = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; pos: number } | null>(null);
+  useLayoutEffect(() => {
+    // Tras insertar un dato, el cursor queda justo después de la variable.
+    const c = caret.current;
+    if (!c) return;
+    caret.current = null;
+    c.el.focus();
+    c.el.setSelectionRange(c.pos, c.pos);
+  });
+  const focused = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; apply: (v: string) => void } | null>(null);
+  const track = (apply: (v: string) => void) => ({
+    onFocus: (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) => (focused.current = { el: e.currentTarget, apply }),
+  });
+  const insertVar = (name: string) => {
+    const f = focused.current;
+    if (!f) return;
+    const token = `{{${name}}}`;
+    const start = f.el.selectionStart ?? f.el.value.length;
+    const end = f.el.selectionEnd ?? f.el.value.length;
+    caret.current = { el: f.el, pos: start + token.length };
+    f.apply(f.el.value.slice(0, start) + token + f.el.value.slice(end));
+  };
   const brand = useBrand();
   const snapshot = (x: Proposal) => ({ title: x.title, currency: x.currency, items: x.items, sections: x.sections, tax_rate: x.tax_rate, valid_until: x.valid_until, design: x.design ?? {} });
   useEffect(() => {
@@ -461,6 +492,7 @@ export function ProposalEditor() {
             disabled={locked}
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+            {...track((v) => setDraft((d) => (d ? { ...d, title: v } : d)))}
             className="ork-focus -ml-1 w-full max-w-[640px] rounded-lg bg-transparent px-1 text-[22px] font-bold text-ork-ink hover:bg-ork-ink/[0.03]"
           />
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-ork-mist">
@@ -551,10 +583,10 @@ export function ProposalEditor() {
               <ProposalDocument
                 data={{
                   number: p.number,
-                  title: draft.title,
+                  title: fill(draft.title, p.values ?? {}),
                   currency: draft.currency,
-                  items: draft.items,
-                  sections: draft.sections,
+                  items: draft.items.map((it) => ({ ...it, name: fill(it.name, p.values ?? {}), description: fill(it.description, p.values ?? {}, /</.test(it.description)) })),
+                  sections: draft.sections.map((x) => ({ ...x, title: fill(x.title, p.values ?? {}), body: fill(x.body, p.values ?? {}) })),
                   tax_rate: draft.tax_rate,
                   totals: t,
                   valid_until: draft.valid_until,
@@ -583,6 +615,31 @@ export function ProposalEditor() {
                 )
               }
             />
+            {!locked && (
+              <div className="mb-4 rounded-xl bg-ork-surface p-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">Insertar dato del cliente:</span>
+                  {Object.entries(p.variables ?? {}).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertVar(k)}
+                      title={p.values?.[k] ? `Para este cliente: ${p.values[k]}` : "Sin dato para este cliente"}
+                      className={cx(
+                        "ork-focus rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
+                        p.values?.[k] ? "border-ork-line bg-white text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue" : "border-dashed border-ork-line text-ork-mist",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[12px] text-ork-mist">
+                  Haz clic en un campo (título, sección o texto) y luego en el dato. El cliente verá su valor real; usa <code className="rounded bg-white px-1">{"{{cargo|equipo directivo}}"}</code> para un texto alterno si falta.
+                </p>
+              </div>
+            )}
             <div className="flex flex-col gap-4">
               {draft.sections.map((s, i) => (
                 <div key={s.key + i} className="rounded-xl border border-ork-line p-3">
@@ -592,6 +649,7 @@ export function ProposalEditor() {
                       disabled={locked}
                       value={s.title}
                       onChange={(e) => setSection(i, { title: e.target.value })}
+                      {...track((v) => setDraft((d) => (d ? { ...d, sections: d.sections.map((x, j) => (j === i ? { ...x, title: v } : x)) } : d)))}
                       className="ork-focus min-w-0 flex-1 rounded-md px-1 text-[14.5px] font-bold text-ork-ink hover:bg-ork-ink/[0.03]"
                     />
                     {!locked && (
@@ -605,6 +663,7 @@ export function ProposalEditor() {
                     disabled={locked}
                     value={s.body}
                     onChange={(e) => setSection(i, { body: e.target.value })}
+                    {...track((v) => setDraft((d) => (d ? { ...d, sections: d.sections.map((x, j) => (j === i ? { ...x, body: v } : x)) } : d)))}
                     rows={Math.min(14, Math.max(3, s.body.split("\n").length + 1))}
                     className="ork-focus w-full resize-y rounded-lg border border-ork-line px-3 py-2 text-[13.5px] leading-relaxed text-ork-graphite"
                   />
