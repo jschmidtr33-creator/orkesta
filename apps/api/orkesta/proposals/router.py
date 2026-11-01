@@ -10,9 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from orkesta.core.config import get_settings
 from orkesta.core.web import Db, Principal, RateLimiter, client_ip, require_roles
 from orkesta.platform.service import audit
-from orkesta.proposals import design
+from orkesta.proposals import design, mailer
 from orkesta.proposals import service as svc
 from orkesta.proposals.models import Product
 
@@ -203,6 +204,33 @@ def send(proposal_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     svc.mark_sent(db, proposal, principal.user)
     db.flush()
     return svc.proposal_dict(db, proposal)
+
+
+class EmailIn(BaseModel):
+    mailbox_id: uuid.UUID
+    to: str = Field(max_length=1000)
+    cc: str = Field(default="", max_length=1000)
+    subject: str = Field(max_length=250)
+    body: str = Field(max_length=50000)
+
+
+@router.post("/api/proposals/{proposal_id}/email")
+def email(
+    proposal_id: uuid.UUID, body: EmailIn, request: Request, principal: Member, db: Db
+) -> dict[str, Any]:
+    proposal = _load(db, principal, proposal_id)
+    if proposal.status in ("accepted", "rejected"):
+        raise HTTPException(409, "La propuesta ya fue respondida.")
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    try:
+        sent = mailer.send_by_email(
+            db, proposal, principal.user, mailbox_id=body.mailbox_id, to=body.to, cc=body.cc,
+            subject=body.subject, body=body.body, link=f"{base}/app/p/{proposal.public_id}",
+        )  # fmt: skip
+    except svc.ProposalError as exc:
+        raise _fail(exc) from exc
+    db.flush()
+    return {**svc.proposal_dict(db, proposal), "email": sent}
 
 
 @router.post("/api/proposals/{proposal_id}/duplicate", status_code=201)

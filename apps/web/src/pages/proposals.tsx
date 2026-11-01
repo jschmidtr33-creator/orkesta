@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Mail, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
 import { api } from "../lib/api";
 import { RichEditor } from "../components/RichEditor";
+import type { Editor } from "@tiptap/react";
+import { useMailboxes } from "./campaigns";
 import { BrandSettings, DesignPanel, ImageField, lookFrom, useBrand, type Design } from "./proposalDesign";
 import { useSession } from "../lib/session";
 import { money, type Deal } from "./crm";
@@ -394,6 +396,7 @@ export function ProposalEditor() {
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
   const [openItem, setOpenItem] = useState<number | null>(null);
+  const [emailing, setEmailing] = useState(false);
   const caret = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; pos: number } | null>(null);
   useLayoutEffect(() => {
     // Tras insertar un dato, el cursor queda justo después de la variable.
@@ -523,8 +526,18 @@ export function ProposalEditor() {
               <Button variant="secondary" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate()}>
                 Guardar
               </Button>
-              <Button loading={send.isPending} icon={<Send className="size-4" aria-hidden />} onClick={() => send.mutate()}>
-                {p.status === "draft" ? "Marcar como enviada" : "Guardar y reenviar"}
+              <Button variant="secondary" loading={send.isPending} onClick={() => send.mutate()} title="Si la enviaste por otro medio">
+                {p.status === "draft" ? "Marcar como enviada" : "Guardar"}
+              </Button>
+              <Button
+                icon={<Mail className="size-4" aria-hidden />}
+                loading={save.isPending}
+                onClick={async () => {
+                  if (dirty) await save.mutateAsync();
+                  setEmailing(true);
+                }}
+              >
+                Enviar por correo
               </Button>
             </>
           )}
@@ -810,6 +823,11 @@ export function ProposalEditor() {
               <dd>{money(t.total, draft.currency)}</dd>
             </div>
           </dl>
+          {p.design?.last_email && (
+            <p className="mt-4 rounded-lg bg-ork-surface px-3 py-2 text-[12.5px] text-ork-graphite">
+              Último envío a <strong>{p.design.last_email.to.join(", ")}</strong> desde {p.design.last_email.from}.
+            </p>
+          )}
           {!locked && (
             <button type="button" className="mt-5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-bad hover:underline" onClick={() => window.confirm("¿Eliminar esta propuesta?") && remove.mutate()}>
               <Trash2 className="size-3.5" aria-hidden /> Eliminar propuesta
@@ -817,6 +835,102 @@ export function ProposalEditor() {
           )}
         </Card>
       </div>
+      {emailing && <EmailProposalModal proposal={p} onClose={() => setEmailing(false)} onSent={(data) => refresh(data)} />}
     </>
+  );
+}
+
+const EMAIL_COPY = {
+  es: {
+    subject: "{{nombre}}, tu propuesta de {{mi_empresa}}",
+    body: "<p>Hola {{nombre}}:</p><p>Como conversamos, te comparto la propuesta para {{empresa}}. Puedes revisarla, descargarla en PDF y aceptarla directamente desde el enlace.</p><p>Quedo atento(a) a tus comentarios.</p><p>Saludos,</p>",
+  },
+  en: {
+    subject: "{{nombre}}, your proposal from {{mi_empresa}}",
+    body: "<p>Hi {{nombre}},</p><p>As discussed, here is the proposal for {{empresa}}. You can review it, download it as a PDF and accept it directly from the link.</p><p>Looking forward to your feedback.</p><p>Best regards,</p>",
+  },
+  pt: {
+    subject: "{{nombre}}, sua proposta da {{mi_empresa}}",
+    body: "<p>Olá, {{nombre}}:</p><p>Conforme conversamos, compartilho a proposta para {{empresa}}. Você pode revisá-la, baixá-la em PDF e aceitá-la diretamente pelo link.</p><p>Fico à disposição para comentários.</p><p>Abraços,</p>",
+  },
+};
+
+function EmailProposalModal({ proposal: p, onClose, onSent }: { proposal: Proposal; onClose: () => void; onSent: (data: Proposal) => void }) {
+  const boxes = useMailboxes();
+  const brand = useBrand();
+  const { session } = useSession();
+  const lang = (p.design?.language || brand.data?.brand.language || "es") as keyof typeof EMAIL_COPY;
+  const [mailbox, setMailbox] = useState("");
+  const [to, setTo] = useState(p.contact?.email ?? "");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(EMAIL_COPY[lang].subject);
+  const [body, setBody] = useState(EMAIL_COPY[lang].body);
+  const editorRef = useRef<Editor | null>(null);
+  const active = (boxes.data?.items ?? []).filter((m) => m.status === "active");
+  useEffect(() => {
+    if (!mailbox && active.length) setMailbox((active.find((m) => m.email === session?.user.email) ?? active[0]).id);
+  }, [active, mailbox, session]);
+  const send = useMutation({
+    mutationFn: () => api<Proposal>(`/api/proposals/${p.id}/email`, { method: "POST", json: { mailbox_id: mailbox, to, cc, subject, body } }),
+    onSuccess: (data) => {
+      onSent(data);
+      onClose();
+    },
+  });
+  const preview = (t: string) => t.replace(/\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g, (_, n: string, f?: string) => p.values?.[n] || (f ?? "").trim());
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} title="Enviar propuesta por correo" description="Sale desde tu Gmail, queda en tus Enviados y el cliente recibe un botón para abrir la propuesta." wide>
+      {boxes.isLoading ? (
+        <Spinner />
+      ) : !active.length ? (
+        <Alert tone="blue">
+          Primero conecta tu Gmail en{" "}
+          <Link to="/configuracion/integraciones" className="font-semibold underline">
+            Configuración → Integraciones
+          </Link>
+          .
+        </Alert>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {send.error && <Alert>{send.error.message}</Alert>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SelectField label="Desde" value={mailbox} onChange={(e) => setMailbox(e.target.value)}>
+              {active.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.email}
+                </option>
+              ))}
+            </SelectField>
+            <TextField label="Para" value={to} onChange={(e) => setTo(e.target.value)} placeholder="cliente@empresa.com" hint={p.contact ? `Contacto: ${p.contact.full_name}` : undefined} />
+          </div>
+          <TextField label="CC (opcional)" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Separa varios con coma" />
+          <TextField label="Asunto" value={subject} onChange={(e) => setSubject(e.target.value)} hint={`Así le llega: ${preview(subject)}`} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">Insertar:</span>
+            {Object.entries(p.variables ?? {}).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => editorRef.current?.chain().focus().insertContent(`{{${k}}}`).run()}
+                className="ork-focus rounded-full border border-ork-line px-2.5 py-0.5 text-[12px] font-semibold text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <RichEditor value={body} onChange={setBody} onFocus={(e) => (editorRef.current = e)} minHeight={160} />
+          <p className="text-[12px] text-ork-mist">Debajo del texto se agrega el botón «Ver la propuesta» con tus colores y luego tu firma de Gmail configurada en ORKESTA.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button icon={<Send className="size-4" aria-hidden />} loading={send.isPending} disabled={!mailbox || !to.trim()} onClick={() => send.mutate()}>
+              Enviar ahora
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

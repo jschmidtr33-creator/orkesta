@@ -28,6 +28,7 @@ export type Design = {
   font?: Look["font"] | "";
   cover_url?: string;
   executive?: Look["executive"];
+  last_email?: { to: string[]; from: string; thread_id: string };
 };
 type BrandResponse = { brand: Brand; templates: Record<string, string>; languages: Record<string, string>; fonts: Record<string, string>; can_edit: boolean };
 
