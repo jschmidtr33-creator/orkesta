@@ -187,7 +187,7 @@ function ColorField({ label, value, onChange, placeholder }: { label: string; va
   );
 }
 
-function ImageField({ label, value, onChange, hint, round }: { label: string; value: string; onChange: (url: string) => void; hint?: string; round?: boolean }) {
+export function ImageField({ label, value, onChange, hint, round }: { label: string; value: string; onChange: (url: string) => void; hint?: string; round?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

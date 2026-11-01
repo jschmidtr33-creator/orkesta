@@ -12,7 +12,7 @@ export type Look = {
   executive: { name?: string; title?: string; email?: string; phone?: string; photo_url?: string; linkedin?: string; calendar_url?: string };
   company: { legal_name: string; website: string; phone: string; address: string; tax_id: string; footer: string };
 };
-export type DocItem = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number };
+export type DocItem = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number; image_url?: string; payment_url?: string };
 export type DocData = {
   number: number;
   title: string;
@@ -46,6 +46,7 @@ export const TEXT = {
     subtotal: "Subtotal",
     taxes: "Impuestos",
     discount: "Descuento",
+    pay: "Pagar en línea",
     contact: "Tu contacto",
     schedule: "Agendar reunión",
     content: "Contenido",
@@ -85,6 +86,7 @@ export const TEXT = {
     subtotal: "Subtotal",
     taxes: "Taxes",
     discount: "Discount",
+    pay: "Pay online",
     contact: "Your contact",
     schedule: "Book a meeting",
     content: "Contents",
@@ -124,6 +126,7 @@ export const TEXT = {
     subtotal: "Subtotal",
     taxes: "Impostos",
     discount: "Desconto",
+    pay: "Pagar online",
     contact: "Seu contato",
     schedule: "Agendar reunião",
     content: "Conteúdo",
@@ -237,6 +240,15 @@ function Body({ text, className, bullet }: { text: string; className?: string; b
   );
 }
 
+const HTML_RE = /<(p|div|br|img|a|table|strong|b|em|ul|ol|span|h[1-4])\b/i;
+
+/** Descripción del catálogo: HTML ya saneado por el servidor, o texto con viñetas. */
+export function RichText({ value, className }: { value: string; className?: string }) {
+  if (!value) return null;
+  if (HTML_RE.test(value)) return <div className={`ork-rich ${className ?? ""}`} dangerouslySetInnerHTML={{ __html: value }} />;
+  return <Body text={value} className={className} />;
+}
+
 function Logo({ L, className, light }: { L: Look; className?: string; light?: boolean }) {
   if (!L.logo_url) return <span className={`text-[15px] font-bold tracking-wide ${light ? "text-white" : ""}`}>{L.company.legal_name}</span>;
   return <img src={L.logo_url} alt={L.company.legal_name} className={className ?? "h-10 w-auto max-w-[180px] object-contain"} />;
@@ -267,8 +279,24 @@ function Investment({ c, variant }: { c: Ctx; variant: "solid" | "line" | "card"
           {d.items.map((i, n) => (
             <tr key={n} style={{ background: variant === "card" && n % 2 ? c.soft : undefined, borderBottom: "1px solid #E5E7EB" }}>
               <td className="px-3 py-3 align-top">
-                <p className="font-semibold text-[#0B1220]">{i.name}</p>
-                {i.description && <p className="mt-0.5 text-[12.5px] text-[#6B7280]">{i.description}</p>}
+                <div className="flex gap-3">
+                  {i.image_url && <img src={i.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[#0B1220]">{i.name}</p>
+                    <RichText value={i.description} className="mt-1 text-[12.5px] leading-relaxed text-[#4B5563]" />
+                    {i.payment_url && (
+                      <a
+                        href={i.payment_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold print:hidden"
+                        style={{ background: "var(--a)", color: onColor(c.L.accent) }}
+                      >
+                        {t.pay} →
+                      </a>
+                    )}
+                  </div>
+                </div>
                 {i.discount > 0 && (
                   <p className="mt-0.5 text-[12px] font-semibold" style={{ color: "var(--a)" }}>
                     {t.discount} {i.discount} %

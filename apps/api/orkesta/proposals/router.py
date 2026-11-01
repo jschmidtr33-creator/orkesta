@@ -28,7 +28,9 @@ def _fail(exc: svc.ProposalError) -> HTTPException:
 
 class ProductIn(BaseModel):
     name: str = Field(max_length=160)
-    description: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=20000)
+    image_url: str = Field(default="", max_length=500)
+    payment_url: str = Field(default="", max_length=500)
     unit_price: float = Field(default=0, ge=0)
     currency: str = Field(default="USD", max_length=3)
     unit: str = Field(default="unidad", max_length=40)
@@ -43,7 +45,9 @@ class CreateIn(BaseModel):
 
 class ItemIn(BaseModel):
     name: str = Field(max_length=200)
-    description: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=20000)
+    image_url: str = Field(default="", max_length=500)
+    payment_url: str = Field(default="", max_length=500)
     quantity: float = Field(default=1, ge=0)
     unit: str = Field(default="", max_length=40)
     unit_price: float = Field(default=0, ge=0)

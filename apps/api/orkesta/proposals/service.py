@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from orkesta.automation.events import emit
+from orkesta.campaigns.templating import clean_html, html_to_text, is_html
 from orkesta.core.db import set_context
 from orkesta.crm.models import CURRENCIES, Activity, Deal, Stage
 from orkesta.crm.service import log as crm_log
@@ -57,6 +58,23 @@ def _money(value: Any, field: str = "valor") -> Decimal:
     return amount.quantize(CENT, ROUND_HALF_UP)
 
 
+def rich_text(value: Any) -> str:
+    """Descripción con formato: HTML saneado (sin scripts) o texto plano tal cual."""
+    text = str(value or "")[:20000]
+    return clean_html(text) if is_html(text) else text.strip()
+
+
+def plain(value: str) -> str:
+    return html_to_text(value) if is_html(value) else value
+
+
+def safe_url(value: Any) -> str:
+    url = str(value or "").strip()[:500]
+    if url and not url.startswith(("https://", "http://", "/t/i/")):
+        raise ProposalError("Los enlaces e imágenes deben empezar por https://")
+    return url
+
+
 # --- Catálogo -------------------------------------------------------------------------------
 
 
@@ -68,6 +86,8 @@ def product_dict(p: Product) -> dict[str, Any]:
         "unit_price": float(p.unit_price),
         "currency": p.currency,
         "unit": p.unit,
+        "image_url": p.image_url,
+        "payment_url": p.payment_url,
         "active": p.active,
     }
 
@@ -93,7 +113,9 @@ def save_product(session: Session, tenant_id: uuid.UUID, data: dict[str, Any],
         product = Product(tenant_id=tenant_id, name=name)
         session.add(product)
     product.name = name
-    product.description = str(data.get("description", ""))[:2000]
+    product.description = rich_text(data.get("description", ""))
+    product.image_url = safe_url(data.get("image_url"))
+    product.payment_url = safe_url(data.get("payment_url"))
     product.unit_price = _money(data.get("unit_price"), "precio")
     product.currency = currency
     product.unit = " ".join(str(data.get("unit") or "unidad").split())[:40]
@@ -118,7 +140,9 @@ def clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.append(
             {
                 "name": name,
-                "description": str(raw.get("description", ""))[:2000],
+                "description": rich_text(raw.get("description", "")),
+                "image_url": safe_url(raw.get("image_url")),
+                "payment_url": safe_url(raw.get("payment_url")),
                 "quantity": float(quantity),
                 "unit": " ".join(str(raw.get("unit") or "").split())[:40],
                 "unit_price": float(_money(raw.get("unit_price", 0), "precio")),
@@ -338,7 +362,12 @@ def draft_sections(ctx: Context, items: list[dict[str, Any]], valid_until: date 
             t["solution"]
             + "\n"
             + "\n".join(
-                f"• {i['name']}" + (f": {i['description'].strip()}" if i.get("description") else "")
+                f"• {i['name']}"
+                + (
+                    f": {plain(i['description']).splitlines()[0].strip()}"
+                    if plain(i.get("description") or "").strip()
+                    else ""
+                )
                 for i in items
             )
         )
@@ -397,7 +426,8 @@ def create_proposal(
         ).all()
         items = [
             {"name": p.name, "description": p.description, "quantity": 1.0, "unit": p.unit,
-             "unit_price": float(p.unit_price), "discount": 0.0}
+             "unit_price": float(p.unit_price), "discount": 0.0, "image_url": p.image_url,
+             "payment_url": p.payment_url}
             for p in products
         ]  # fmt: skip
         if products:

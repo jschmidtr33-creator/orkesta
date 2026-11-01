@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
-import { ProposalDocument } from "../components/ProposalDocument";
+import { ProposalDocument, RichText } from "../components/ProposalDocument";
 import { api } from "../lib/api";
-import { BrandSettings, DesignPanel, lookFrom, useBrand, type Design } from "./proposalDesign";
+import { RichEditor } from "../components/RichEditor";
+import { BrandSettings, DesignPanel, ImageField, lookFrom, useBrand, type Design } from "./proposalDesign";
 import { useSession } from "../lib/session";
 import { money, type Deal } from "./crm";
 import { formatWhen } from "./dashboard";
 
-type Item = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number };
+type Item = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number; image_url?: string; payment_url?: string };
 type Section = { key: string; title: string; body: string };
 type Totals = { subtotal: number; discounts: number; tax: number; total: number };
 type ProposalRow = {
@@ -35,7 +36,7 @@ type ProposalRow = {
   created_at: string;
 };
 type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number; design: Design };
-type Product = { id: string; name: string; description: string; unit_price: number; currency: string; unit: string; active: boolean };
+type Product = { id: string; name: string; description: string; unit_price: number; currency: string; unit: string; active: boolean; image_url: string; payment_url: string };
 
 const STATUS_TONE = { draft: "neutral", sent: "blue", viewed: "violet", accepted: "ok", rejected: "bad" } as const;
 const CURRENCIES = ["USD", "COP", "MXN", "PEN", "CLP", "CRC", "EUR"];
@@ -246,7 +247,7 @@ function Catalog() {
   const isManager = session?.workspace?.role !== "vendedor";
   const client = useQueryClient();
   const products = useProducts();
-  const empty = { name: "", description: "", unit_price: "", currency: "USD", unit: "unidad" };
+  const empty = { name: "", description: "", unit_price: "", currency: "USD", unit: "unidad", image_url: "", payment_url: "" };
   const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState<string | null>(null);
   const save = useMutation({
@@ -263,7 +264,7 @@ function Catalog() {
   });
   const remove = useMutation({ mutationFn: (id: string) => api(`/api/products/${id}`, { method: "DELETE" }), onSuccess: () => client.invalidateQueries({ queryKey: ["products"] }) });
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,480px)]">
       <Card className="overflow-hidden p-0">
         {products.isLoading ? (
           <Spinner />
@@ -272,10 +273,18 @@ function Catalog() {
         ) : (
           <ul className="divide-y divide-ork-line">
             {products.data.map((p) => (
-              <li key={p.id} className="flex items-start justify-between gap-3 px-5 py-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-ork-ink">{p.name}</p>
-                  {p.description && <p className="text-[12.5px] text-ork-mist">{p.description}</p>}
+              <li key={p.id} className="flex items-start justify-between gap-3 px-5 py-4">
+                <div className="flex min-w-0 flex-1 gap-3">
+                  {p.image_url && <img src={p.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ork-ink">{p.name}</p>
+                    <RichText value={p.description} className="mt-1 text-[13px] leading-relaxed text-ork-graphite" />
+                    {p.payment_url && (
+                      <a href={p.payment_url} target="_blank" rel="noreferrer" className="mt-1.5 inline-block text-[12.5px] font-semibold text-ork-blue hover:underline">
+                        Link de pago ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="text-[13.5px] font-semibold text-ork-graphite">
@@ -288,7 +297,7 @@ function Catalog() {
                         variant="ghost"
                         onClick={() => {
                           setEditing(p.id);
-                          setForm({ name: p.name, description: p.description, unit_price: String(p.unit_price), currency: p.currency, unit: p.unit });
+                          setForm({ name: p.name, description: p.description, unit_price: String(p.unit_price), currency: p.currency, unit: p.unit, image_url: p.image_url, payment_url: p.payment_url });
                         }}
                       >
                         Editar
@@ -316,7 +325,11 @@ function Catalog() {
           >
             {save.error && <Alert>{save.error.message}</Alert>}
             <TextField label="Nombre" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <TextField label="Descripción" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-semibold text-ork-ink">Descripción</span>
+              <RichEditor key={editing ?? "nuevo"} value={form.description} onChange={(html) => setForm((f) => ({ ...f, description: html }))} minHeight={140} />
+              <span className="text-[12px] text-ork-mist">Enter: nuevo párrafo · Shift + Enter: salto de línea. Puedes usar negrita, listas, enlaces e imágenes.</span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <TextField label="Precio" inputMode="decimal" value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: e.target.value.replace(/[^\d.]/g, "") })} />
               <SelectField label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
@@ -326,6 +339,8 @@ function Catalog() {
               </SelectField>
             </div>
             <TextField label="Unidad" placeholder="usuario, mes, proyecto…" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+            <ImageField label="Imagen del producto (opcional)" value={form.image_url} onChange={(v) => setForm((f) => ({ ...f, image_url: v }))} hint="Aparece junto al producto en la propuesta." />
+            <TextField label="Link de pago (opcional)" placeholder="https://… (Stripe, PayPal, Mercado Pago, Wompi…)" value={form.payment_url} onChange={(e) => setForm({ ...form, payment_url: e.target.value })} hint="En la propuesta aparece el botón «Pagar en línea»." />
             <div className="flex justify-end gap-2">
               {editing && (
                 <Button type="button" variant="ghost" onClick={() => (setEditing(null), setForm(empty))}>
@@ -369,6 +384,7 @@ export function ProposalEditor() {
   const [draft, setDraft] = useState<Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until" | "design"> | null>(null);
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
+  const [openItem, setOpenItem] = useState<number | null>(null);
   const brand = useBrand();
   const snapshot = (x: Proposal) => ({ title: x.title, currency: x.currency, items: x.items, sections: x.sections, tax_rate: x.tax_rate, valid_until: x.valid_until, design: x.design ?? {} });
   useEffect(() => {
@@ -625,11 +641,15 @@ export function ProposalEditor() {
                   {draft.items.map((it, i) => {
                     const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0) * (1 - (Number(it.discount) || 0) / 100);
                     const cell = "ork-focus h-9 w-full rounded-lg border border-ork-line px-2";
+                    const extras = [it.description && "descripción", it.image_url && "imagen", it.payment_url && "link de pago"].filter(Boolean).join(" · ");
                     return (
-                      <tr key={i} className="align-top">
+                      <Fragment key={i}>
+                      <tr className="align-top">
                         <td className="py-1 pr-2">
                           <input aria-label="Concepto" disabled={locked} value={it.name} onChange={(e) => setItem(i, { name: e.target.value })} className={cell} />
-                          <input aria-label="Descripción" disabled={locked} placeholder="Descripción (opcional)" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} className="ork-focus mt-1 h-8 w-full rounded-lg px-2 text-[12px] text-ork-mist" />
+                          <button type="button" onClick={() => setOpenItem(openItem === i ? null : i)} className="mt-1 text-left text-[12px] font-semibold text-ork-blue hover:underline">
+                            {openItem === i ? "Ocultar detalle" : extras ? `Detalle: ${extras}` : "＋ Descripción, imagen o link de pago"}
+                          </button>
                         </td>
                         <td className="py-1 pr-2">
                           <input aria-label="Cantidad" disabled={locked} inputMode="decimal" value={it.quantity} onChange={(e) => setItem(i, { quantity: Number(e.target.value.replace(/[^\d.]/g, "")) })} className={cell} />
@@ -649,6 +669,23 @@ export function ProposalEditor() {
                           )}
                         </td>
                       </tr>
+                      {openItem === i && (
+                        <tr>
+                          <td colSpan={6} className="pb-4 pt-1">
+                            <div className="grid gap-3 rounded-xl border border-ork-line bg-ork-surface/60 p-3 lg:grid-cols-[minmax(0,1fr)_240px]">
+                              <div className="flex flex-col gap-1.5">
+                                <span className="text-[12.5px] font-semibold text-ork-ink">Descripción</span>
+                                {locked ? <RichText value={it.description} className="text-[13px]" /> : <RichEditor value={it.description} onChange={(html) => setItem(i, { description: html })} minHeight={110} />}
+                              </div>
+                              <div className="flex flex-col gap-3">
+                                <ImageField label="Imagen" value={it.image_url ?? ""} onChange={(v) => setItem(i, { image_url: v })} />
+                                <TextField label="Link de pago" disabled={locked} placeholder="https://…" value={it.payment_url ?? ""} onChange={(e) => setItem(i, { payment_url: e.target.value })} />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -665,7 +702,7 @@ export function ProposalEditor() {
                     value=""
                     onChange={(e) => {
                       const prod = products.data?.find((x) => x.id === e.target.value);
-                      if (prod) setDraft({ ...draft, items: [...draft.items, { name: prod.name, description: prod.description, quantity: 1, unit: prod.unit, unit_price: prod.unit_price, discount: 0 }] });
+                      if (prod) setDraft({ ...draft, items: [...draft.items, { name: prod.name, description: prod.description, quantity: 1, unit: prod.unit, unit_price: prod.unit_price, discount: 0, image_url: prod.image_url, payment_url: prod.payment_url }] });
                     }}
                     className="ork-focus h-8 rounded-lg border border-ork-line bg-white px-2 text-[13px]"
                   >
