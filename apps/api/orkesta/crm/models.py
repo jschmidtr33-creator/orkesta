@@ -140,4 +140,5 @@ class Activity(IdMixin, Base):
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
