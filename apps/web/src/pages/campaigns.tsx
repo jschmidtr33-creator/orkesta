@@ -31,6 +31,7 @@ type Campaign = {
   status: "draft" | "active" | "paused" | "completed";
   mailbox: { id: string; email: string; status: string } | null;
   launched_at: string | null;
+  next_window: string | null;
   created_at: string;
   steps_count: number;
   stats: Stats;
@@ -293,6 +294,15 @@ export function CampaignDetail() {
       {action.error && !confirm && (
         <div className="mb-4">
           <Alert>{action.error.message}</Alert>
+        </div>
+      )}
+      {c.next_window && (
+        <div className="mb-4">
+          <Alert tone="blue">
+            Fuera del horario de envío. El próximo correo sale el{" "}
+            {new Date(c.next_window).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })}
+            . Puedes cambiar los días y horas en «Envío».
+          </Alert>
         </div>
       )}
       {c.mailbox?.status === "error" && (

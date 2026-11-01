@@ -222,6 +222,10 @@ def audience_preview(
     }
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
 def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[str, Any]:
     rows = session.execute(
         select(Recipient.status, func.count())
@@ -252,6 +256,7 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
         if mailbox
         else None,
         "launched_at": c.launched_at.isoformat() if c.launched_at else None,
+        "next_window": _iso(next_window(c.settings)) if c.status == "active" else None,
         "created_at": c.created_at.isoformat(),
         "steps_count": len(c.steps),
         "stats": {
@@ -432,6 +437,26 @@ def suppress(session: Session, tenant_id: uuid.UUID, email: str, reason: str) ->
 
 
 # --- Motor de envío -------------------------------------------------------------------------
+
+
+def next_window(settings: dict[str, Any]) -> datetime | None:
+    """Próximo inicio del horario de envío (``None`` si ya está dentro del horario)."""
+    if _in_window(settings):
+        return None
+    tz = _tz(str(settings.get("timezone", "America/Bogota")))
+    local = now().astimezone(tz)
+    start, end = int(settings.get("start_hour", 8)), int(settings.get("end_hour", 17))
+    days = settings.get("days", [1, 2, 3, 4, 5]) or [1, 2, 3, 4, 5]
+    for offset in range(8):
+        day = (local + timedelta(days=offset)).replace(minute=0, second=0, microsecond=0)
+        if day.isoweekday() not in days:
+            continue
+        candidate = day.replace(hour=start)
+        if offset == 0 and local.hour >= end:
+            continue
+        if candidate > local:
+            return candidate
+    return None
 
 
 def _in_window(settings: dict[str, Any]) -> bool:
