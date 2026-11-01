@@ -282,7 +282,62 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
     }
     if full:
         data.update(steps=c.steps, settings=c.settings, audience=c.audience)
+        data["learning"] = learning(session, c)
     return data
+
+
+def _reproposed(session: Session, c: Campaign) -> list[uuid.UUID]:
+    """Contactos cuyo correo estimado rebotó y que ya tienen un nuevo formato propuesto."""
+    rows = session.execute(
+        select(Contact.id)
+        .join(Recipient, Recipient.contact_id == Contact.id)
+        .where(
+            Recipient.campaign_id == c.id,
+            Recipient.status == "bounced",
+            Contact.email.is_not(None),
+            Contact.email != Recipient.email,
+            Contact.email_status == "estimado",
+        )
+    ).all()
+    return [r[0] for r in rows]
+
+
+def learning(session: Session, c: Campaign) -> dict[str, int]:
+    """Lo que ORKESTA aprendió de esta campaña para las próximas búsquedas."""
+    confirmed = session.scalar(
+        select(func.count())
+        .select_from(Recipient)
+        .join(Contact, Contact.id == Recipient.contact_id)
+        .where(
+            Recipient.campaign_id == c.id,
+            Recipient.status == "replied",
+            Contact.email_status == "valido",
+        )
+    )
+    domains = session.scalar(
+        select(func.count(func.distinct(func.split_part(Recipient.email, "@", 2)))).where(
+            Recipient.campaign_id == c.id, Recipient.status.in_(("bounced", "replied"))
+        )
+    )
+    return {
+        "confirmed": int(confirmed or 0),
+        "reproposed": len(_reproposed(session, c)),
+        "domains_learned": int(domains or 0),
+    }
+
+
+def retry_bounced(session: Session, c: Campaign, user: User) -> Campaign:
+    """Nueva campaña (borrador) con la misma secuencia para los correos re-propuestos."""
+    ids = _reproposed(session, c)
+    if not ids:
+        raise CampaignError("No hay correos re-propuestos para reintentar.", 409)
+    retry = create_campaign(session, tenant_id=c.tenant_id, user=user,
+                            name=f"{c.name} · reintento")  # fmt: skip
+    retry.steps = list(c.steps)
+    retry.settings = dict(c.settings)
+    retry.mailbox_id = c.mailbox_id or retry.mailbox_id
+    retry.audience = {"contact_ids": [str(i) for i in ids], "include_estimated": True}
+    return retry
 
 
 def create_campaign(session: Session, *, tenant_id: uuid.UUID, user: User, name: str) -> Campaign:
@@ -497,6 +552,18 @@ def _learn(session: Session, recipient: Recipient, outcome: str) -> None:
             feedback(session, recipient.email, pattern, outcome)
     if outcome == "replied" and contact.email_status in ("estimado", "sin_validar", "desconocido"):
         contact.email_status = "valido"  # respondió: el correo existe
+    if outcome == "bounced" and contact.email_status == "estimado":
+        # Propone el siguiente formato más probable (nunca uno que ya rebotó en ese dominio).
+        from orkesta.research.memory import next_email
+
+        domain = recipient.email.rsplit("@", 1)[1].lower()
+        new, _ = next_email(session, contact.first_name or "", contact.last_name or "", domain)
+        if new and new != recipient.email:
+            contact.email = new
+            contact.email_status = "estimado"
+            contact.email_check_reason = (
+                f"{recipient.email} rebotó; se propone {new} (nuevo formato)"
+            )
 
 
 def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:

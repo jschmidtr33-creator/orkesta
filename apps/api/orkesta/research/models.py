@@ -136,3 +136,31 @@ class DomainPattern(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PatternStat(Base):
+    """Evidencia por dominio y formato: cuántas veces se vio, se confirmó o rebotó."""
+
+    __tablename__ = "pattern_stats"
+
+    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    pattern: Mapped[str] = mapped_column(String(40), primary_key=True)
+    seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confirmed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bounced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BouncedAddress(Base):
+    """Direcciones que rebotaron (solo su huella SHA-256): nunca se vuelven a proponer."""
+
+    __tablename__ = "bounced_addresses"
+
+    address_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    domain: Mapped[str] = mapped_column(String(253), nullable=False, index=True)
+    pattern: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

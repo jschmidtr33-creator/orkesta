@@ -932,7 +932,7 @@ def assign_emails(
     run: Run, fetcher: Fetcher, filters: Filters, companies: list[Candidate]
 ) -> dict[str, int]:
     """Correo de cada lead con empresa conocida, con la mejor evidencia disponible."""
-    counts = {"learned": 0, "evidence": 0, "common": 0, "no_mx": 0}
+    counts = {"learned": 0, "evidence": 0, "common": 0, "alternative": 0, "no_mx": 0}
     lock = threading.Lock()
     deep = len(companies) <= 60  # leer los sitios web toma tiempo: solo en búsquedas medianas
 
@@ -971,15 +971,32 @@ def assign_emails(
             if provider_label:
                 label += f" · el dominio recibe correo ({provider_label})"
         source = {"type": "patron", "url": example, "label": label}
+        # Lo aprendido de las campañas: formatos descartados por rebotes y direcciones que ya
+        # rebotaron nunca se vuelven a proponer; se prueba el siguiente formato más probable.
+        chain, bounced = memory.candidates(fetcher.factory, company.domain, pattern)
         for prospect in missing:
-            email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
-            if not email:
+            chosen = ""
+            for option in chain:
+                email = apply_pattern(
+                    option, prospect.first_name, prospect.last_name, company.domain
+                )
+                if email and memory.address_hash(email) not in bounced:
+                    chosen = option
+                    break
+            if not chosen or not email:
                 continue
+            if chosen == pattern:
+                use_source, use_conf, use_kind = source, confidence, kind
+            else:
+                shown = memory.PATTERN_LABELS.get(chosen, chosen)
+                alt = f"Formato alternativo ({shown}@{company.domain}): el anterior rebotó"
+                use_source = {"type": "patron", "url": "", "label": alt}
+                use_conf, use_kind = 25, "alternative"
             with run.lock:
-                prospect.set("email", email, source, confidence)
+                prospect.set("email", email, use_source, use_conf)
                 prospect.email_status = "estimado"
             with lock:
-                counts[kind] += 1
+                counts[use_kind] += 1
             _publish(run, prospect, filters)
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -1110,6 +1127,7 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         "pattern_emails": counts["evidence"],
         "common_emails": counts["common"],
         "domains_without_mail": counts["no_mx"],
+        "alternative_emails": counts["alternative"],
         "domains": len(with_domain),
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},

@@ -429,8 +429,8 @@ def _fit_to_plan(
     from orkesta.admin.limits import contact_capacity
 
     room = contact_capacity(session, tenant_id)
-    if room is None:
-        return list(items)
+    if room is None or room >= len(items):
+        return list(items)  # caben todos: no hace falta revisar cuáles ya existen
     keys = [dedup_key(i.email, i.full_name, i.company_key) for i in items]
     existing = set(
         session.scalars(

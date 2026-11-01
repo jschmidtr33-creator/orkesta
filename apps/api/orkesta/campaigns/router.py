@@ -358,6 +358,16 @@ def launch(campaign_id: uuid.UUID, request: Request, principal: Member, db: Db) 
     return _action(campaign_id, principal, db, request, "launch")
 
 
+@router.post("/api/campaigns/{campaign_id}/retry-bounced", status_code=201)
+def retry_bounced(campaign_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
+    campaign = _campaign(db, principal, campaign_id)
+    try:
+        retry = svc.retry_bounced(db, campaign, principal.user)
+    except svc.CampaignError as exc:
+        raise _fail(exc) from exc
+    return svc.campaign_dict(db, retry)
+
+
 @router.post("/api/campaigns/{campaign_id}/pause")
 def pause(campaign_id: uuid.UUID, request: Request, principal: Member, db: Db) -> dict[str, Any]:
     return _action(campaign_id, principal, db, request, "pause")
