@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
@@ -14,16 +14,41 @@ from orkesta.admin import service as svc
 from orkesta.admin.models import AdminAudit
 from orkesta.core.config import get_settings
 from orkesta.core.db import set_context
-from orkesta.core.web import CurrentPrincipal, Db, Principal
-from orkesta.platform.models import AuthSession, DemoRequest, Membership, Tenant, User
+from orkesta.core.security import (
+    ADMIN_UNLOCK_MINUTES,
+    issue_admin_token,
+    read_admin_token,
+    verify_password,
+)
+from orkesta.core.web import CurrentPrincipal, Db, Principal, client_ip
+from orkesta.platform.models import (
+    AuthSession,
+    DemoRequest,
+    LoginAttempt,
+    Membership,
+    Tenant,
+    User,
+)
+from orkesta.platform.service import _too_many_failures, normalize_email
 
 router = APIRouter(prefix="/api/admin")
 
 
-def require(permission: str) -> Callable[[Principal, Any], Principal]:
-    def dependency(principal: CurrentPrincipal, db: Db) -> Principal:
+LOCKED = "Confirma tus credenciales de administración para entrar al panel."
+
+
+def require(permission: str) -> Callable[..., Principal]:
+    """Acceso al panel: rol de plataforma + pase vigente (contraseña confirmada hace poco)."""
+
+    def dependency(
+        principal: CurrentPrincipal,
+        db: Db,
+        x_admin_token: Annotated[str | None, Header()] = None,
+    ) -> Principal:
         if not principal.user.platform_role:
             raise HTTPException(403, "No tienes acceso al panel de administración.")
+        if read_admin_token(x_admin_token or "") != principal.user.id:
+            raise HTTPException(428, LOCKED)
         if permission and permission not in svc.permissions_for(db, principal.user):
             raise HTTPException(403, "Tu rol en el panel no permite esta acción.")
         return principal
@@ -36,6 +61,41 @@ Staff = Annotated[Principal, Depends(require(""))]
 
 def _user(u: User) -> dict[str, Any]:
     return {"id": str(u.id), "name": u.full_name or u.email, "email": u.email}
+
+
+class UnlockIn(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=200)
+
+
+@router.post("/unlock")
+def unlock(body: UnlockIn, request: Request, principal: CurrentPrincipal, db: Db) -> dict[str, Any]:
+    """Pide de nuevo correo y contraseña antes de abrir el panel, aunque haya sesión."""
+    user = principal.user
+    if not user.platform_role:
+        raise HTTPException(403, "No tienes acceso al panel de administración.")
+    email = normalize_email(body.email)
+    if _too_many_failures(db, user.email):
+        raise HTTPException(429, "Demasiados intentos fallidos. Espera unos minutos.")
+    ok = email == user.email and verify_password(body.password, user.password_hash)
+    db.add(LoginAttempt(email=user.email, ip=client_ip(request), succeeded=ok))
+    svc.log(db, user, "panel.ingreso" if ok else "panel.ingreso_fallido", user.email)
+    if not ok:
+        db.commit()
+        if not user.password_hash:
+            raise HTTPException(
+                401, "Tu cuenta no tiene contraseña de ORKESTA, así que no puede abrir el panel."
+            )
+        raise HTTPException(401, "Correo o contraseña incorrectos.")
+    return {"token": issue_admin_token(user.id), "expires_in": ADMIN_UNLOCK_MINUTES * 60}
+
+
+@router.get("/access")
+def access(principal: CurrentPrincipal) -> dict[str, Any]:
+    """¿Puede esta cuenta pedir entrada al panel? (sin datos del panel)."""
+    if not principal.user.platform_role:
+        raise HTTPException(403, "No tienes acceso al panel de administración.")
+    return {"email": principal.user.email, "name": principal.user.full_name or ""}
 
 
 @router.get("/me")

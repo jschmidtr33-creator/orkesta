@@ -105,3 +105,22 @@ def read_state(token: str) -> dict[str, str] | None:
     except jwt.PyJWTError:
         return None
     return data if data.get("typ") == "state" else None
+
+
+ADMIN_UNLOCK_MINUTES = 30
+
+
+def issue_admin_token(user_id: uuid.UUID, minutes: int = ADMIN_UNLOCK_MINUTES) -> str:
+    """Pase del panel de administración: se emite solo tras confirmar la contraseña."""
+    now = datetime.now(UTC)
+    payload = {"sub": str(user_id), "iat": now, "exp": now + timedelta(minutes=minutes),
+               "typ": "admin"}  # fmt: skip
+    return jwt.encode(payload, get_settings().signing_key, algorithm="HS256")
+
+
+def read_admin_token(token: str) -> uuid.UUID | None:
+    try:
+        data = jwt.decode(token, get_settings().signing_key, algorithms=["HS256"])
+        return uuid.UUID(data["sub"]) if data.get("typ") == "admin" else None
+    except (jwt.PyJWTError, KeyError, ValueError):
+        return None

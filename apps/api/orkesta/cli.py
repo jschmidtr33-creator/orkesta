@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from orkesta.core.config import get_settings
 from orkesta.core.db import session_scope
+from orkesta.core.security import hash_password
 from orkesta.platform import service as svc
 from orkesta.platform.models import User
 
@@ -53,6 +54,9 @@ def bootstrap_admin() -> None:
                 user.is_platform_admin = True
             if user.platform_role != "owner":
                 user.platform_role = "owner"  # la cuenta inicial es la creadora del panel
+            if not user.password_hash:
+                # El panel siempre pide contraseña: la cuenta creadora debe tener una.
+                user.password_hash = hash_password(password)
             print("release: el administrador inicial ya existe")
             return
         user = svc.create_user(

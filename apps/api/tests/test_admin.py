@@ -15,9 +15,18 @@ def _role(database: tuple[str, str], email: str, role: str | None) -> None:
         conn.execute("UPDATE orkesta.users SET platform_role = %s WHERE email = %s", (role, email))
 
 
-def _login(client: TestClient, email: str) -> None:
+def _unlock(client: TestClient, email: str) -> None:
+    r = client.post("/api/admin/unlock", json={"email": email, "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    client.headers["X-Admin-Token"] = r.json()["token"]
+
+
+def _login(client: TestClient, email: str, *, panel: bool = True) -> None:
+    client.headers.pop("X-Admin-Token", None)
     r = client.post("/api/auth/login", json={"email": email, "password": PASSWORD})
     assert r.status_code == 200, r.text
+    if panel:
+        _unlock(client, email)
 
 
 def test_admin_panel_access_team_permissions_and_settings(
@@ -31,6 +40,17 @@ def test_admin_panel_access_team_permissions_and_settings(
     register(client, "soporte@orkesta.co", company="Equipo ORKESTA")
     register(client, "jenn@orkesta.co", company="ORKESTA")
     _role(database, "jenn@orkesta.co", "owner")
+    # Con sesión abierta igual se piden las credenciales antes de entrar al panel.
+    assert client.get("/api/admin/access").status_code == 200
+    assert client.get("/api/admin/me").status_code == 428
+    bad = client.post("/api/admin/unlock", json={"email": "jenn@orkesta.co", "password": "x"})
+    assert bad.status_code == 401
+    other = client.post("/api/admin/unlock", json={"email": "soporte@orkesta.co",
+                                                    "password": PASSWORD})  # fmt: skip
+    assert other.status_code == 401
+    client.headers["X-Admin-Token"] = "falso"
+    assert client.get("/api/admin/me").status_code == 428
+    _unlock(client, "jenn@orkesta.co")
     me = client.get("/api/admin/me").json()
     assert me["role"] == "owner" and "equipo" in me["permissions"]
 
@@ -46,6 +66,7 @@ def test_admin_panel_access_team_permissions_and_settings(
     # Suspender la empresa bloquea a sus usuarios.
     assert client.patch(f"/api/admin/tenants/{bank['id']}", json={"status": "suspended",
                                                                    "plan": "pro"}).status_code == 200  # fmt: skip
+    jenn_token = client.headers.pop("X-Admin-Token")
     r = client.post("/api/auth/login", json={"email": "cliente@banco.co", "password": PASSWORD})
     assert r.status_code == 423 and "suspendido" in r.json()["detail"]
     _login(client, "jenn@orkesta.co")
@@ -58,7 +79,10 @@ def test_admin_panel_access_team_permissions_and_settings(
     )
     assert client.post("/api/admin/team", json={"email": "soporte@orkesta.co",
                                                 "role": "soporte"}).status_code == 201  # fmt: skip
-    _login(client, "soporte@orkesta.co")
+    _login(client, "soporte@orkesta.co", panel=False)
+    client.headers["X-Admin-Token"] = jenn_token  # el pase de otra persona no sirve
+    assert client.get("/api/admin/users").status_code == 428
+    _unlock(client, "soporte@orkesta.co")
     assert client.get("/api/admin/users").status_code == 200
     assert (
         client.patch(f"/api/admin/tenants/{bank['id']}", json={"plan": "inicial"}).status_code
@@ -93,7 +117,7 @@ def test_admin_panel_access_team_permissions_and_settings(
         config["announcement"]["text"] == "Nueva versión disponible" and not config["signup_open"]
     )
     assert client.get("/api/contacts").status_code == 200  # el equipo interno sigue entrando
-    _login(client, "cliente@banco.co")
+    _login(client, "cliente@banco.co", panel=False)
     r = client.get("/api/contacts")
     assert r.status_code == 503 and r.json()["detail"] == "Volvemos pronto"
     client.post("/api/auth/logout")
@@ -103,4 +127,5 @@ def test_admin_panel_access_team_permissions_and_settings(
 
     _login(client, "jenn@orkesta.co")
     actions = {a["action"] for a in client.get("/api/admin/audit").json()}
-    assert {"tenant.suspended", "team.added", "permissions.updated", "settings.updated"} <= actions
+    assert {"tenant.suspended", "team.added", "permissions.updated", "settings.updated",
+            "panel.ingreso", "panel.ingreso_fallido"} <= actions  # fmt: skip
