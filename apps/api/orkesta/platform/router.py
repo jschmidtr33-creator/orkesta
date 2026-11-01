@@ -456,6 +456,12 @@ def accept(
 
 
 ACTION_LABELS = {
+    "mailbox.connected": "conectó un buzón de Gmail",
+    "mailbox.removed": "desconectó un buzón de Gmail",
+    "campaign.created": "creó una campaña",
+    "campaign.launch": "lanzó una campaña",
+    "campaign.pause": "pausó una campaña",
+    "campaign.resume": "reanudó una campaña",
     "proposal.created": "creó una propuesta comercial",
     "enrichment.started": "inició un enriquecimiento de contactos",
     "deal.created": "creó una oportunidad",

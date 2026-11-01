@@ -18,6 +18,7 @@ import {
 } from "../components/ui";
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
+import { GmailCard } from "./campaigns";
 import { formatWhen } from "./dashboard";
 
 type Team = {
@@ -317,9 +318,7 @@ function IntegrationSettings() {
       detail: "Tu equipo entra con su cuenta de Google Workspace, sin contraseñas nuevas.",
       status: config.data?.google ? "connected" : "pending",
     },
-    { name: "Gmail y Google Workspace (envío)", detail: "Campañas desde el buzón de cada vendedor.", status: "stage", stage: 5 },
-    { name: "Microsoft 365 y Outlook", detail: "Campañas desde buzones de Microsoft.", status: "stage", stage: 5 },
-    { name: "Correo corporativo (SMTP)", detail: "Cualquier otro proveedor de correo.", status: "stage", stage: 5 },
+    { name: "Microsoft 365 y Outlook", detail: "Campañas desde buzones de Microsoft.", status: "stage", stage: 8 },
     {
       name: "Buscador de Google (Serper)",
       detail: research.data?.web_search
@@ -330,6 +329,7 @@ function IntegrationSettings() {
   ] as const;
   return (
     <div className="flex flex-col gap-4">
+      <GmailCard />
       <DiagnosticsCard />
       <div className="grid gap-4 md:grid-cols-2">
       {items.map((item) => (
