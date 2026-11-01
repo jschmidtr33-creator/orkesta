@@ -133,3 +133,29 @@ def test_brand_design_templates_and_language(client: TestClient) -> None:
     # La siguiente propuesta recuerda los datos del ejecutivo.
     nxt = client.post("/api/proposals", json={"contact_id": contact_id}).json()
     assert nxt["design"]["executive"]["title"] == "Gerente comercial"
+
+
+def test_rich_catalog_with_image_and_payment_link(client: TestClient) -> None:
+    _, deal_id = _setup(client)
+    product = client.post("/api/products", json={
+        "name": "Club Elite Persona", "unit_price": 990, "unit": "Por persona",
+        "description": "<p><strong>Pase VIP Anual</strong></p><ul><li>Miami</li><li>México</li></ul>"
+                       "<p onclick='x()'>Beneficios<script>alert(1)</script></p>",
+        "image_url": "https://cdn.example.com/club.png",
+        "payment_url": "https://pay.example.com/club",
+    })  # fmt: skip
+    assert product.status_code == 201, product.text
+    body = product.json()
+    assert "<strong>Pase VIP Anual</strong>" in body["description"]
+    assert "script" not in body["description"] and "onclick" not in body["description"]
+    bad = client.post("/api/products", json={"name": "Otro", "payment_url": "javascript:x"})
+    assert bad.status_code == 400
+
+    p = client.post("/api/proposals", json={"deal_id": deal_id,
+                                            "product_ids": [body["id"]]}).json()  # fmt: skip
+    item = p["items"][0]
+    assert item["image_url"].endswith("club.png") and item["payment_url"].endswith("/club")
+    solution = next(s["body"] for s in p["sections"] if s["key"] == "solucion")
+    assert "Club Elite Persona: Pase VIP Anual" in solution and "<" not in solution
+    view = client.get(f"/api/public/proposals/{p['public_id']}", params={"vista_previa": True})
+    assert view.json()["items"][0]["payment_url"] == "https://pay.example.com/club"

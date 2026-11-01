@@ -57,6 +57,12 @@ class Product(IdMixin, Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     unit: Mapped[str] = mapped_column(String(40), nullable=False, default="unidad")
+    image_url: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="", server_default=""
+    )
+    payment_url: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="", server_default=""
+    )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 

@@ -91,3 +91,14 @@
 /* Propuestas: conservar colores y fondos al imprimir o guardar en PDF. */
 .ork-doc, .ork-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 @media print { @page { margin: 0; } }
+
+/* Descripciones con formato (catálogo y propuestas). */
+.ork-rich p { margin: 0 0 6px; }
+.ork-rich p:last-child { margin-bottom: 0; }
+.ork-rich ul { list-style: disc; padding-left: 1.2em; margin: 4px 0 6px; }
+.ork-rich ol { list-style: decimal; padding-left: 1.2em; margin: 4px 0 6px; }
+.ork-rich li { margin: 2px 0; }
+.ork-rich li::marker { color: var(--a, currentColor); }
+.ork-rich a { color: var(--p, #1a56db); text-decoration: underline; font-weight: 600; }
+.ork-rich img { max-width: 100%; height: auto; border-radius: 8px; margin: 6px 0; }
+.ork-rich h2, .ork-rich h3 { font-weight: 700; margin: 6px 0 4px; }
