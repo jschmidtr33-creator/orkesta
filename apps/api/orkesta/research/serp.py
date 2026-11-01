@@ -677,3 +677,57 @@ def email_pattern(fetcher: Fetcher, stats: SerpStats, domain: str) -> tuple[str,
         return "", 0, ""
     best = max(votes, key=lambda k: votes[k])
     return best, votes[best], example
+
+
+# --- 5. Perfil público de una persona concreta (enriquecimiento) ---------------------------
+
+
+@dataclass(frozen=True)
+class Profile:
+    url: str
+    title: str
+    location: str
+
+
+def find_profile(
+    fetcher: Fetcher,
+    stats: SerpStats,
+    *,
+    first: str,
+    last: str,
+    company: str,
+    country: str,
+    country_name: str,
+) -> Profile | None:
+    """Perfil público de LinkedIn de una persona según Google (sin entrar a LinkedIn)."""
+    name = f"{first} {last}".strip()
+    if len(name.split()) < 2:
+        return None
+    query = f'site:linkedin.com/in "{name}"' + (f' "{company}"' if company else "")
+    payload: dict[str, Any] = {"q": query, "num": 10, "hl": "es"}
+    gl = COUNTRY_GL.get(country, "")
+    if gl:
+        payload["gl"] = gl
+    data = call(fetcher, "search", payload, stats)
+    if not data:
+        return None
+    wanted = {t for t in fold(name).split() if len(t) > 2}
+    for row in data.get("organic", []) or []:
+        if not isinstance(row, dict):
+            continue
+        link = str(row.get("link", ""))
+        if "linkedin.com/in/" not in link:
+            continue
+        found_name, role, employer = parse_profile(str(row.get("title", "")),
+                                                   str(row.get("snippet", "")))  # fmt: skip
+        tokens = {t for t in fold(found_name).split() if len(t) > 2}
+        if len(wanted & tokens) < min(2, len(wanted)):
+            continue
+        snippet = str(row.get("snippet", ""))
+        if company and employer and not same_employer(employer, company, ""):
+            continue
+        with stats.lock:
+            stats.accepted += 1
+        location = lead_location(snippet, link, country, country_name) if country else ""
+        return Profile(link, role if looks_like_title(role) else "", location)
+    return None

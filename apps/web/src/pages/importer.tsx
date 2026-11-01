@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileSpreadsheet, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Sparkles, UploadCloud, XCircle } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
 import { formatWhen } from "./dashboard";
+import { useStartEnrichment } from "./validation";
 
 type SheetPreview = {
   name: string;
@@ -336,10 +337,25 @@ function ImportResult({ record, onAgain }: { record: ImportRecord; onAgain: () =
         <Link to="/contactos" className="ork-gradient inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold text-white">
           Ver contactos
         </Link>
+        <EnrichImported />
         <Button variant="secondary" onClick={onAgain}>
           Importar otro archivo
         </Button>
       </div>
     </div>
+  );
+}
+
+
+function EnrichImported() {
+  const navigate = useNavigate();
+  const start = useStartEnrichment(() => navigate("/contactos"));
+  return (
+    <>
+      <Button variant="secondary" icon={<Sparkles className="size-4" aria-hidden />} loading={start.isPending} onClick={() => start.mutate({ filters: { correo: "sin_correo" } })}>
+        Enriquecer contactos sin correo
+      </Button>
+      {start.error && <span className="self-center text-[12.5px] text-bad">{start.error.message}</span>}
+    </>
   );
 }

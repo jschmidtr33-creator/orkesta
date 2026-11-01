@@ -117,6 +117,7 @@ class Contact(IdMixin, Base):
     )
     email_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_check_reason: Mapped[str | None] = mapped_column(String(300))
+    linkedin_url: Mapped[str | None] = mapped_column(String(300))
     source: Mapped[str] = mapped_column(String(20), nullable=False)
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(

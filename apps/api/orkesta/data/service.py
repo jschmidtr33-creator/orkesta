@@ -611,6 +611,7 @@ def contact_dict(contact: Contact) -> dict[str, Any]:
         "status_label": STATUS_LABELS[contact.status],
         "email_status": contact.email_status if contact.email else None,
         "email_check_reason": contact.email_check_reason,
+        "linkedin_url": contact.linkedin_url,
         "email_checked_at": contact.email_checked_at.isoformat()
         if contact.email_checked_at
         else None,
