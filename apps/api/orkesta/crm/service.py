@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from orkesta.automation.events import emit
 from orkesta.crm.models import (
     ACTIVITY_LABELS,
     CURRENCIES,
@@ -294,6 +295,7 @@ def move_deal(
     stage_id: uuid.UUID,
     user_id: uuid.UUID | None,
     lost_reason: str = "",
+    depth: int = 0,
 ) -> Deal:
     stage = get_stage(session, deal.tenant_id, stage_id)
     if stage.id == deal.stage_id:
@@ -314,6 +316,10 @@ def move_deal(
         contact = session.get(Contact, deal.contact_id)
         if contact is not None and contact.status in ("nuevo", "en_proceso"):
             contact.status = "validado" if contact.email_status == "valido" else contact.status
+    ctx = {"deal_id": deal.id, "contact_id": deal.contact_id, "user_id": deal.owner_user_id}
+    emit(session, deal.tenant_id, "deal.stage_changed", depth=depth, stage_id=stage.id, **ctx)
+    if stage.kind in ("won", "lost"):
+        emit(session, deal.tenant_id, f"deal.{stage.kind}", depth=depth, **ctx)
     return deal
 
 

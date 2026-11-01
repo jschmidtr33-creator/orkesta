@@ -21,6 +21,7 @@ from sqlalchemy import Select, Table, and_, delete, func, literal_column, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from orkesta.automation.events import emit, emit_many
 from orkesta.core import jobs
 from orkesta.core.db import set_context
 from orkesta.data.models import (
@@ -485,6 +486,8 @@ def _upsert_chunk(
     result = session.connection().execute(upsert, rows).all()
     ids = {row.dedup_key: row.id for row in result}
     inserted = sum(1 for row in result if row.inserted)
+    emit_many(session, tenant_id, "contact.created", [r.id for r in result if r.inserted],
+              source="importacion", user_id=user_id)  # fmt: skip
     totals.nuevos += inserted
     totals.actualizados += len(result) - inserted
     # Procedencia: cada valor presente en el archivo queda registrado con su fuente.
@@ -804,6 +807,14 @@ def create_contact(
     session.flush()
     _record_points(
         session, contact, values, user.id, f"Ingreso manual de {user.full_name or user.email}"
+    )
+    emit(
+        session,
+        tenant_id,
+        "contact.created",
+        contact_id=contact.id,
+        source="manual",
+        user_id=user.id,
     )
     return contact
 

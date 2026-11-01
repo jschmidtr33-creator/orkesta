@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from orkesta.automation.events import emit
 from orkesta.core.db import set_context
 from orkesta.crm.models import CURRENCIES, Activity, Deal, Stage
 from orkesta.crm.service import log as crm_log
@@ -514,6 +515,15 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
                 contact_id=proposal.contact_id, deal_id=proposal.deal_id,
                 body=f"El cliente abrió la propuesta N.º {proposal.number} por primera vez.",
             )  # fmt: skip
+            emit(
+                session,
+                proposal.tenant_id,
+                "proposal.viewed",
+                contact_id=proposal.contact_id,
+                deal_id=proposal.deal_id,
+                proposal_id=proposal.id,
+                user_id=proposal.created_by,
+            )
         if proposal.status == "sent":
             proposal.status = "viewed"
     tenant = session.get(Tenant, proposal.tenant_id)
@@ -561,6 +571,9 @@ def decide(session: Session, proposal: Proposal, *, accept: bool, name: str, not
         body += f" Comentario: {proposal.decision_note}"
     crm_log(session, tenant_id=proposal.tenant_id, kind="system", user_id=None,
             contact_id=proposal.contact_id, deal_id=proposal.deal_id, body=body)  # fmt: skip
+    emit(session, proposal.tenant_id, f"proposal.{proposal.status}",
+         contact_id=proposal.contact_id, deal_id=proposal.deal_id, proposal_id=proposal.id,
+         user_id=proposal.created_by)  # fmt: skip
     deal = session.get(Deal, proposal.deal_id) if proposal.deal_id else None
     if deal is not None and deal.status == "open" and accept:
         won = session.scalar(

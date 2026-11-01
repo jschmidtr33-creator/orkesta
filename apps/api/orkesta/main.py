@@ -18,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
 
+from orkesta.automation.router import router as automation_router
 from orkesta.campaigns.router import router as campaigns_router
 from orkesta.campaigns.router import tracking as tracking_router
 from orkesta.core.config import get_settings
@@ -122,6 +123,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(validation_router)
     app.include_router(campaigns_router)
     app.include_router(reports_router)
+    app.include_router(automation_router)
     app.include_router(tracking_router)
     _mount_frontends(app)
     return app

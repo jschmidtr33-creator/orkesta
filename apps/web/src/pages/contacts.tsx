@@ -122,7 +122,7 @@ export function ContactsPage() {
     placeholderData: keepPreviousData,
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(params.get("abrir"));
   const [editing, setEditing] = useState<ContactDetail | "new" | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);

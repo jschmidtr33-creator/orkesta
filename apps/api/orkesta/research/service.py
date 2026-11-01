@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orkesta.automation.events import emit_many
 from orkesta.core.jobs import enqueue
 from orkesta.data.models import Contact, DataPoint
 from orkesta.data.service import (
@@ -267,6 +268,7 @@ def save_people(
     ).all()
     created = merged = 0
     contact_ids: list[uuid.UUID] = []
+    new_contacts: list[Contact] = []
     for item in rows:
         data = item.data
         ckey = data.get("company_key") or company_key(data.get("company", ""))
@@ -322,6 +324,7 @@ def save_people(
             )
             session.add(contact)
             created += 1
+            new_contacts.append(contact)
         else:
             had_email = bool(contact.email)
             for key, value in values.items():
@@ -339,6 +342,8 @@ def save_people(
         session.add_all(_points(contact, data, item, user_id))
         item.saved_contact_id = contact.id
         contact_ids.append(contact.id)
+    emit_many(session, tenant_id, "contact.created", [c.id for c in new_contacts],
+              source="investigacion", user_id=user_id)  # fmt: skip
     added = 0
     if target is not None and contact_ids:
         added = add_to_list(

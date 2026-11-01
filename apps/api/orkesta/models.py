@@ -2,6 +2,7 @@
 
 
 def load_all() -> None:
+    import orkesta.automation.models
     import orkesta.campaigns.models
     import orkesta.crm.models
     import orkesta.data.models

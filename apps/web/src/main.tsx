@@ -9,12 +9,12 @@ import { SessionProvider } from "./lib/session";
 import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
 import { ContactsPage, ListsPage } from "./pages/contacts";
+import { AutomationPage } from "./pages/automation";
 import { CampaignDetail, CampaignsPage } from "./pages/campaigns";
 import { CrmPage } from "./pages/crm";
 import { ProposalEditor, ProposalsPage } from "./pages/proposals";
 import { PublicProposalPage } from "./pages/publicProposal";
 import { ImportPage } from "./pages/importer";
-import { ModulePage } from "./pages/modules";
 import { ProspectingPage } from "./pages/prospecting";
 import { ReportsPage } from "./pages/reports";
 import { SettingsPage } from "./pages/settings";
@@ -47,7 +47,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/contactos/listas" element={<ListsPage />} />
               <Route path="/campanas" element={<CampaignsPage />} />
               <Route path="/campanas/:id" element={<CampaignDetail />} />
-              <Route path="/automatizacion" element={<ModulePage slug="automatizacion" />} />
+              <Route path="/automatizacion" element={<AutomationPage />} />
               <Route path="/crm" element={<CrmPage />} />
               <Route path="/propuestas" element={<ProposalsPage />} />
               <Route path="/propuestas/:id" element={<ProposalEditor />} />

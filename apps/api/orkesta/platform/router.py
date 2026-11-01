@@ -456,6 +456,7 @@ def accept(
 
 
 ACTION_LABELS = {
+    "automation.created": "creó una automatización",
     "mailbox.connected": "conectó un buzón de Gmail",
     "mailbox.removed": "desconectó un buzón de Gmail",
     "campaign.created": "creó una campaña",
