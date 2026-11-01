@@ -20,6 +20,7 @@ import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
 import { EMAIL_FILTERS, EmailBadge, ValidateModal, ValidationBanner } from "./validation";
+import { money, NewDealModal, Timeline, useStages, type Deal } from "./crm";
 
 export type Option = { value: string; label: string };
 export type Meta = {
@@ -515,6 +516,7 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                     <p className="text-[13px] text-ork-mist">No está en ninguna lista.</p>
                   )}
                 </div>
+                <ContactCrm contactId={c.id} hit={{ id: c.id, full_name: c.full_name, company: c.company, job_title: c.job_title }} />
               </>
             )}
           </div>
@@ -733,5 +735,44 @@ export function ListsPage() {
         </form>
       </Modal>
     </>
+  );
+}
+
+
+function ContactCrm({ contactId, hit }: { contactId: string; hit: { id: string; full_name: string; company: string | null; job_title: string | null } }) {
+  const stages = useStages();
+  const [creating, setCreating] = useState(false);
+  const deals = useQuery({
+    queryKey: ["crm-deals", "contact", contactId],
+    queryFn: () => api<{ deals: Deal[] }>(`/api/crm/deals?contacto=${contactId}`),
+  });
+  return (
+    <div className="mt-6 border-t border-ork-line pt-5">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[12.5px] font-semibold text-ork-mist">Oportunidades</p>
+        <Button size="sm" variant="secondary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setCreating(true)}>
+          Crear oportunidad
+        </Button>
+      </div>
+      {deals.data?.deals.length ? (
+        <ul className="mb-4 space-y-1.5">
+          {deals.data.deals.map((d) => (
+            <li key={d.id}>
+              <Link to={`/crm?oportunidad=${d.id}`} className="flex items-center justify-between rounded-lg border border-ork-line px-3 py-2 text-[13px] hover:border-ork-blue/40">
+                <span className="font-semibold text-ork-ink">{d.title}</span>
+                <span className="text-ork-mist">
+                  {d.stage} · {money(d.value, d.currency)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-4 text-[13px] text-ork-mist">Sin oportunidades todavía.</p>
+      )}
+      <p className="mb-2 text-[12.5px] font-semibold text-ork-mist">Historial</p>
+      <Timeline contactId={contactId} />
+      <NewDealModal open={creating} onOpenChange={setCreating} stages={stages.data?.stages ?? []} currencies={stages.data?.currencies ?? ["USD"]} contact={hit} />
+    </div>
   );
 }

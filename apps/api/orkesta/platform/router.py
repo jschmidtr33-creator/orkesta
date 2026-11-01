@@ -27,6 +27,7 @@ from orkesta.core.web import (
     require_roles,
     set_auth_cookies,
 )
+from orkesta.crm import service as crm_service
 from orkesta.data import service as data_service
 from orkesta.platform import google
 from orkesta.platform import service as svc
@@ -455,6 +456,8 @@ def accept(
 
 
 ACTION_LABELS = {
+    "deal.created": "creó una oportunidad",
+    "deal.deleted": "eliminó una oportunidad",
     "validation.started": "inició una validación de correos",
     "research.started": "inició una investigación de prospectos",
     "research.saved": "guardó decisores investigados en Contactos",
@@ -513,14 +516,16 @@ def dashboard(principal: Member, db: Db) -> dict[str, Any]:
         )
     )
     # Indicadores comerciales: ``None`` = el módulo todavía no existe (no se inventan cifras).
+    crm_metrics = crm_service.metrics(db, tid)
     return {
         "team": {"members": members or 0, "pending_invitations": pending or 0},
         "contacts": data_service.contacts_total(db, tid),
+        "pipeline": crm_metrics["pipeline"],
         "kpis": {
             "contacts_found": None,
             "emails_validated": data_service.emails_validated(db, tid),
-            "open_opportunities": None,
-            "conversion_rate": None,
+            "open_opportunities": crm_metrics["open"],
+            "conversion_rate": crm_metrics["conversion_rate"],
         },
         "integrations": {
             "google_sign_in": get_settings().google_enabled,
