@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Inbox,
   LayoutDashboard,
+  Lock,
   Menu as MenuIcon,
   Plug,
   ScrollText,
@@ -19,14 +20,14 @@ import {
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Logo, SelectField, Spinner, TextField } from "../components/ui";
-import { api, ApiError } from "../lib/api";
+import { ADMIN_LOCKED_EVENT, api, ApiError, hasAdminToken, setAdminToken } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
 
 type Me = { user: { id: string; name: string; email: string }; role: string; role_label: string; permissions: string[] };
 
-function useMe() {
-  return useQuery({ queryKey: ["admin-me"], queryFn: () => api<Me>("/api/admin/me"), retry: false });
+function useMe(enabled: boolean) {
+  return useQuery({ queryKey: ["admin-me"], queryFn: () => api<Me>("/api/admin/me"), retry: false, enabled });
 }
 const can = (me: Me | undefined, p: string) => Boolean(me?.permissions.includes(p));
 const n = (v: number) => new Intl.NumberFormat("es").format(v);
@@ -43,16 +44,59 @@ const NAV: Item[] = [
   { to: "/admin/bitacora", label: "Bitácora", icon: ScrollText, perm: "bitacora" },
 ];
 
-/** Panel de administración de ORKESTA: aparte de la app de los clientes. */
+/** Panel de administración de ORKESTA: aparte de la app de los clientes. Siempre pide las
+ * credenciales antes de entrar, aunque ya haya una sesión abierta en ORKESTA. */
 export function AdminApp() {
+  const client = useQueryClient();
   const { session, loading } = useSession();
-  const me = useMe();
-  if (loading || (session && me.isLoading)) return <Spinner label="Abriendo el panel" />;
+  const [unlocked, setUnlocked] = useState(hasAdminToken());
+  const [expired, setExpired] = useState(false);
+  const access = useQuery({
+    queryKey: ["admin-access"],
+    queryFn: () => api<{ email: string; name: string }>("/api/admin/access"),
+    retry: false,
+    enabled: Boolean(session),
+  });
+  const me = useMe(unlocked);
+  useEffect(() => {
+    const lock = () => {
+      setUnlocked(false);
+      setExpired(true);
+      client.removeQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("admin-") && q.queryKey[0] !== "admin-access" });
+    };
+    window.addEventListener(ADMIN_LOCKED_EVENT, lock);
+    return () => {
+      window.removeEventListener(ADMIN_LOCKED_EVENT, lock);
+      // Al salir del panel se olvida el pase: volver a entrar pide credenciales otra vez.
+      setAdminToken(null);
+      client.removeQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("admin-") });
+    };
+  }, [client]);
+  if (loading || (session && access.isLoading)) return <Spinner label="Abriendo el panel" />;
   if (!session) return <Navigate to="/ingresar?siguiente=/admin" replace />;
+  if (access.error) return <NoAccess forbidden={access.error instanceof ApiError && access.error.status === 403} />;
+  if (!unlocked)
+    return (
+      <LockScreen
+        expired={expired}
+        onUnlock={(token) => {
+          setAdminToken(token);
+          setExpired(false);
+          setUnlocked(true);
+        }}
+      />
+    );
+  if (me.isLoading) return <Spinner label="Abriendo el panel" />;
   if (me.error) return <NoAccess forbidden={me.error instanceof ApiError && me.error.status === 403} />;
+  const lock = () => {
+    setAdminToken(null);
+    setExpired(false);
+    setUnlocked(false);
+    client.removeQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("admin-") && q.queryKey[0] !== "admin-access" });
+  };
   return (
     <Routes>
-      <Route element={<AdminLayout me={me.data!} />}>
+      <Route element={<AdminLayout me={me.data!} onLock={lock} />}>
         <Route index element={<Guard me={me.data} perm="ver_resumen"><Overview /></Guard>} />
         <Route path="empresas" element={<Guard me={me.data} perm="ver_empresas"><Tenants me={me.data!} /></Guard>} />
         <Route path="usuarios" element={<Guard me={me.data} perm="ver_usuarios"><UsersPage me={me.data!} /></Guard>} />
@@ -64,6 +108,81 @@ export function AdminApp() {
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
     </Routes>
+  );
+}
+
+function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const unlock = useMutation({
+    mutationFn: () => api<{ token: string }>("/api/admin/unlock", { method: "POST", json: { email, password } }),
+    onSuccess: (r) => {
+      setPassword("");
+      onUnlock(r.token);
+    },
+  });
+  useEffect(() => {
+    document.title = "Administración · ORKESTA";
+  }, []);
+  return (
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#05070D] px-4 py-10">
+      <div className="pointer-events-none absolute -left-32 -top-32 size-96 rounded-full bg-[#2563EB]/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-24 size-96 rounded-full bg-[#8B5CF6]/20 blur-3xl" />
+      <form
+        className="relative w-full max-w-[400px] rounded-3xl border border-white/10 bg-white/[0.04] p-7 text-white shadow-2xl backdrop-blur"
+        onSubmit={(e) => {
+          e.preventDefault();
+          unlock.mutate();
+        }}
+      >
+        <div className="flex items-center gap-2.5">
+          <Logo size={34} />
+          <span className="text-[18px] font-medium tracking-[0.2em]" style={{ fontFamily: "'Avenir Next', Avenir, Montserrat, 'Segoe UI', sans-serif" }}>
+            ORKESTΛ
+          </span>
+        </div>
+        <span className="mt-5 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#A5B4FC]">
+          <Lock className="size-3.5" /> Acceso restringido
+        </span>
+        <h1 className="mt-3 text-[22px] font-bold">Panel de administración</h1>
+        <p className="mt-1 text-[13.5px] text-white/60">
+          {expired ? "Tu acceso al panel expiró. Confirma tus credenciales para continuar." : "Por seguridad, confirma tus credenciales de administración antes de entrar."}
+        </p>
+        <div className="mt-5 flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-white/80">
+            Correo
+            <input
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal text-white placeholder:text-white/35"
+              placeholder="tu@correo.com"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-white/80">
+            Contraseña
+            <input
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal text-white"
+            />
+          </label>
+          {unlock.error && <p role="alert" className="rounded-xl bg-[#EF4444]/15 px-3 py-2 text-[13px] text-[#FCA5A5]">{unlock.error.message}</p>}
+          <Button type="submit" size="lg" loading={unlock.isPending} icon={<ShieldCheck className="size-4" aria-hidden />}>
+            Entrar al panel
+          </Button>
+        </div>
+        <p className="mt-4 text-[12px] text-white/45">El acceso dura 30 minutos y se cierra al salir o recargar el panel.</p>
+        <Link to="/" className="mt-4 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white">
+          <ArrowLeft className="size-3.5" /> Volver a ORKESTA
+        </Link>
+      </form>
+    </div>
   );
 }
 
@@ -92,7 +211,7 @@ function Guard({ me, perm, children }: { me?: Me; perm: string; children: ReactN
   return <>{children}</>;
 }
 
-function AdminLayout({ me }: { me: Me }) {
+function AdminLayout({ me, onLock }: { me: Me; onLock: () => void }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     document.title = "Administración · ORKESTA";
@@ -138,7 +257,10 @@ function AdminLayout({ me }: { me: Me }) {
             <p className="text-[12px] text-[#A5B4FC]">{me.role_label}</p>
           </div>
         </div>
-        <Link to="/" className="mt-3 flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white">
+        <button type="button" onClick={onLock} className="mt-3 flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white">
+          <Lock className="size-3.5" /> Bloquear panel
+        </button>
+        <Link to="/" className="mt-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 hover:text-white">
           <ArrowLeft className="size-3.5" /> Ir a la app de ORKESTA
         </Link>
       </div>

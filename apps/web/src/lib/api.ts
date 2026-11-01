@@ -21,6 +21,17 @@ async function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
+// Pase del panel de administración: solo en memoria, así que recargar o volver a entrar
+// siempre pide de nuevo las credenciales.
+let adminToken: string | null = null;
+export const ADMIN_LOCKED_EVENT = "orkesta:admin-locked";
+export function setAdminToken(token: string | null) {
+  adminToken = token;
+}
+export function hasAdminToken() {
+  return adminToken !== null;
+}
+
 export async function api<T>(path: string, options: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, headers, ...rest } = options;
   const init: RequestInit = {
@@ -29,6 +40,7 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
     headers: {
       Accept: "application/json",
       ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(adminToken && path.startsWith("/api/admin/") ? { "X-Admin-Token": adminToken } : {}),
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
@@ -37,6 +49,10 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
   const isAuthCall = path.startsWith("/api/auth/login") || path.startsWith("/api/auth/refresh");
   if (response.status === 401 && !isAuthCall && (await refreshSession())) {
     response = await fetch(path, init);
+  }
+  if (response.status === 428 && path.startsWith("/api/admin/")) {
+    adminToken = null;
+    window.dispatchEvent(new Event(ADMIN_LOCKED_EVENT));
   }
   if (!response.ok) {
     let message = "Algo salió mal. Inténtalo de nuevo.";
