@@ -10,6 +10,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
 
+from orkesta.campaigns.router import router as campaigns_router
+from orkesta.campaigns.router import tracking as tracking_router
 from orkesta.core.config import get_settings
 from orkesta.core.db import get_session_factory
 from orkesta.crm.router import router as crm_router
@@ -54,11 +57,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        workers = []
+        workers: list[Any] = []
         if settings.run_worker:
             from orkesta.core.jobs import Worker
 
             workers = [Worker(factory, i) for i in range(settings.worker_threads)]
+            from orkesta.campaigns.service import Scheduler
+
+            workers.append(Scheduler(factory))
             for worker in workers:
                 worker.start()
         yield
@@ -113,6 +119,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(proposals_router)
     app.include_router(research_router)
     app.include_router(validation_router)
+    app.include_router(campaigns_router)
+    app.include_router(tracking_router)
     _mount_frontends(app)
     return app
 

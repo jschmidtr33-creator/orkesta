@@ -130,11 +130,16 @@ class RateLimiter:
         self.limit, self.window = limit, window_seconds
         self.hits: dict[str, deque[float]] = defaultdict(deque)
 
-    def check(self, key: str) -> None:
+    def allow(self, key: str) -> bool:
         now = time.monotonic()
         hits = self.hits[key]
         while hits and now - hits[0] > self.window:
             hits.popleft()
         if len(hits) >= self.limit:
-            raise HTTPException(429, "Demasiadas solicitudes. Intenta de nuevo en unos minutos.")
+            return False
         hits.append(now)
+        return True
+
+    def check(self, key: str) -> None:
+        if not self.allow(key):
+            raise HTTPException(429, "Demasiadas solicitudes. Intenta de nuevo en unos minutos.")
