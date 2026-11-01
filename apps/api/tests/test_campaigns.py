@@ -302,3 +302,55 @@ def test_gmail_403_explained() -> None:
             gmail.send("t", b"raw")
     finally:
         fetch.TRANSPORT = None
+
+
+def test_rich_html_body_signature_and_images(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+) -> None:  # fmt: skip
+    register(client, "ana@lacteos.co")
+    mailbox = _connect(client)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    up = client.post("/api/email-assets", files={"file": ("banner.png", png, "image/png")})
+    assert up.status_code == 201, up.text
+    url = up.json()["url"]
+    assert client.get(urlsplit(url).path).content == png
+    bad = client.post("/api/email-assets", files={"file": ("x.png", b"<svg/>", "image/png")})
+    assert bad.status_code == 400
+
+    client.patch(f"/api/mailboxes/{mailbox['id']}", json={
+        "signature": '<p><b>Jennifer Schmidt</b><br>Strategic Business Development</p>'
+                     f'<img src="{url}" width="120"><script>alert(1)</script>'
+    })  # fmt: skip
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Rica"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola {{nombre}}", "delay_days": 0,
+                   "body": "<p>Hola <strong>{{nombre}}</strong>,</p><ul><li>Miami</li></ul>"
+                           f'<p><img src="{url}"></p>'
+                           '<p><a href="https://cal.com/jenn">Agendar llamada</a></p>'
+                           '<p onclick="x()">Fin</p>'}],
+        "audience": {"contact_ids": [ids[0]]},
+    })  # fmt: skip
+    stored = client.get(f"/api/campaigns/{campaign['id']}").json()["steps"][0]["body"]
+    assert "onclick" not in stored and "<strong>" in stored
+    preview = client.post(f"/api/campaigns/{campaign['id']}/preview", json={"step": 0}).json()
+    assert "<strong>Laura</strong>" in preview["html"] and "script" not in preview["html"]
+    assert "Agendar llamada (https://cal.com/jenn)" in preview["body"]
+
+    assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
+    assert _flush(session_factory) == 1
+    msg = google.sent[0]["msg"]
+    html = (
+        next(p for p in msg.walk() if p.get_content_type() == "text/html")
+        .get_payload(decode=True)
+        .decode()
+    )
+    text = (
+        next(p for p in msg.walk() if p.get_content_type() == "text/plain")
+        .get_payload(decode=True)
+        .decode()
+    )
+    assert "<li>Miami</li>" in html and url in html and "Strategic Business Development" in html
+    assert "https://orkesta.test/t/c/" in html and "cal.com" not in html.split("t/c/")[0][-20:]
+    assert "max-width:100%" in html and "alert(1)" not in html
+    assert "• Miami" in text and "Jennifer Schmidt" in text

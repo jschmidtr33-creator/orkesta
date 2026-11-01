@@ -35,7 +35,7 @@ logger = logging.getLogger("orkesta")
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+    "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
     "frame-ancestors 'none'; base-uri 'self'; "
     "form-action 'self' https://accounts.google.com"
 )

@@ -130,7 +130,9 @@ def clean_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for i, raw in enumerate(steps[:MAX_STEPS]):
         subject = " ".join(str(raw.get("subject", "")).split())[:250]
-        body = str(raw.get("body", ""))[:20000]
+        body = str(raw.get("body", ""))[:100000]
+        if templating.is_html(body):
+            body = templating.clean_html(body)
         delay = int(raw.get("delay_days", 0 if i == 0 else 3) or 0)
         out.append({"subject": subject, "body": body, "delay_days": max(0, min(60, delay))})
     return out
@@ -504,7 +506,8 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     sender = mailbox.display_name or (owner.full_name if owner else "") or mailbox.email
     country = COUNTRIES.get(contact.country_code or "", ("",))[0]
     values = templating.context(contact, sender, country)
-    body, _ = templating.render(step["body"], values)
+    body, _ = templating.render(templating.as_html(step["body"]), values, escape=True)
+    signature, _ = templating.render(templating.as_html(mailbox.signature), values, escape=True)
     if recipient.step == 0 or not recipient.first_subject:
         subject, _ = templating.render(step["subject"], values)
         thread_ref = None
@@ -521,8 +524,8 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         to_email=recipient.email,
         to_name=contact.full_name,
         subject=subject or "(sin asunto)",
-        body=body,
-        signature=mailbox.signature,
+        body_html=body,
+        signature_html=signature,
         token=token,
         track_opens=bool(campaign.settings.get("track_opens", True)),
         track_clicks=bool(campaign.settings.get("track_clicks", True)),

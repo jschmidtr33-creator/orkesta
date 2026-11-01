@@ -12,6 +12,8 @@ from email.utils import formataddr, make_msgid
 from typing import Any
 from urllib.parse import quote, urlencode
 
+import nh3
+
 from orkesta.core.config import get_settings
 
 VARIABLES = {
@@ -41,7 +43,7 @@ def context(contact: Any, sender_name: str, country_name: str = "") -> dict[str,
     }
 
 
-def render(text: str, values: dict[str, str]) -> tuple[str, list[str]]:
+def render(text: str, values: dict[str, str], *, escape: bool = False) -> tuple[str, list[str]]:
     """Texto con variables reemplazadas y la lista de variables que quedaron vacías."""
     missing: list[str] = []
 
@@ -49,7 +51,7 @@ def render(text: str, values: dict[str, str]) -> tuple[str, list[str]]:
         name, fallback = match.group(1), match.group(2)
         value = values.get(name, "")
         if value:
-            return value
+            return html.escape(value) if escape else value
         if fallback is not None:
             return fallback.strip()
         missing.append(name)
@@ -79,6 +81,73 @@ class Built:
     subject: str
 
 
+# --- HTML: cuerpo y firma con formato, enlaces e imágenes ----------------------------------
+
+TAGS = {
+    "p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "a", "ul", "ol", "li",
+    "h1", "h2", "h3", "h4", "blockquote", "img", "table", "thead", "tbody", "tr", "td", "th",
+    "hr", "font", "center", "small", "sup", "sub",
+}  # fmt: skip
+ATTRIBUTES = {
+    "*": {"style", "align"},
+    "a": {"href", "title", "target"},
+    "img": {"src", "alt", "width", "height", "border"},
+    "table": {"width", "cellpadding", "cellspacing", "border", "bgcolor", "role"},
+    "td": {"width", "valign", "colspan", "rowspan", "bgcolor", "height"},
+    "th": {"width", "valign", "colspan", "rowspan", "bgcolor"},
+    "font": {"color", "face", "size"},
+}
+STYLES = {
+    "color", "background-color", "font-family", "font-size", "font-weight", "font-style",
+    "text-decoration", "text-align", "line-height", "margin", "margin-top", "margin-bottom",
+    "margin-left", "margin-right", "padding", "padding-top", "padding-bottom", "padding-left",
+    "padding-right", "width", "max-width", "height", "border", "border-radius", "display",
+    "vertical-align", "letter-spacing",
+}  # fmt: skip
+_HTML = re.compile(r"<(p|div|br|img|a|table|strong|b|em|ul|ol|span|h[1-4])\b", re.I)
+_HREF = re.compile(r'href="(https?://[^"]+)"')
+_IMG = re.compile(r"<img\b(?![^>]*style=)", re.I)
+
+
+def is_html(text: str) -> bool:
+    return bool(_HTML.search(text or ""))
+
+
+def clean_html(value: str) -> str:
+    return nh3.clean(
+        value, tags=TAGS, attributes=ATTRIBUTES, url_schemes={"http", "https", "mailto", "tel"},
+        filter_style_properties=STYLES, link_rel=None, strip_comments=True,
+    )  # fmt: skip
+
+
+def as_html(text: str) -> str:
+    """HTML seguro a partir de lo que escribió el usuario (texto plano o HTML)."""
+    if not (text or "").strip():
+        return ""
+    if is_html(text):
+        return clean_html(text)
+    escaped = _URL.sub(lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', html.escape(text))
+    paragraphs = [p.replace("\n", "<br>") for p in escaped.strip().split("\n\n")]
+    return "".join(f"<p>{p}</p>" for p in paragraphs)
+
+
+def html_to_text(value: str) -> str:
+    text = re.sub(r"(?is)<(script|style).*?</\1>", "", value)
+
+    def link(m: re.Match[str]) -> str:
+        href, label = m.group(1), m.group(2)
+        return label if href in label else f"{label} ({href})"
+
+    text = re.sub(r'(?is)<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', link, text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)<li\b[^>]*>", "• ", text)
+    text = re.sub(r"(?i)</(p|div|li|h[1-4]|tr|blockquote|table)>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def build(
     *,
     sender_email: str,
@@ -86,39 +155,34 @@ def build(
     to_email: str,
     to_name: str,
     subject: str,
-    body: str,
-    signature: str,
+    body_html: str,
+    signature_html: str,
     token: str,
     track_opens: bool,
     track_clicks: bool,
     in_reply_to: str | None = None,
     references: str | None = None,
 ) -> Built:
+    """Arma el correo. ``body_html`` y ``signature_html`` ya vienen limpios y personalizados."""
     base = get_settings().public_base_url.rstrip("/")
     tracking = bool(base)
     unsubscribe_url = f"{base}/t/u/{token}" if tracking else ""
-    text_body = body.rstrip() + (f"\n\n{signature.strip()}" if signature.strip() else "")
+    content = body_html + (f'<div style="margin-top:16px">{signature_html}</div>'
+                           if signature_html.strip() else "")  # fmt: skip
+    text_body = html_to_text(content)
+    if tracking and track_clicks:
+        content = _HREF.sub(
+            lambda m: f'href="{html.escape(click_url(token, html.unescape(m.group(1))))}"', content
+        )
+    content = _IMG.sub('<img style="max-width:100%;height:auto"', content)
     footer_text = (
         "\n\n—\nSi prefieres no recibir más correos míos, responde «baja»"
         + (f" o entra a {unsubscribe_url}" if unsubscribe_url else "")
         + "."
     )
-
-    def to_html(text: str) -> str:
-        escaped = html.escape(text)
-
-        def link(m: re.Match[str]) -> str:
-            url = html.unescape(m.group(1))
-            href = click_url(token, url) if tracking and track_clicks else url
-            return f'<a href="{html.escape(href)}">{m.group(1)}</a>'
-
-        escaped = _URL.sub(link, escaped)
-        paragraphs = [p.replace("\n", "<br>") for p in escaped.split("\n\n")]
-        return "".join(f'<p style="margin:0 0 12px">{p}</p>' for p in paragraphs)
-
     html_body = (
         "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;"
-        "color:#1f2937\">" + to_html(text_body)
+        "color:#1f2937\">" + content
         + "<p style=\"margin:24px 0 0;font-size:11px;color:#94a3b8\">Si prefieres no recibir más "
         "correos míos, "
         + (f"<a href=\"{html.escape(unsubscribe_url)}\" style=\"color:#94a3b8\">"
