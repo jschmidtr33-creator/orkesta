@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -181,3 +182,17 @@ class Suppression(IdMixin, Base):
     tenant_id: Mapped[uuid.UUID] = _tenant()
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     reason: Mapped[str] = mapped_column(String(20), nullable=False)
+
+
+class EmailAsset(IdMixin, Base):
+    """Imágenes de correos y firmas. Se sirven sin sesión en /t/i/{id} (el id no se adivina),
+    por eso la tabla es global como ``tracking_tokens`` y cada consulta filtra por empresa."""
+
+    __tablename__ = "email_assets"
+    __table_args__ = (Index("ix_email_assets_tenant", "tenant_id", "created_at"),)
+
+    tenant_id: Mapped[uuid.UUID] = _tenant()
+    content_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

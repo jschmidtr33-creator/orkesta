@@ -7,14 +7,14 @@ import secrets
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from orkesta.campaigns import gmail, templating
 from orkesta.campaigns import service as svc
-from orkesta.campaigns.models import Campaign, Mailbox, Recipient, Suppression
+from orkesta.campaigns.models import Campaign, EmailAsset, Mailbox, Recipient, Suppression
 from orkesta.core.config import get_settings
 from orkesta.core.db import set_context
 from orkesta.core.security import read_state, sign_state
@@ -97,7 +97,7 @@ def mail_callback(
 
 class MailboxPatch(BaseModel):
     daily_limit: int | None = Field(default=None, ge=1, le=400)
-    signature: str | None = Field(default=None, max_length=2000)
+    signature: str | None = Field(default=None, max_length=50000)
     display_name: str | None = Field(default=None, max_length=160)
 
 
@@ -130,7 +130,10 @@ def update_mailbox(
     if body.daily_limit is not None:
         mailbox.daily_limit = body.daily_limit
     if body.signature is not None:
-        mailbox.signature = body.signature.strip()
+        signature = body.signature.strip()
+        mailbox.signature = (
+            templating.clean_html(signature) if templating.is_html(signature) else signature
+        )
     if body.display_name is not None:
         mailbox.display_name = " ".join(body.display_name.split())
     return svc.mailbox_dict(mailbox)
@@ -167,7 +170,7 @@ class CampaignIn(BaseModel):
 
 class StepIn(BaseModel):
     subject: str = Field(default="", max_length=250)
-    body: str = Field(default="", max_length=20000)
+    body: str = Field(default="", max_length=100000)
     delay_days: int = Field(default=3, ge=0, le=60)
 
 
@@ -297,15 +300,19 @@ def preview(campaign_id: uuid.UUID, body: PreviewIn, principal: Member, db: Db) 
         "Re: " + campaign.steps[0]["subject"] if body.step else "(sin asunto)"
     )
     subject, missing_s = templating.render(subject_src, values)
-    text, missing_b = templating.render(step["body"], values)
-    signature = mailbox.signature if mailbox else ""
+    body_html, missing_b = templating.render(templating.as_html(step["body"]), values, escape=True)
+    signature, _ = templating.render(
+        templating.as_html(mailbox.signature if mailbox else ""), values, escape=True
+    )
+    content = body_html + (f'<div style="margin-top:16px">{signature}</div>' if signature else "")
     return {
         "contact": {"id": str(contact.id), "full_name": contact.full_name, "email": contact.email}
         if contact
         else None,
         "from": mailbox.email if mailbox else None,
         "subject": subject,
-        "body": text + (f"\n\n{signature}" if signature.strip() else ""),
+        "html": content,
+        "body": templating.html_to_text(content),
         "missing": sorted(set(missing_s + missing_b)),
         "threaded": body.step > 0 and not step["subject"].strip(),
     }
@@ -463,6 +470,52 @@ def remove_suppression(suppression_id: uuid.UUID, principal: Manager, db: Db) ->
         raise HTTPException(404, "No existe.")
     db.delete(row)
     return {"ok": True}
+
+
+# --- Imágenes para correos y firmas ---------------------------------------------------------
+
+IMAGE_TYPES = {
+    "image/png": (b"\x89PNG", "png"),
+    "image/jpeg": (b"\xff\xd8\xff", "jpg"),
+    "image/gif": (b"GIF8", "gif"),
+    "image/webp": (b"RIFF", "webp"),
+}
+MAX_IMAGE = 3 * 1024 * 1024
+
+
+def _asset_url(request: Request, asset: EmailAsset) -> str:
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    return f"{base}/t/i/{asset.id}.{IMAGE_TYPES[asset.content_type][1]}"
+
+
+@router.post("/api/email-assets", status_code=201)
+async def upload_asset(
+    file: UploadFile, request: Request, principal: Member, db: Db
+) -> dict[str, Any]:
+    data = await file.read(MAX_IMAGE + 1)
+    if len(data) > MAX_IMAGE:
+        raise HTTPException(413, "La imagen pesa más de 3 MB. Redúcela y vuelve a subirla.")
+    kind = next((t for t, (magic, _) in IMAGE_TYPES.items() if data.startswith(magic)), None)
+    if kind is None or (kind == "image/webp" and data[8:12] != b"WEBP"):
+        raise HTTPException(400, "Sube una imagen PNG, JPG, GIF o WEBP.")
+    asset = EmailAsset(tenant_id=principal.tenant_id, content_type=kind, size=len(data),
+                       name=(file.filename or "")[:200], data=data)  # fmt: skip
+    db.add(asset)
+    db.flush()
+    return {"id": str(asset.id), "url": _asset_url(request, asset), "size": len(data)}
+
+
+@tracking.get("/t/i/{name}")
+def asset(name: str, db: Db) -> Response:
+    try:
+        asset_id = uuid.UUID(name.split(".", 1)[0])
+    except ValueError:
+        raise HTTPException(404, "No existe.") from None
+    row = db.get(EmailAsset, asset_id)
+    if row is None:
+        raise HTTPException(404, "No existe.")
+    return Response(row.data, media_type=row.content_type,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})  # fmt: skip
 
 
 # --- Seguimiento público (sin sesión) -------------------------------------------------------

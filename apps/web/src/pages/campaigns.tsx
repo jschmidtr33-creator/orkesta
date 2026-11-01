@@ -3,6 +3,8 @@ import { ArrowLeft, Eye, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rock
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
+import type { Editor } from "@tiptap/react";
+import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
 import { api } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
 import { formatWhen } from "./dashboard";
@@ -41,7 +43,7 @@ type Campaign = {
 };
 type Mailbox = { id: string; email: string; display_name: string; status: string; error: string | null; daily_limit: number; signature: string; sent_today: number };
 type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; too_many: boolean };
-type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; missing: string[]; threaded: boolean };
+type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; html: string; missing: string[]; threaded: boolean };
 type Recipient = {
   id: string;
   contact_id: string;
@@ -359,7 +361,7 @@ function StepsEditor({ c }: { c: Campaign }) {
   const [previewing, setPreviewing] = useState<number | null>(null);
   const save = useSaveCampaign(c.id);
   const vars = useCampaigns().data?.variables ?? {};
-  const focused = useRef<{ index: number; field: "subject" | "body"; el: HTMLInputElement | HTMLTextAreaElement } | null>(null);
+  const focused = useRef<{ index: number; el?: HTMLInputElement; editor?: Editor } | null>(null);
   useEffect(() => {
     if (!dirty) setSteps(c.steps ?? []);
   }, [c.steps, dirty]);
@@ -372,13 +374,18 @@ function StepsEditor({ c }: { c: Campaign }) {
     const f = focused.current;
     if (!f) return;
     const token = `{{${name}}}`;
-    const value = steps[f.index][f.field];
-    const start = f.el.selectionStart ?? value.length;
-    const end = f.el.selectionEnd ?? value.length;
-    update(f.index, { [f.field]: value.slice(0, start) + token + value.slice(end) });
+    if (f.editor) {
+      f.editor.chain().focus().insertContent(token).run();
+      return;
+    }
+    const el = f.el!;
+    const value = steps[f.index].subject;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    update(f.index, { subject: value.slice(0, start) + token + value.slice(end) });
     requestAnimationFrame(() => {
-      f.el.focus();
-      f.el.setSelectionRange(start + token.length, start + token.length);
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
     });
   };
   return (
@@ -460,16 +467,14 @@ function StepsEditor({ c }: { c: Campaign }) {
             <input
               value={step.subject}
               placeholder={i === 0 ? "Asunto" : "Sin asunto = respuesta en el mismo hilo"}
-              onFocus={(e) => (focused.current = { index: i, field: "subject", el: e.currentTarget })}
+              onFocus={(e) => (focused.current = { index: i, el: e.currentTarget })}
               onChange={(e) => update(i, { subject: e.target.value })}
               className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
             />
-            <textarea
+            <RichEditor
               value={step.body}
-              rows={7}
-              onFocus={(e) => (focused.current = { index: i, field: "body", el: e.currentTarget })}
-              onChange={(e) => update(i, { body: e.target.value })}
-              className="ork-focus w-full rounded-lg border border-ork-line px-3 py-2 text-[14px] leading-relaxed text-ork-graphite"
+              onChange={(html) => update(i, { body: html })}
+              onFocus={(editor) => (focused.current = { index: i, editor })}
             />
           </li>
         ))}
@@ -520,7 +525,9 @@ function PreviewModal({ campaignId, step, onClose }: { campaignId: string; step:
               <p className="mt-1 text-[14px] font-semibold text-ork-ink">{p.subject}</p>
               {p.threaded && <p className="text-[12px]">Se envía como respuesta en el hilo del primer correo.</p>}
             </div>
-            <p className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap px-4 py-3 leading-relaxed text-ork-graphite">{p.body}</p>
+            <div className="max-h-[60vh] overflow-y-auto">
+              <HtmlFrame html={p.html} />
+            </div>
           </div>
         </div>
       ) : null}
@@ -884,7 +891,7 @@ export function GmailCard() {
               </div>
             </div>
             {m.error && <p className="mt-2 text-[12.5px] text-bad">{m.error}</p>}
-            <div className="mt-3 grid gap-3 sm:grid-cols-[140px_1fr]">
+            <div className="mt-3 grid gap-3">
               <TextField
                 label="Límite diario"
                 type="number"
@@ -892,25 +899,71 @@ export function GmailCard() {
                 max={400}
                 defaultValue={m.daily_limit}
                 hint="Gmail gratis: ≤ 80. Workspace: ≤ 300."
+                className="max-w-[220px]"
                 onBlur={(e) => Number(e.target.value) !== m.daily_limit && patch.mutate({ id: m.id, daily_limit: Number(e.target.value) })}
               />
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[13px] font-semibold text-ork-ink" htmlFor={`sig-${m.id}`}>
-                  Firma
-                </label>
-                <textarea
-                  id={`sig-${m.id}`}
-                  rows={3}
-                  defaultValue={m.signature}
-                  placeholder={"Ana López\nGerente comercial · Empresa\n+57 300 000 0000"}
-                  onBlur={(e) => e.target.value !== m.signature && patch.mutate({ id: m.id, signature: e.target.value })}
-                  className="ork-focus rounded-xl border border-ork-line px-3 py-2 text-[14px]"
-                />
-              </div>
+              <SignatureEditor value={m.signature} saving={patch.isPending} onSave={(signature) => patch.mutate({ id: m.id, signature })} />
             </div>
           </li>
         ))}
       </ul>
     </Card>
+  );
+}
+
+function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (html: string) => void; saving: boolean }) {
+  const [draft, setDraft] = useState(value);
+  const [mode, setMode] = useState<"visual" | "html">(/<table/i.test(value) ? "html" : "visual");
+  useEffect(() => setDraft(value), [value]);
+  const changed = draft !== value;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13px] font-semibold text-ork-ink">Firma</p>
+        <div className="flex rounded-lg border border-ork-line p-0.5 text-[12.5px] font-semibold">
+          {(
+            [
+              ["visual", "Editor (texto e imágenes)"],
+              ["html", "Pegar HTML"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setMode(k)}
+              className={cx("rounded-md px-2.5 py-1", mode === k ? "bg-ork-blue text-white" : "text-ork-graphite")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "visual" ? (
+        <RichEditor value={draft} onChange={setDraft} minHeight={110} allowSource={false} />
+      ) : (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            rows={6}
+            placeholder="Pega el HTML de tu firma (en Gmail: Configuración → Firma; o desde tu generador de firmas)."
+            className="ork-focus rounded-lg border border-ork-line px-3 py-2 font-mono text-[12.5px]"
+          />
+          <p className="text-[12px] text-ork-mist">Para una firma solo con imagen, usa «Editor» → imagen y sube el archivo.</p>
+        </>
+      )}
+      {draft.trim() && (
+        <div className="rounded-lg border border-dashed border-ork-line">
+          <p className="px-3 pt-2 text-[11.5px] font-semibold uppercase tracking-wide text-ork-mist">Así se verá</p>
+          <HtmlFrame html={toHtml(draft)} minHeight={60} />
+        </div>
+      )}
+      <div className="flex justify-end">
+        <Button size="sm" disabled={!changed} loading={saving} onClick={() => onSave(draft)}>
+          Guardar firma
+        </Button>
+      </div>
+    </div>
   );
 }
