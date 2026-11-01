@@ -312,6 +312,7 @@ function ImportResult({ record, onAgain }: { record: ImportRecord; onAgain: () =
     { label: "Empresas", value: t.empresas },
     { label: "Filas sin nombre o empresa", value: t.omitidas },
     { label: "Repetidos dentro del archivo", value: t.repetidas_en_archivo },
+    ...(t.sobre_limite ? [{ label: "Sin cargar: límite de contactos del plan", value: t.sobre_limite }] : []),
   ];
   return (
     <div className="py-4">

@@ -55,7 +55,7 @@ from orkesta.research.models import ResearchItem, ResearchRun
 
 logger = logging.getLogger("orkesta.research")
 RESEARCH_JOB = "research_run"
-DEADLINE_SECONDS = 420
+DEADLINE_SECONDS = 900  # las búsquedas van siempre al máximo de resultados
 SITE_WORKERS = 6
 LEVEL_WEIGHT = {"c_level": 50, "duenio_socio": 45, "vp": 40, "director": 35, "gerente": 25}
 
@@ -813,6 +813,69 @@ def infer_emails(run: Run, filters: Filters) -> int:
     return estimated
 
 
+def complete_results(
+    run: Run, filters: Filters, fetcher: Fetcher, companies: list[Candidate]
+) -> None:
+    """Cada resultado debe traer su perfil de LinkedIn y un correo: se buscan los que falten."""
+    country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+    wanted = [p for c in companies for p in run.people.get(c.key, []) if filters.wants(p)]
+
+    def profile(prospect: Prospect) -> None:
+        if prospect.linkedin or run.expired() or run.serp.fatal:
+            return
+        found = serp.find_profile(
+            fetcher, run.serp, first=prospect.first_name, last=prospect.last_name,
+            company=prospect.company.name, country=filters.country, country_name=country_name,
+        )  # fmt: skip
+        if found is None:
+            return
+        source = {"type": "perfil", "label": "Perfil público · Google", "url": found.url}
+        with run.lock:
+            prospect.set("linkedin", found.url, source, 65)
+            prospect.add_source(source)
+            prospect.location = prospect.location or found.location
+        _publish(run, prospect, filters)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(profile, wanted))
+
+    def domain(company: Candidate) -> None:
+        if company.domain or run.expired() or run.serp.fatal:
+            return
+        company.domain = serp.company_domain(
+            fetcher, run.serp, company.name, filters.country, country_name
+        )
+        if company.domain:
+            company.website = company.website or f"https://{company.domain}"
+            run.save_company(company, filters.country)
+
+    missing = [c for c in companies if any(not p.email for p in run.people.get(c.key, []))]
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(domain, missing))
+    for company in missing:
+        if not company.domain or run.expired():
+            continue
+        pattern, votes, example = serp.email_pattern(fetcher, run.serp, company.domain)
+        if pattern:
+            source = {"type": "patron", "url": example,
+                      "label": f"Formato {pattern}@{company.domain} visto en {votes} correo(s) "
+                               "públicos"}  # fmt: skip
+            confidence = 50 if votes > 1 else 40
+        else:
+            pattern = COMMON_PATTERN
+            label = f"Formato más común ({pattern}@{company.domain}); sin evidencia"
+            source = {"type": "patron", "url": "", "label": label}
+            confidence = 20
+        for prospect in run.people.get(company.key, []):
+            if prospect.email:
+                continue
+            email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
+            if email:
+                prospect.set("email", email, source, confidence)
+                prospect.email_status = "estimado"
+                _publish(run, prospect, filters)
+
+
 # --- Orquestación ---------------------------------------------------------------------------
 
 
@@ -862,8 +925,8 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
     formato de correo de la empresa → correo de cada lead."""
     country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
     target = filters.limit
-    run.total = target
-    run.log(f"Buscando {target} leads con perfil público en {country_name}…", step="leads")
+    run.total = 0
+    run.log(f"Buscando todos los leads que cumplen los filtros en {country_name}…", step="leads")
     leads = serp.people_search(
         fetcher, run.serp, country=filters.country, country_name=country_name,
         city=filters.city, levels=filters.levels, areas=filters.areas,
@@ -1017,6 +1080,8 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         done = _investigate(run, fetcher, filters, extra, done)
     run.log("Deduciendo patrones de correo…", step="correos")
     estimated = infer_emails(run, filters)
+    if serp.enabled():
+        complete_results(run, filters, fetcher, companies)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     for company in companies:
         company.people_found = sum(1 for p in shown if p.company.key == company.key)
