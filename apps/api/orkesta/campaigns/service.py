@@ -471,9 +471,16 @@ def _in_window(settings: dict[str, Any]) -> bool:
     return int(settings.get("start_hour", 8)) <= local.hour < int(settings.get("end_hour", 17))
 
 
-def _gap() -> timedelta:
-    """Pausa aleatoria entre correos del mismo buzón: ritmo humano, no ráfagas."""
-    return timedelta(seconds=random.randint(70, 180))  # noqa: S311 - ritmo, no criptografía
+def _gap(settings: dict[str, Any] | None = None, daily_limit: int = 80) -> timedelta:
+    """Pausa aleatoria entre correos del mismo buzón: ritmo humano, no ráfagas, pero ajustada
+    para que el límite diario del buzón quepa en el horario de envío (1.500 en 9 horas ≈ un
+    correo cada ~20 s)."""
+    settings = settings or {}
+    hours = max(1, int(settings.get("end_hour", 17)) - int(settings.get("start_hour", 8)))
+    average = hours * 3600 / max(1, daily_limit)
+    average = max(15.0, min(125.0, average))
+    low, high = average * 0.6, average * 1.4
+    return timedelta(seconds=random.uniform(low, high))  # noqa: S311 - ritmo, no criptografía
 
 
 def _learn(session: Session, recipient: Recipient, outcome: str) -> None:
@@ -740,7 +747,7 @@ def tick(factory: sessionmaker[Session]) -> int:
                     and send_next(session, campaign, mailbox)
                 ):
                     busy.add(mailbox.id)
-                    mailbox.next_send_after = now() + _gap()
+                    mailbox.next_send_after = now() + _gap(campaign.settings, mailbox.daily_limit)
                     sent += 1
                 if mailbox.status == "active":
                     check_replies(session, campaign, mailbox)
@@ -749,7 +756,7 @@ def tick(factory: sessionmaker[Session]) -> int:
 
 
 class Scheduler(threading.Thread):
-    def __init__(self, factory: sessionmaker[Session], every: float = 30.0):
+    def __init__(self, factory: sessionmaker[Session], every: float = 10.0):
         super().__init__(name="orkesta-campaigns", daemon=True)
         self.factory, self.every = factory, every
         self.stop_event = threading.Event()
