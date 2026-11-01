@@ -258,7 +258,7 @@ export function Tip({ label, children, className }: { label: string; children: R
       {children}
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ork-ink px-2.5 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus:opacity-100"
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-max max-w-[280px] -translate-x-1/2 whitespace-normal rounded-lg bg-ork-ink text-center px-2.5 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus:opacity-100"
       >
         {label}
       </span>

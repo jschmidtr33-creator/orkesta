@@ -165,3 +165,12 @@ def test_full_search_brings_volume_and_emails(
     assert re.fullmatch(r"[a-z]+@empresa\d+\.com", sample["email"])  # formato inicial+apellido
     assert all(p["data"]["linkedin"].startswith("https://co.linkedin.com/in/") for p in people)
     assert memory.known_pattern(session_factory, "empresa1.com")[0] == "flast"
+
+
+def test_mail_servers_and_provider(session_factory: sessionmaker[Session]) -> None:
+    with Fetcher(session_factory) as fetcher:
+        assert memory.mail_servers(fetcher, "sin-correo.co") == []
+        hosts = memory.mail_servers(fetcher, "alpina.com")
+    assert memory.mail_provider(hosts or []) == ("google", "Google Workspace")
+    assert memory.mail_provider(["alpina-com.mail.protection.outlook.com"])[0] == "microsoft"
+    assert memory.mail_provider(["mx1.alpina.com"]) == ("propio", "servidor propio")

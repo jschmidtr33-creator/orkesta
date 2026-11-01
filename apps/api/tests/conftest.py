@@ -99,3 +99,13 @@ def register(client: TestClient, email: str, company: str = "Lácteos Inventados
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.fixture(autouse=True)
+def _offline_mx() -> Iterator[None]:
+    """Sin DNS real en pruebas: todo dominio recibe correo, salvo los «sin-correo»."""
+    from orkesta.research import memory
+
+    memory.MX_RESOLVER = lambda d: [] if d.startswith("sin-correo") else ["aspmx.l.google.com"]
+    yield
+    memory.MX_RESOLVER = None

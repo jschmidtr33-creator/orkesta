@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Alert, Badge, Button, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHeader, cx, PageHeader, Spinner, Tip } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useLists, type Option } from "./contacts";
@@ -780,15 +780,17 @@ function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boole
 
 // --- Resultados -----------------------------------------------------------------------------
 
-function EmailCell({ data, confidence }: { data: PersonData; confidence?: number }) {
-  if (!data.email) return <span className="text-[12.5px] text-ork-mist">{data.domain ? "Sin formato" : "Sin dominio"}</span>;
+function EmailCell({ data, confidence, why }: { data: PersonData; confidence?: number; why?: string }) {
+  if (!data.email) return <span className="text-[12.5px] text-ork-mist">{data.domain ? "El dominio no recibe correo" : "Sin sitio web identificado"}</span>;
   const c = confidence ?? 0;
   const label =
     data.email_status === "publicado" ? "Publicado" : c >= 70 ? "Formato confirmado" : c >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
   return (
     <div className="min-w-0">
       <p className="truncate text-[13px] text-ork-ink">{data.email}</p>
-      <Badge tone={data.email_status === "publicado" || c >= 70 ? "ok" : c >= 40 ? "violet" : "warn"}>{label}</Badge>
+      <Tip label={why || label} className="max-w-full">
+        <Badge tone={data.email_status === "publicado" || c >= 70 ? "ok" : c >= 40 ? "violet" : "warn"}>{label}</Badge>
+      </Tip>
     </div>
   );
 }
@@ -1196,7 +1198,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {p.data.email ? (
                     <span className="flex items-start gap-1.5">
-                      <EmailCell data={p.data} confidence={p.provenance.email?.confidence} />
+                      <EmailCell data={p.data} confidence={p.provenance.email?.confidence} why={p.provenance.email?.label} />
                       <button type="button" onClick={() => copy(p.data.email)} className="ork-focus mt-0.5 rounded p-1 text-ork-mist hover:bg-ork-ink/5 hover:text-ork-ink" aria-label={`Copiar ${p.data.email}`}>
                         {copied === p.data.email ? <Check className="size-3.5 text-ok" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
                       </button>
