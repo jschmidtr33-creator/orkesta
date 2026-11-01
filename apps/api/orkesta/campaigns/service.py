@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from orkesta.automation.events import emit
 from orkesta.campaigns import gmail, templating
 from orkesta.campaigns.models import (
     Campaign,
@@ -583,6 +584,7 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     else:
         recipient.next_send_at = None
         recipient.status = "completed" if campaign.steps else recipient.status
+        _emit(session, campaign, recipient, "campaign.finished", recipient_id=recipient.id)
     crm_log(
         session,
         tenant_id=campaign.tenant_id,
@@ -630,6 +632,9 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
                 contact_id=recipient.contact_id,
                 body=f"Respondió a la campaña «{campaign.name}». Revisa tu Gmail.",
             )
+            if _emit(session, campaign, recipient, "campaign.replied"):
+                found += 1
+                continue  # una automatización decide qué hacer (en vez de la tarea fija)
             crm_log(
                 session,
                 tenant_id=campaign.tenant_id,
@@ -647,6 +652,7 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             if contact is not None and contact.email == recipient.email:
                 contact.email_status = "invalido"
                 contact.email_check_reason = "Rebotó en una campaña"
+            _emit(session, campaign, recipient, "campaign.bounced")
             found += 1
     return found
 
@@ -732,6 +738,17 @@ class Scheduler(threading.Thread):
 # --- Seguimiento público --------------------------------------------------------------------
 
 
+def _emit(session: Session, campaign: Campaign | None, recipient: Recipient, trigger: str,
+          **extra: Any) -> int:  # fmt: skip
+    campaign = campaign or session.get(Campaign, recipient.campaign_id)
+    mailbox = (
+        session.get(Mailbox, campaign.mailbox_id) if campaign and campaign.mailbox_id else None
+    )
+    owner = (mailbox.user_id if mailbox else None) or (campaign.created_by if campaign else None)
+    return emit(session, recipient.tenant_id, trigger, contact_id=recipient.contact_id,
+                campaign_id=recipient.campaign_id, user_id=owner, **extra)  # fmt: skip
+
+
 def _by_token(session: Session, token: str) -> tuple[Message, Recipient] | None:
     link = session.get(TrackingToken, token[:48])
     if link is None:
@@ -753,6 +770,7 @@ def record_open(session: Session, token: str) -> None:
     message.opened_at = message.opened_at or now()
     recipient.open_count += 1
     recipient.opened_at = recipient.opened_at or now()
+    _emit(session, None, recipient, "campaign.opened", open_count=recipient.open_count)
 
 
 def record_click(session: Session, token: str) -> None:
@@ -762,8 +780,11 @@ def record_click(session: Session, token: str) -> None:
     message, recipient = found
     message.click_count += 1
     recipient.click_count += 1
+    first = recipient.clicked_at is None
     recipient.clicked_at = recipient.clicked_at or now()
     recipient.opened_at = recipient.opened_at or now()
+    if first:
+        _emit(session, None, recipient, "campaign.clicked")
 
 
 def unsubscribe(session: Session, token: str) -> str | None:
@@ -772,7 +793,10 @@ def unsubscribe(session: Session, token: str) -> str | None:
         return None
     _, recipient = found
     suppress(session, recipient.tenant_id, recipient.email, "unsubscribed")
+    already = recipient.status == "unsubscribed"
     recipient.status, recipient.next_send_at = "unsubscribed", None
+    if not already:
+        _emit(session, None, recipient, "campaign.unsubscribed")
     crm_log(
         session,
         tenant_id=recipient.tenant_id,
