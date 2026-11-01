@@ -18,12 +18,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from orkesta.automation.events import emit
-from orkesta.campaigns.templating import clean_html, html_to_text, is_html
+from orkesta.campaigns.templating import clean_html, html_to_text, is_html, render
 from orkesta.core.db import set_context
 from orkesta.crm.models import CURRENCIES, Activity, Deal, Stage
 from orkesta.crm.service import log as crm_log
 from orkesta.crm.service import move_deal
 from orkesta.data.models import Company, Contact
+from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS
 from orkesta.platform.models import Tenant, User
 from orkesta.proposals.design import (
@@ -615,7 +616,8 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
     if full:
         brand = get_brand(session, p.tenant_id)
         data.update(items=p.items, sections=p.sections, tax_rate=float(p.tax_rate),
-                    design=p.design or {}, look=resolved(brand, p.design or {}))  # fmt: skip
+                    design=p.design or {}, look=resolved(brand, p.design or {}),
+                    variables=VARIABLES, values=variable_values(session, p))  # fmt: skip
     return data
 
 
@@ -644,6 +646,61 @@ def public_load(session: Session, public_id: str) -> Proposal:
     return proposal
 
 
+VARIABLES = {
+    "nombre": "Nombre",
+    "apellido": "Apellido",
+    "nombre_completo": "Nombre completo",
+    "cargo": "Cargo",
+    "empresa": "Empresa",
+    "ciudad": "Ciudad",
+    "pais": "País",
+    "ejecutivo": "Tu nombre",
+    "cargo_ejecutivo": "Tu cargo",
+    "mi_empresa": "Mi empresa",
+}
+
+
+def variable_values(session: Session, p: Proposal) -> dict[str, str]:
+    """Valores de {{variables}} para esta propuesta: contacto, empresa y ejecutivo."""
+    contact = session.get(Contact, p.contact_id) if p.contact_id else None
+    deal = session.get(Deal, p.deal_id) if p.deal_id else None
+    company = session.get(Company, deal.company_id) if deal and deal.company_id else None
+    executive = (p.design or {}).get("executive") or {}
+    brand = get_brand(session, p.tenant_id)
+    first = (contact.first_name or "").split(" ")[0] if contact and contact.first_name else ""
+    return {
+        "nombre": first,
+        "apellido": (contact.last_name if contact else "") or "",
+        "nombre_completo": (contact.full_name if contact else "") or "",
+        "cargo": (contact.job_title if contact else "") or "",
+        "empresa": (company.name if company else (contact.company_name if contact else "")) or "",
+        "ciudad": (contact.city if contact else "") or "",
+        "pais": COUNTRIES.get(contact.country_code or "", ("",))[0] if contact else "",
+        "ejecutivo": executive.get("name") or "",
+        "cargo_ejecutivo": executive.get("title") or "",
+        "mi_empresa": brand.get("legal_name") or "",
+    }
+
+
+def personalize(data: dict[str, Any], values: dict[str, str]) -> dict[str, Any]:
+    """Reemplaza las {{variables}} en título, secciones y descripciones."""
+
+    def text(value: str) -> str:
+        return render(value, values)[0]
+
+    out = dict(data)
+    out["title"] = text(data["title"])
+    out["sections"] = [{**s, "title": text(s["title"]), "body": text(s["body"])}
+                       for s in data["sections"]]  # fmt: skip
+    out["items"] = [
+        {**i, "name": text(i["name"]),
+         "description": render(i.get("description") or "", values,
+                               escape=is_html(i.get("description") or ""))[0]}
+        for i in data["items"]
+    ]  # fmt: skip
+    return out
+
+
 def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[str, Any]:
     if record:
         proposal.view_count += 1
@@ -668,7 +725,7 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
             proposal.status = "viewed"
     tenant = session.get(Tenant, proposal.tenant_id)
     owner = session.get(User, proposal.created_by) if proposal.created_by else None
-    data = proposal_dict(session, proposal)
+    data = personalize(proposal_dict(session, proposal), variable_values(session, proposal))
     expired = bool(proposal.valid_until and proposal.valid_until < now().date())
     return {
         "number": data["number"],
