@@ -276,3 +276,29 @@ def test_pause_and_disabled_gmail(
     r = client.post(f"/api/campaigns/{campaign['id']}/launch")
     assert r.status_code == 400 and "buzón" in r.json()["detail"]
     assert client.post(f"/api/campaigns/{campaign['id']}/pause").status_code == 409
+
+
+def test_next_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    # Domingo 1 nov 2026, 9:54 en Bogotá → el lunes a las 8:00.
+    monkeypatch.setattr(svc, "now", lambda: datetime(2026, 11, 1, 14, 54, tzinfo=UTC))
+    nxt = svc.next_window(dict(svc.DEFAULT_SETTINGS))
+    assert nxt is not None and nxt.isoweekday() == 1 and nxt.hour == 8
+    assert svc.next_window({**svc.DEFAULT_SETTINGS, "days": [7]}) is None
+
+
+def test_gmail_403_explained() -> None:
+    from orkesta.campaigns import gmail
+
+    def route(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": {"code": 403, "message": "Gmail API has not "
+                              "been used in project 1 before or it is disabled.",
+                              "errors": [{"reason": "accessNotConfigured"}]}})  # fmt: skip
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    try:
+        with pytest.raises(gmail.GmailError, match="no está habilitada"):
+            gmail.send("t", b"raw")
+    finally:
+        fetch.TRANSPORT = None
