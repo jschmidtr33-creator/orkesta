@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode
 
 import nh3
 
+from orkesta.copywriter.engine import contact_industry, contact_reto
 from orkesta.core.config import get_settings
 
 VARIABLES = {
@@ -25,6 +26,8 @@ VARIABLES = {
     "ciudad": "Ciudad",
     "pais": "País",
     "remitente": "Tu nombre",
+    "reto": "Reto de su área",
+    "industria": "Su industria",
 }
 _VAR = re.compile(r"\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}")
 _URL = re.compile(r"(https?://[^\s<>\"')]+)")
@@ -40,6 +43,11 @@ def context(contact: Any, sender_name: str, country_name: str = "") -> dict[str,
         "ciudad": contact.city or "",
         "pais": country_name,
         "remitente": sender_name,
+        # IA propia: el reto típico del área del contacto y su industria, para personalizar.
+        "reto": contact_reto(getattr(contact, "area_code", None)),
+        "industria": contact_industry(
+            getattr(contact, "industry_code", None), getattr(contact, "industry", None)
+        ),
     }
 
 
