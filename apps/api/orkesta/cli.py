@@ -51,11 +51,14 @@ def bootstrap_admin() -> None:
         if user is not None:
             if not user.is_platform_admin:
                 user.is_platform_admin = True
+            if user.platform_role != "owner":
+                user.platform_role = "owner"  # la cuenta inicial es la creadora del panel
             print("release: el administrador inicial ya existe")
             return
         user = svc.create_user(
             session, email=email, full_name="Administrador", password=password, platform_admin=True
         )
+        user.platform_role = "owner"
         svc.create_tenant(session, owner=user, name=settings.orkesta_bootstrap_org_name)
         print(f"release: administrador inicial creado ({email})")
 

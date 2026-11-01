@@ -54,6 +54,8 @@ class User(IdMixin, Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Rol en el panel de administración de ORKESTA: owner (creadora), admin, soporte, lectura.
+    platform_role: Mapped[str | None] = mapped_column(String(20))
     last_tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

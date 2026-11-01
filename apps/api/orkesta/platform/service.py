@@ -199,6 +199,18 @@ def start_session(
     ip: str | None = None,
 ) -> Tokens:
     membership = _pick_membership(session, user, tenant_id)
+    if membership is None and not user.platform_role:
+        suspended = session.scalar(
+            select(Membership.id)
+            .join(Tenant, Tenant.id == Membership.tenant_id)
+            .where(Membership.user_id == user.id, Membership.status == "active",
+                   Tenant.status == "suspended")
+            .limit(1)
+        )  # fmt: skip
+        if suspended is not None:
+            raise PlatformError(
+                "Tu espacio de trabajo está suspendido. Escríbenos para reactivarlo.", 423
+            )
     claims = AccessClaims(
         user_id=user.id,
         tenant_id=membership.tenant_id if membership else None,
