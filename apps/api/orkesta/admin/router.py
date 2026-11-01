@@ -271,9 +271,10 @@ Owner = Annotated[Principal, Depends(require("equipo"))]
 
 @router.get("/team")
 def team(principal: Staff, db: Db) -> dict[str, Any]:
-    rows = db.scalars(
-        select(User).where(User.platform_role.is_not(None)).order_by(User.created_at)
-    ).all()
+    rows = sorted(
+        db.scalars(select(User).where(User.platform_role.is_not(None))).all(),
+        key=lambda u: (u.platform_role != "owner", u.created_at),
+    )
     return {
         "members": [
             {

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Link2, MailPlus, ShieldCheck } from "lucide-react";
+import { Copy, Link2, MailPlus } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import {
@@ -43,7 +43,6 @@ export function SettingsPage() {
     { to: "/configuracion/equipo", label: "Equipo" },
     { to: "/configuracion/integraciones", label: "Integraciones" },
     ...(role !== "vendedor" ? [{ to: "/configuracion/auditoria", label: "Auditoría" }] : []),
-    ...(session?.user.platform_admin ? [{ to: "/configuracion/plataforma", label: "Plataforma" }] : []),
   ];
   return (
     <>
@@ -70,7 +69,7 @@ export function SettingsPage() {
         <Route path="equipo" element={<TeamSettings />} />
         <Route path="integraciones" element={<IntegrationSettings />} />
         <Route path="auditoria" element={<AuditSettings />} />
-        <Route path="plataforma" element={<PlatformSettings />} />
+        <Route path="plataforma" element={<Navigate to="/admin" replace />} />
       </Routes>
     </>
   );
@@ -410,55 +409,4 @@ function AuditSettings() {
   );
 }
 
-type Overview = {
-  tenants: number;
-  users: number;
-  demo_requests: { id: string; at: string; name: string; email: string; company: string; job_title: string; country: string; message: string }[];
-};
 
-function PlatformSettings() {
-  const overview = useQuery({ queryKey: ["platform"], queryFn: () => api<Overview>("/api/platform/overview") });
-  if (overview.isLoading) return <Spinner />;
-  if (overview.error) return <Alert>{overview.error.message}</Alert>;
-  const data = overview.data!;
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card>
-          <p className="text-[13px] text-ork-mist">Empresas registradas</p>
-          <p className="mt-2 text-[28px] font-bold text-ork-ink">{data.tenants}</p>
-        </Card>
-        <Card>
-          <p className="text-[13px] text-ork-mist">Usuarios</p>
-          <p className="mt-2 text-[28px] font-bold text-ork-ink">{data.users}</p>
-        </Card>
-      </div>
-      <Card>
-        <CardHeader
-          title="Solicitudes de demo"
-          description="Llegan desde el formulario del sitio público."
-          action={<ShieldCheck className="size-5 text-ork-mist" aria-hidden />}
-        />
-        {data.demo_requests.length === 0 ? (
-          <p className="text-[13.5px] text-ork-mist">Todavía no hay solicitudes.</p>
-        ) : (
-          <ul className="divide-y divide-ork-line">
-            {data.demo_requests.map((d) => (
-              <li key={d.id} className="py-3 text-[13.5px]">
-                <p className="font-semibold text-ork-ink">
-                  {d.name} · {d.company}
-                </p>
-                <p className="text-ork-mist">
-                  {d.email}
-                  {d.job_title && ` · ${d.job_title}`}
-                  {d.country && ` · ${d.country}`} · {formatWhen(d.at)}
-                </p>
-                {d.message && <p className="mt-1 text-ork-graphite">{d.message}</p>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </div>
-  );
-}

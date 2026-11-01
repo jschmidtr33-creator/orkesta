@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.admin.router import router as admin_router
@@ -110,6 +110,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
             {"detail": "Revisa los datos del formulario.", "errors": exc.errors()[:5]},
             status_code=422,
         )
+
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/{rest:path}", include_in_schema=False)
+    def admin_panel(rest: str = "") -> Response:
+        # El panel de administración vive dentro de la app web, con su propio diseño.
+        return RedirectResponse(f"/app/admin/{rest}".rstrip("/"), status_code=307)
 
     @app.get("/health", include_in_schema=False)
     def root_health() -> dict[str, str]:
