@@ -352,3 +352,19 @@ def save_people(
         "list": {"id": str(target.id), "name": target.name} if target else None,
         "at": now().isoformat(),
     }
+
+
+def remove_items(
+    session: Session, tenant_id: uuid.UUID, run_id: uuid.UUID, item_ids: list[uuid.UUID]
+) -> int:
+    from sqlalchemy import delete
+
+    get_run(session, tenant_id, run_id)
+    result = session.execute(
+        delete(ResearchItem).where(
+            ResearchItem.tenant_id == tenant_id,
+            ResearchItem.run_id == run_id,
+            ResearchItem.id.in_(item_ids[:1000]),
+        )
+    )
+    return int(getattr(result, "rowcount", 0) or 0)

@@ -124,6 +124,7 @@ class Prospect:
     linkedin: str = ""
     email: str = ""
     email_status: str = ""  # publicado | estimado
+    location: str = ""
     provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
 
@@ -175,6 +176,7 @@ class Prospect:
             "phone": next(iter(sorted(self.company.phones)), ""),
             "linkedin": self.linkedin,
             "city": self.company.city,
+            "location": self.location or self.company.city,
             "country": country,
             "industry": self.company.industry,
             "provenance": self.provenance,
@@ -830,6 +832,7 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         )  # fmt: skip
         with run.lock:
             run.source_counts["perfil"] += 1
+            prospect.location = prospect.location or lead.location
         _publish(run, prospect, filters)
     companies = list(run.companies.values())
     if not companies:
