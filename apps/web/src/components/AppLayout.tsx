@@ -21,6 +21,7 @@ import { useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
+import { NotificationBell } from "./Notifications";
 import { Avatar, cx, Spinner, Wordmark } from "./ui";
 
 type NavItem = { to: string; label: string; icon: ComponentType<{ className?: string }>; end?: boolean };
@@ -154,9 +155,12 @@ export function AppLayout() {
       </aside>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-ork-line bg-white/90 px-4 backdrop-blur lg:hidden">
         <Wordmark size={24} />
-        <button type="button" className="ork-focus rounded-lg p-2" aria-label="Abrir menú" onClick={() => setOpen(true)}>
-          <MenuIcon className="size-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <button type="button" className="ork-focus rounded-lg p-2" aria-label="Abrir menú" onClick={() => setOpen(true)}>
+            <MenuIcon className="size-5" />
+          </button>
+        </div>
       </header>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
@@ -174,7 +178,10 @@ export function AppLayout() {
           </aside>
         </div>
       )}
-      <main className="mx-auto max-w-[1240px] px-4 py-6 sm:px-8 sm:py-8">
+      <main className="relative mx-auto max-w-[1240px] px-4 py-6 sm:px-8 sm:py-8 lg:pt-14">
+        <div className="absolute right-8 top-4 z-20 hidden lg:block">
+          <NotificationBell />
+        </div>
         <NewVersionBanner />
         <Outlet />
       </main>

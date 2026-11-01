@@ -29,6 +29,7 @@ from orkesta.crm.service import log as crm_log
 from orkesta.data.models import Contact, ListMember
 from orkesta.data.service import ContactFilters, _filtered
 from orkesta.engine.normalize.location import COUNTRIES
+from orkesta.notifications.service import notify
 from orkesta.platform.models import Tenant, User
 
 logger = logging.getLogger("orkesta.campaigns")
@@ -632,6 +633,12 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
                 contact_id=recipient.contact_id,
                 body=f"Respondió a la campaña «{campaign.name}». Revisa tu Gmail.",
             )
+            notify(
+                session, tenant_id=campaign.tenant_id,
+                user_id=mailbox.user_id or campaign.created_by, kind="reply",
+                title=f"{recipient.email} respondió a «{campaign.name}»",
+                body="Revisa tu Gmail para contestar.", link=f"/app/campanas/{campaign.id}",
+            )  # fmt: skip
             if _emit(session, campaign, recipient, "campaign.replied"):
                 found += 1
                 continue  # una automatización decide qué hacer (en vez de la tarea fija)
@@ -730,6 +737,12 @@ class Scheduler(threading.Thread):
                 tick(self.factory)
             except Exception:
                 logger.exception("campaign_tick_failed")
+            try:
+                from orkesta.notifications.service import due_task_reminders
+
+                due_task_reminders(self.factory)
+            except Exception:
+                logger.exception("reminders_failed")
 
     def stop(self) -> None:
         self.stop_event.set()

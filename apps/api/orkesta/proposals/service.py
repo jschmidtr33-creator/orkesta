@@ -26,6 +26,7 @@ from orkesta.crm.service import move_deal
 from orkesta.data.models import Company, Contact
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.engine.taxonomy.industries import INDUSTRY_LABELS
+from orkesta.notifications.service import notify
 from orkesta.platform.models import Tenant, User
 from orkesta.proposals.design import (
     DesignError,
@@ -712,6 +713,9 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
                 contact_id=proposal.contact_id, deal_id=proposal.deal_id,
                 body=f"El cliente abrió la propuesta N.º {proposal.number} por primera vez.",
             )  # fmt: skip
+            notify(session, tenant_id=proposal.tenant_id, user_id=proposal.created_by,
+                   kind="proposal", title=f"El cliente abrió la propuesta N.º {proposal.number}",
+                   body=proposal.title, link=f"/app/propuestas/{proposal.id}")  # fmt: skip
             emit(
                 session,
                 proposal.tenant_id,
@@ -769,6 +773,15 @@ def decide(session: Session, proposal: Proposal, *, accept: bool, name: str, not
         body += f" Comentario: {proposal.decision_note}"
     crm_log(session, tenant_id=proposal.tenant_id, kind="system", user_id=None,
             contact_id=proposal.contact_id, deal_id=proposal.deal_id, body=body)  # fmt: skip
+    notify(
+        session,
+        tenant_id=proposal.tenant_id,
+        user_id=proposal.created_by,
+        kind="proposal",
+        title=body[:200],
+        body=proposal.title,
+        link=f"/app/propuestas/{proposal.id}",
+    )
     emit(session, proposal.tenant_id, f"proposal.{proposal.status}",
          contact_id=proposal.contact_id, deal_id=proposal.deal_id, proposal_id=proposal.id,
          user_id=proposal.created_by)  # fmt: skip
