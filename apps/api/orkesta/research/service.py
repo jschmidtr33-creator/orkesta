@@ -82,6 +82,10 @@ def _summary(filters: dict[str, Any]) -> str:
         parts.append(f"{filters['first_name']} {filters['last_name']}".strip())
     if filters["keywords"]:
         parts.append(f"«{filters['keywords']}»")
+    if filters.get("mode") == "accounts":
+        parts.insert(0, "Cuentas")
+        if filters["sizes"]:
+            parts.append(", ".join(f"{s} empl." for s in filters["sizes"][:2]))
     return " · ".join(parts)[:300]
 
 
@@ -117,6 +121,7 @@ def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
     legacy_areas = pick("areas", AREA_LABELS)
     cities = texts("cities", 5, 80) or ([_text(data.get("city"))] if data.get("city") else [])
     return {
+        "mode": "accounts" if data.get("mode") == "accounts" else "leads",
         "country": country,
         "cities": cities,
         "city": cities[0] if len(cities) == 1 else "",
@@ -181,6 +186,43 @@ def save_search(
         raise DataError("Ponle un nombre a la búsqueda.")
     run.saved_name, run.saved_at = clean, now()
     return run
+
+
+def save_accounts(
+    session: Session, tenant_id: uuid.UUID, run_id: uuid.UUID, item_ids: list[uuid.UUID]
+) -> int:
+    """Guarda cuentas encontradas en la base de empresas (sin duplicar)."""
+    get_run(session, tenant_id, run_id)
+    rows = session.scalars(
+        select(ResearchItem).where(
+            ResearchItem.tenant_id == tenant_id,
+            ResearchItem.run_id == run_id,
+            ResearchItem.kind == "company",
+            ResearchItem.id.in_(item_ids[:1000]),
+        )
+    ).all()
+    if not rows:
+        return 0
+    _upsert_companies(
+        session,
+        [
+            {
+                "id": uuid.uuid4(),
+                "tenant_id": tenant_id,
+                "name": (r.data.get("name") or r.key)[:300],
+                "match_key": r.key,
+                "domain": r.data.get("domain") or None,
+                "industry": (r.data.get("industry") or "")[:200] or None,
+                "industry_code": r.data.get("industry_code") or None,
+                "city": (r.data.get("city") or "")[:120] or None,
+                "country_code": r.data.get("country") or None,
+            }
+            for r in rows
+        ],
+    )
+    for r in rows:
+        r.data = {**r.data, "saved": True}
+    return len(rows)
 
 
 def forget_search(session: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:

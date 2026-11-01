@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Eye, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
 import type { Editor } from "@tiptap/react";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
 import { api } from "../lib/api";
@@ -806,13 +806,21 @@ function Recipients({ campaignId }: { campaignId: string }) {
                 </td>
                 <td className="py-2.5">
                   <span className="flex items-center gap-2 text-ork-mist">
-                    <span className={cx("flex items-center gap-0.5", r.opened && "text-ork-blue")} title="Abrió">
-                      <Eye className="size-3.5" aria-hidden /> {r.open_count}
-                    </span>
-                    <span className={cx(r.clicked && "text-ork-violet")} title="Hizo clic">
-                      <MousePointerClick className="size-3.5" aria-hidden />
-                    </span>
-                    {r.replied_at && <Reply className="size-3.5 text-ok" aria-label="Respondió" />}
+                    <Tip label={r.opened ? `Abrió el correo ${r.open_count} ${r.open_count === 1 ? "vez" : "veces"}` : "Aún no abre el correo"}>
+                      <span className={cx("flex items-center gap-0.5", r.opened && "text-ork-blue")}>
+                        <Eye className="size-3.5" aria-hidden /> {r.open_count}
+                      </span>
+                    </Tip>
+                    <Tip label={r.clicked ? "Hizo clic en un enlace del correo" : "Aún no hace clic en los enlaces"}>
+                      <span className={cx(r.clicked && "text-ork-violet")}>
+                        <MousePointerClick className="size-3.5" aria-hidden />
+                      </span>
+                    </Tip>
+                    {r.replied_at && (
+                      <Tip label={`Respondió el ${formatWhen(r.replied_at)}`}>
+                        <Reply className="size-3.5 text-ok" aria-hidden />
+                      </Tip>
+                    )}
                   </span>
                   {r.gmail_url && (
                     <a href={r.gmail_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
