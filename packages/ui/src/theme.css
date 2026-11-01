@@ -87,3 +87,7 @@
 .ork-prose img { max-width: 100%; height: auto; border-radius: 4px; }
 .ork-prose img.ProseMirror-selectednode { outline: 3px solid rgb(79 70 229 / 0.5); }
 .ork-prose blockquote { border-left: 3px solid #e5e7eb; padding-left: 10px; color: #4b5563; }
+
+/* Propuestas: conservar colores y fondos al imprimir o guardar en PDF. */
+.ork-doc, .ork-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+@media print { @page { margin: 0; } }

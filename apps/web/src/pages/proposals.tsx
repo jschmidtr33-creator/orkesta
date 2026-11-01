@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Copy, Eye, FilePlus2, Files, Package, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
+import { ProposalDocument } from "../components/ProposalDocument";
 import { api } from "../lib/api";
+import { BrandSettings, DesignPanel, lookFrom, useBrand, type Design } from "./proposalDesign";
 import { useSession } from "../lib/session";
 import { money, type Deal } from "./crm";
 import { formatWhen } from "./dashboard";
@@ -32,7 +34,7 @@ type ProposalRow = {
   decision_note: string | null;
   created_at: string;
 };
-type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number };
+type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number; design: Design };
 type Product = { id: string; name: string; description: string; unit_price: number; currency: string; unit: string; active: boolean };
 
 const STATUS_TONE = { draft: "neutral", sent: "blue", viewed: "violet", accepted: "ok", rejected: "bad" } as const;
@@ -50,7 +52,7 @@ function useProducts() {
 
 export function ProposalsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("vista") === "catalogo" ? "catalogo" : "propuestas";
+  const tab = params.get("vista") === "catalogo" ? "catalogo" : params.get("vista") === "marca" ? "marca" : "propuestas";
   const [status, setStatus] = useState("");
   const [creating, setCreating] = useState(false);
   const list = useQuery({ queryKey: ["proposals", status], queryFn: () => api<ProposalRow[]>(`/api/proposals?estado=${status}`) });
@@ -70,6 +72,7 @@ export function ProposalsPage() {
           [
             ["propuestas", "Propuestas", <Files key="f" className="size-4" aria-hidden />],
             ["catalogo", "Catálogo", <Package key="p" className="size-4" aria-hidden />],
+            ["marca", "Marca y diseño", <Palette key="m" className="size-4" aria-hidden />],
           ] as const
         ).map(([value, label, icon]) => (
           <button
@@ -86,6 +89,8 @@ export function ProposalsPage() {
       </div>
       {tab === "catalogo" ? (
         <Catalog />
+      ) : tab === "marca" ? (
+        <BrandSettings />
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="flex flex-wrap gap-1 border-b border-ork-line px-4 pt-3">
@@ -361,14 +366,17 @@ export function ProposalEditor() {
   const products = useProducts();
   const query = useQuery({ queryKey: ["proposal", id], queryFn: () => api<Proposal>(`/api/proposals/${id}`) });
   const p = query.data;
-  const [draft, setDraft] = useState<Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until"> | null>(null);
+  const [draft, setDraft] = useState<Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until" | "design"> | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
+  const brand = useBrand();
+  const snapshot = (x: Proposal) => ({ title: x.title, currency: x.currency, items: x.items, sections: x.sections, tax_rate: x.tax_rate, valid_until: x.valid_until, design: x.design ?? {} });
   useEffect(() => {
-    if (p) setDraft({ title: p.title, currency: p.currency, items: p.items, sections: p.sections, tax_rate: p.tax_rate, valid_until: p.valid_until });
+    if (p) setDraft(snapshot(p));
   }, [p]);
   const locked = p?.status === "accepted" || p?.status === "rejected";
   const dirty = useMemo(
-    () => Boolean(p && draft && JSON.stringify(draft) !== JSON.stringify({ title: p.title, currency: p.currency, items: p.items, sections: p.sections, tax_rate: p.tax_rate, valid_until: p.valid_until })),
+    () => Boolean(p && draft && JSON.stringify(draft) !== JSON.stringify(snapshot(p))),
     [p, draft],
   );
   const refresh = (data: Proposal) => {
@@ -386,7 +394,13 @@ export function ProposalEditor() {
       client.invalidateQueries({ queryKey: ["crm-deals"] });
     },
   });
-  const regen = useMutation({ mutationFn: () => api<Proposal>(`/api/proposals/${id}/regenerate`, { method: "POST" }), onSuccess: refresh });
+  const regen = useMutation({
+    mutationFn: async () => {
+      if (dirty) await api(`/api/proposals/${id}`, { method: "PATCH", json: draft });
+      return api<Proposal>(`/api/proposals/${id}/regenerate`, { method: "POST" });
+    },
+    onSuccess: refresh,
+  });
   const dup = useMutation({
     mutationFn: () => api<Proposal>(`/api/proposals/${id}/duplicate`, { method: "POST" }),
     onSuccess: (data) => {
@@ -472,7 +486,7 @@ export function ProposalEditor() {
       {p.status === "draft" && (
         <div className="mb-4">
           <Alert tone="blue">
-            Copia el enlace y envíalo a tu cliente; al marcarla como enviada, la oportunidad pasa a «Propuesta enviada» y verás cuándo la abre. (El envío directo desde tu correo llega en la etapa de Campañas.)
+            Personaliza plantilla, colores, idioma y tus datos en «Diseño». Luego copia el enlace y envíalo a tu cliente; al marcarla como enviada, la oportunidad pasa a «Propuesta enviada» y verás cuándo la abre.
           </Alert>
         </div>
       )}
@@ -485,7 +499,61 @@ export function ProposalEditor() {
         </div>
       )}
 
+      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-white p-0.5" role="tablist" aria-label="Editor">
+        {(
+          [
+            ["contenido", "Contenido", <LayoutTemplate key="c" className="size-4" aria-hidden />],
+            ["diseno", "Diseño", <Brush key="d" className="size-4" aria-hidden />],
+            ["vista", "Vista previa", <Eye key="v" className="size-4" aria-hidden />],
+          ] as const
+        ).map(([value, label, icon]) => (
+          <button
+            key={value}
+            role="tab"
+            aria-selected={mode === value}
+            onClick={() => setMode(value)}
+            className={cx("ork-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold", mode === value ? "ork-gradient text-white" : "text-ork-graphite")}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {mode === "diseno" ? (
+          <DesignPanel
+            design={draft.design}
+            locked={locked}
+            onChange={(design) => setDraft({ ...draft, design })}
+            translating={regen.isPending}
+            onTranslate={() => window.confirm("¿Rehacer los textos en el idioma elegido? Se reemplaza el contenido actual.") && regen.mutate()}
+          />
+        ) : mode === "vista" ? (
+          brand.data ? (
+            <div className="min-w-0">
+              <ProposalDocument
+                data={{
+                  number: p.number,
+                  title: draft.title,
+                  currency: draft.currency,
+                  items: draft.items,
+                  sections: draft.sections,
+                  tax_rate: draft.tax_rate,
+                  totals: t,
+                  valid_until: draft.valid_until,
+                  company: p.company,
+                  contact_name: p.contact?.full_name ?? null,
+                  issuer: brand.data.brand.legal_name,
+                  created_at: p.created_at,
+                  look: lookFrom(brand.data.brand, draft.design),
+                }}
+              />
+            </div>
+          ) : (
+            <Spinner />
+          )
+        ) : (
         <div className="flex flex-col gap-5">
           <Card>
             <CardHeader
@@ -613,6 +681,7 @@ export function ProposalEditor() {
             )}
           </Card>
         </div>
+        )}
 
         <Card className="xl:sticky xl:top-4">
           <CardHeader title="Resumen" />
