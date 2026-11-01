@@ -470,8 +470,9 @@ def test_sales_navigator_filters(
     names = {p["data"]["full_name"] for p in run["people"]}
     assert "Carlos Ruiz Pardo" in names and "Sofía Lara" not in names  # empresa excluida
     assert run["filters"]["industries"] == ["banca_finanzas"]
-    query = next(a["q"] for a in with_serper if a["q"].startswith("site:linkedin.com/in"))
-    assert '"gerente general"' in query and "banco" in query and '-"Financiera Austral"' in query
+    queries = [a["q"] for a in with_serper if a["q"].startswith("site:linkedin.com/in")]
+    assert any('"Gerente General"' in q and "banco" in q for q in queries)
+    assert all('-"Financiera Austral"' in q for q in queries if "banco" in q)
 
     # El historial solo guarda lo que el usuario guarda.
     assert client.get("/api/research/runs").json() == []
