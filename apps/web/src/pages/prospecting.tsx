@@ -37,7 +37,6 @@ type Options = {
   seniority: Option[];
   default_seniority: string[];
   headcount: Option[];
-  limits: number[];
   web_search: boolean;
 };
 type Filters = {
@@ -498,19 +497,6 @@ function FilterPanel({
           )}
         </p>
         <div className="flex items-center gap-3">
-          <span className="text-[12.5px] text-ork-mist">Resultados</span>
-          <div className="inline-flex rounded-xl border border-ork-line p-0.5">
-            {options.limits.map((n) => (
-              <button
-                type="button"
-                key={n}
-                onClick={() => set({ limit: n })}
-                className={cx("ork-focus rounded-lg px-2.5 py-1 text-[12.5px] font-semibold", filters.limit === n ? "ork-gradient text-white" : "text-ork-graphite")}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
           {total > 0 && (
             <button type="button" className="text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => setFilters({ ...EMPTY, country: filters.country, limit: filters.limit })}>
               Borrar todo
@@ -877,7 +863,7 @@ function RunHeader({
           </div>
           <p className="mt-2 text-[12.5px] text-ork-graphite" aria-live="polite">
             {step}
-            {run.progress.step === "leads" && total ? ` ${done} de ${total}` : ""}
+            {run.progress.step === "leads" && done ? ` ${done} encontrados hasta ahora` : ""}
           </p>
         </div>
       )}
@@ -922,7 +908,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey | "">("");
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(25);
+  const size = 25; // 25 por página, sin tope total de resultados
   const [listId, setListId] = useState("");
   const [newList, setNewList] = useState("");
   const [message, setMessage] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
@@ -958,7 +944,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   });
   const save = useMutation({
     mutationFn: (ids: string[]) =>
-      api<{ created: number; merged: number; list: { name: string } | null }>(`/api/research/runs/${run.id}/save`, {
+      api<{ created: number; merged: number; over_limit: number; list: { name: string } | null }>(`/api/research/runs/${run.id}/save`, {
         method: "POST",
         json: { ids, list_id: listId && listId !== "nueva" ? listId : null, new_list: listId === "nueva" ? newList : "" },
       }),
@@ -966,7 +952,8 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
       const parts = [`${r.created} guardadas en Contactos`];
       if (r.merged) parts.push(`${r.merged} ya existían y se completaron`);
       if (r.list) parts.push(`en la lista «${r.list.name}»`);
-      setMessage({ tone: "ok", text: parts.join(" · ") + "." });
+      if (r.over_limit) parts.push(`${r.over_limit} sin guardar: llegaste al límite de contactos de tu plan`);
+      setMessage({ tone: r.over_limit ? "bad" : "ok", text: parts.join(" · ") + "." });
       setSelected(new Set());
       setNewList("");
       client.invalidateQueries({ queryKey: ["lists"] });
@@ -1126,6 +1113,13 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
                   ) : (
                     <EmailCell data={p.data} />
                   )}
+                  {p.data.linkedin ? (
+                    <a href={p.data.linkedin} target="_blank" rel="noreferrer noopener" className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-md bg-[#0A66C2]/10 px-2 py-0.5 text-[12px] font-semibold text-[#0A66C2] hover:bg-[#0A66C2]/15">
+                      <ExternalLink className="size-3 shrink-0" aria-hidden /> {p.data.linkedin.replace(/^https?:\/\/([a-z]{2,3}\.)?/, "")}
+                    </a>
+                  ) : (
+                    <span className="text-[12px] text-ork-mist">Sin perfil público</span>
+                  )}
                   <button type="button" onClick={() => setOpenRow(openRow === p.id ? null : p.id)} className="ork-focus inline-flex items-center gap-1 rounded text-[12.5px] font-semibold text-ork-graphite hover:text-ork-blue" aria-expanded={openRow === p.id}>
                     Acerca de <ChevronDown className={cx("size-3.5 transition", openRow === p.id && "rotate-180")} aria-hidden />
                   </button>
@@ -1165,21 +1159,6 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
         <PagerButton label="Última página" disabled={current >= pages} onClick={() => setPage(pages)}>
           »
         </PagerButton>
-        <select
-          aria-label="Resultados por página"
-          value={size}
-          onChange={(e) => {
-            setSize(Number(e.target.value));
-            setPage(1);
-          }}
-          className="ork-focus ml-2 h-8 rounded-lg border border-ork-line bg-white px-2 text-[13px]"
-        >
-          {[25, 50, 100].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
         <span className="text-ork-mist">{rows.length} posibles clientes</span>
       </div>
     </div>

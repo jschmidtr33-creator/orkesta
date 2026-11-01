@@ -227,6 +227,7 @@ class Totals:
     repetidas_en_archivo: int = 0
     nuevos: int = 0
     actualizados: int = 0
+    sobre_limite: int = 0
     empresas: set[str] = field(default_factory=set)
 
     def as_dict(self) -> dict[str, int]:
@@ -236,6 +237,7 @@ class Totals:
             "repetidas_en_archivo": self.repetidas_en_archivo,
             "nuevos": self.nuevos,
             "actualizados": self.actualizados,
+            "sobre_limite": self.sobre_limite,
             "empresas": len(self.empresas),
         }
 
@@ -411,6 +413,45 @@ def _upsert_companies(session: Session, rows: list[dict[str, Any]]) -> dict[str,
     return {key: cid for cid, key in result.tuples()}
 
 
+def _check_contact_limit(session: Session, tenant_id: uuid.UUID, adding: int = 1) -> None:
+    from orkesta.admin.limits import LimitError, check_contacts
+
+    try:
+        check_contacts(session, tenant_id, adding)
+    except LimitError as exc:
+        raise DataError(str(exc), exc.status) from exc
+
+
+def _fit_to_plan(
+    session: Session, tenant_id: uuid.UUID, items: Sequence[ProspectRecord], totals: Totals
+) -> list[ProspectRecord]:
+    """Deja pasar las actualizaciones y solo los contactos nuevos que caben en el plan."""
+    from orkesta.admin.limits import contact_capacity
+
+    room = contact_capacity(session, tenant_id)
+    if room is None:
+        return list(items)
+    keys = [dedup_key(i.email, i.full_name, i.company_key) for i in items]
+    existing = set(
+        session.scalars(
+            select(Contact.dedup_key).where(
+                Contact.tenant_id == tenant_id, Contact.dedup_key.in_(keys)
+            )
+        )
+    )
+    kept: list[ProspectRecord] = []
+    for item, key in zip(items, keys, strict=True):
+        if key in existing:
+            kept.append(item)
+        elif room > 0:
+            kept.append(item)
+            room -= 1
+            existing.add(key)
+        else:
+            totals.sobre_limite += 1
+    return kept
+
+
 def _upsert_chunk(
     session: Session,
     *,
@@ -422,6 +463,9 @@ def _upsert_chunk(
     list_id: uuid.UUID | None,
     totals: Totals,
 ) -> None:
+    items = _fit_to_plan(session, tenant_id, items, totals)
+    if not items:
+        return
     company_ids = _upsert_companies(session, _company_rows(tenant_id, items))
     totals.empresas.update(company_ids)
     rows = []
@@ -786,6 +830,7 @@ def create_contact(
     )
     if existing is not None:
         raise DataError("Ese contacto ya existe en tu base.", 409)
+    _check_contact_limit(session, tenant_id)
     contact = Contact(
         tenant_id=tenant_id,
         company_id=_ensure_company(session, tenant_id, values),

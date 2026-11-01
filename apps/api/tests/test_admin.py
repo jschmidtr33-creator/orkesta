@@ -129,3 +129,30 @@ def test_admin_panel_access_team_permissions_and_settings(
     actions = {a["action"] for a in client.get("/api/admin/audit").json()}
     assert {"tenant.suspended", "team.added", "permissions.updated", "settings.updated",
             "panel.ingreso", "panel.ingreso_fallido"} <= actions  # fmt: skip
+
+
+def test_plan_limits_are_enforced(client: TestClient, database: tuple[str, str]) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    limits = {"contacts": 2, "emails_per_day": 5, "users": 2}
+    r = client.put("/api/admin/settings", json={"limits": {"inicial": limits}})
+    assert r.status_code == 200, r.text
+    # El espacio del equipo de ORKESTA no tiene límites.
+    for name in ("Uno", "Dos", "Tres"):
+        assert client.post("/api/contacts", json={"first_name": name, "last_name": "Equipo",
+                                                  "company": "ORKESTA"}).status_code == 201  # fmt: skip
+
+    client.headers.pop("X-Admin-Token", None)
+    register(client, "cliente@banco.co", company="Banco Andino")
+    for name in ("Laura", "Pedro"):
+        assert client.post("/api/contacts", json={"first_name": name, "last_name": "Gómez",
+                                                  "company": "Banco Andino"}).status_code == 201  # fmt: skip
+    over = client.post("/api/contacts", json={"first_name": "Marta", "last_name": "Ríos",
+                                              "company": "Banco Andino"})  # fmt: skip
+    assert over.status_code == 402 and "límite de 2 contactos" in over.json()["detail"]
+
+    ok = client.post("/api/team/invitations", json={"email": "a@banco.co", "role": "vendedor"})
+    assert ok.status_code in (200, 201), ok.text
+    full = client.post("/api/team/invitations", json={"email": "b@banco.co", "role": "vendedor"})
+    assert full.status_code == 402 and "2 personas" in full.json()["detail"]

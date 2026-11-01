@@ -481,6 +481,10 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     tz = _tz(str(campaign.settings.get("timezone", "America/Bogota")))
     if sent_today(session, mailbox.id, tz) >= mailbox.daily_limit:
         return False
+    from orkesta.admin.limits import emails_left_today
+
+    if emails_left_today(session, campaign.tenant_id, tz) == 0:
+        return False  # límite diario del plan: sigue mañana
     recipient = session.scalar(
         select(Recipient)
         .where(

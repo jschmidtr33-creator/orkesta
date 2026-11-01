@@ -6,6 +6,7 @@ import io
 import time
 import uuid
 
+import psycopg
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import func, select, text
@@ -147,9 +148,11 @@ def test_excel_with_several_sheets_and_list(
 
 
 def test_large_import_runs_in_background_in_chunks(
-    client: TestClient, session_factory: sessionmaker[Session]
+    client: TestClient, session_factory: sessionmaker[Session], database: tuple[str, str]
 ) -> None:
     register(client, "ana@lacteos.mx")
+    with psycopg.connect(database[0], autocommit=True) as conn:  # plan con cupo para 50.000
+        conn.execute("UPDATE orkesta.tenants SET plan = 'empresa'")
     rows = ["nombre,apellido,empresa,correo,cargo,pais"]
     rows += [
         f"Persona{i},Apellido{i},Empresa {i % 900},p{i}@empresa{i % 900}.com,Gerente,Colombia"
@@ -259,3 +262,20 @@ def test_contacts_are_isolated_between_companies(
     with session_factory() as session:
         set_context(session, tenant_id=uuid.uuid4())
         assert session.scalar(select(func.count()).select_from(Contact)) == 0
+
+
+def test_import_respects_plan_contact_limit(
+    client: TestClient, session_factory: sessionmaker[Session], database: tuple[str, str]
+) -> None:
+    register(client, "ana@lacteos.mx")
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO orkesta.platform_settings (key, value) VALUES ('app', %s)"
+            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            ('{"limits": {"inicial": {"contacts": 3, "emails_per_day": 0, "users": 0}}}',),
+        )
+    rows = ["nombre,apellido,empresa,correo"] + [
+        f"Persona{i},Apellido{i},Empresa,p{i}@empresa.com" for i in range(5)
+    ]
+    done = _import(client, session_factory, "\n".join(rows).encode(), "plan.csv")
+    assert done["totals"]["nuevos"] == 3 and done["totals"]["sobre_limite"] == 2

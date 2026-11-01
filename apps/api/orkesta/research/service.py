@@ -33,7 +33,8 @@ from orkesta.research.models import ResearchItem, ResearchRun
 from orkesta.research.wikidata import COUNTRY_QIDS
 
 MAX_ACTIVE_RUNS = 2
-LIMITS = (10, 25, 50, 100)
+# Sin tope visible: cada búsqueda trae todos los resultados que encuentre (techo técnico).
+MAX_RESULTS = 1000
 LEVEL_CHOICES = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
 UNSAVED_TTL = timedelta(hours=12)
 
@@ -52,7 +53,6 @@ def options() -> dict[str, Any]:
         "seniority": [{"value": k, "label": v[0]} for k, v in li.SENIORITY.items()],
         "default_seniority": list(li.DEFAULT_SENIORITY),
         "headcount": [{"value": k, "label": v} for k, v in li.HEADCOUNT],
-        "limits": list(LIMITS),
         "web_search": serp.enabled(),
     }
 
@@ -116,7 +116,6 @@ def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
     legacy_levels = pick("levels", LEVEL_CHOICES)
     legacy_areas = pick("areas", AREA_LABELS)
     cities = texts("cities", 5, 80) or ([_text(data.get("city"))] if data.get("city") else [])
-    limit = int(data.get("limit") or 25)
     return {
         "country": country,
         "cities": cities,
@@ -138,7 +137,7 @@ def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
         "last_name": _text(data.get("last_name"), 60),
         "keywords": _text(data.get("keywords")),
         "include_base": bool(data.get("include_base", True)),
-        "limit": limit if limit in LIMITS else 25,
+        "limit": MAX_RESULTS,
     }
 
 
@@ -370,7 +369,10 @@ def save_people(
             ResearchItem.id.in_(item_ids[:1000]),
         )
     ).all()
-    created = merged = 0
+    from orkesta.admin.limits import contact_capacity
+
+    room = contact_capacity(session, tenant_id)
+    created = merged = over_limit = 0
     contact_ids: list[uuid.UUID] = []
     new_contacts: list[Contact] = []
     for item in rows:
@@ -415,6 +417,9 @@ def save_people(
             "industry_code": classify(data.get("industry") or "") or None,
         }
         estimated = bool(email) and data.get("email_status") == "estimado"
+        if contact is None and room is not None and created >= room:
+            over_limit += 1
+            continue
         if contact is None:
             contact = Contact(
                 tenant_id=tenant_id,
@@ -458,6 +463,7 @@ def save_people(
         "created": created,
         "merged": merged,
         "added_to_list": added,
+        "over_limit": over_limit,
         "list": {"id": str(target.id), "name": target.name} if target else None,
         "at": now().isoformat(),
     }

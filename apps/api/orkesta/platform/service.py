@@ -335,6 +335,12 @@ def invite(
         )
         if member is not None and member.status == "active":
             raise PlatformError("Esa persona ya es parte del equipo.", 409)
+    from orkesta.admin.limits import LimitError, check_users
+
+    try:
+        check_users(session, tenant_id, pending_email=email)
+    except LimitError as exc:
+        raise PlatformError(str(exc), exc.status) from exc
     # Una invitación vigente por correo: se reemplaza por la nueva.
     session.execute(
         update(Invitation)

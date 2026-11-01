@@ -575,7 +575,8 @@ def people_queries(
     else:
         area = list(dict.fromkeys(t for a in areas for t in AREA_TERMS.get(a, [])))[:5]
     cities = list(spec.cities) or ([city] if city else [])
-    place = _any([_quoted(c) for c in cities]) if cities else _quoted(country_name)
+    # Una consulta por ciudad: el buscador entrega hasta 100 resultados por consulta.
+    places = [_quoted(c) for c in cities] or [_quoted(country_name)]
     common = [_any(industry), _any(area), _any([_quoted(c) for c in spec.companies[:5]])]
     name = " ".join(p for p in (spec.first_name, spec.last_name) if p)
     if name:
@@ -586,9 +587,10 @@ def people_queries(
     excluded += [li.SECTORS[c][2][0] for c in spec.exclude_sectors if c in li.SECTORS]
     common += [f"-{_quoted(t.strip(chr(34)))}" for t in excluded[:6]]
     queries = []
-    for roles in role_groups:
-        q = f"site:linkedin.com/in {_any(roles)} {' '.join(common)} {place}"
-        queries.append(" ".join(q.split()))
+    for place in places:
+        for roles in role_groups:
+            q = f"site:linkedin.com/in {_any(roles)} {' '.join(common)} {place}"
+            queries.append(" ".join(q.split()))
     return list(dict.fromkeys(queries))
 
 
@@ -604,7 +606,7 @@ def people_search(
     industries: list[str],
     keywords: str,
     target: int,
-    max_pages: int = 6,
+    max_pages: int = 10,
     spec: LeadSpec | None = None,
 ) -> list[Lead]:
     """Leads de perfiles públicos que cumplen los filtros, de muchas empresas a la vez."""
