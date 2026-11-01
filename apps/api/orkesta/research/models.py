@@ -105,3 +105,34 @@ class WebPage(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class CompanyDomain(Base):
+    """Memoria global de ORKESTA: dominio web oficial de cada empresa ya identificada (dato
+    público; se reutiliza en todas las búsquedas para no volver a gastar consultas)."""
+
+    __tablename__ = "company_domains"
+
+    key: Mapped[str] = mapped_column(String(320), primary_key=True)  # país|clave de empresa
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DomainPattern(Base):
+    """Memoria global: formato de correo de cada dominio, con la evidencia que lo respalda
+    (correos públicos vistos, respuestas recibidas y rebotes de campañas)."""
+
+    __tablename__ = "domain_patterns"
+
+    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    pattern: Mapped[str] = mapped_column(String(40), nullable=False)
+    seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confirmed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bounced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    example: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

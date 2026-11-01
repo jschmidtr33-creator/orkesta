@@ -483,6 +483,7 @@ PATTERNS: dict[str, str] = {
     "first": "{f}",
     "lastf": "{l}{fi}",
     "last.first": "{l}.{f}",
+    "firstl": "{f}{li}",
 }
 
 
@@ -492,7 +493,7 @@ def _parts(first: str, last: str) -> dict[str, str] | None:
     lt = re.sub(r"[^a-z]", "", fold(tokens[0])) if tokens else ""
     if not f or not lt:
         return None
-    return {"f": f, "l": lt, "fi": f[0]}
+    return {"f": f, "l": lt, "fi": f[0], "li": lt[0]}
 
 
 def detect_pattern(first: str, last: str, email: str) -> str | None:

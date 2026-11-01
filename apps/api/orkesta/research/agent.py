@@ -42,7 +42,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import news, serp, website, wikidata
+from orkesta.research import leads, memory, news, serp, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -844,41 +844,9 @@ def complete_results(
     with ThreadPoolExecutor(max_workers=5) as pool:
         list(pool.map(profile, wanted))
 
-    def domain(company: Candidate) -> None:
-        if company.domain or run.expired() or run.serp.fatal:
-            return
-        company.domain = serp.company_domain(
-            fetcher, run.serp, company.name, filters.country, country_name
-        )
-        if company.domain:
-            company.website = company.website or f"https://{company.domain}"
-            run.save_company(company, filters.country)
-
     missing = [c for c in companies if any(not p.email for p in run.people.get(c.key, []))]
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        list(pool.map(domain, missing))
-    for company in missing:
-        if not company.domain or run.expired():
-            continue
-        pattern, votes, example = serp.email_pattern(fetcher, run.serp, company.domain)
-        if pattern:
-            source = {"type": "patron", "url": example,
-                      "label": f"Formato {pattern}@{company.domain} visto en {votes} correo(s) "
-                               "públicos"}  # fmt: skip
-            confidence = 50 if votes > 1 else 40
-        else:
-            pattern = COMMON_PATTERN
-            label = f"Formato más común ({pattern}@{company.domain}); sin evidencia"
-            source = {"type": "patron", "url": "", "label": label}
-            confidence = 20
-        for prospect in run.people.get(company.key, []):
-            if prospect.email:
-                continue
-            email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
-            if email:
-                prospect.set("email", email, source, confidence)
-                prospect.email_status = "estimado"
-                _publish(run, prospect, filters)
+    resolve_domains(run, fetcher, missing, filters.country)
+    assign_emails(run, fetcher, filters, [c for c in missing if c.domain])
 
 
 # --- Orquestación ---------------------------------------------------------------------------
@@ -925,114 +893,198 @@ def _productive(run: Run, filters: Filters) -> int:
 COMMON_PATTERN = "first.last"
 
 
-def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
-    """Modo principal con buscador: leads que cumplen los filtros → su empresa y dominio →
-    formato de correo de la empresa → correo de cada lead."""
-    country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
-    target = filters.limit
-    run.total = 0
-    run.log(f"Buscando todos los leads que cumplen los filtros en {country_name}…", step="leads")
-    leads = serp.people_search(
-        fetcher, run.serp, country=filters.country, country_name=country_name,
-        city=filters.city, levels=filters.levels, areas=filters.areas,
-        industries=filters.industries, keywords=filters.keywords, target=target,
-        spec=serp.LeadSpec.from_filters(filters),
-    )  # fmt: skip
-    run.log(f"{len(leads)} leads encontrados que cumplen los filtros.", done=len(leads))
-    code = filters.industries[0] if len(filters.industries) == 1 else ""
-    for lead in leads:
-        key = company_key(lead.employer)
-        if not key:
-            continue
-        company = run.companies.get(key)
-        if company is None:
-            company = Candidate(
-                key=key,
-                name=lead.employer,
-                city=filters.city,
-                industry=INDUSTRY_LABELS.get(code, ""),
-                industry_code=code,
-                sources=[
-                    {"type": "perfil", "label": "Empresa del perfil público", "url": lead.url}
-                ],
-            )
-            run.companies[key] = company
-        prospect = run.merge_person(
-            company, full_name=lead.full_name, first_name=lead.first_name,
-            last_name=lead.last_name, title=lead.title, title_confidence=65, linkedin=lead.url,
-            source={"type": "perfil", "label": "Perfil público · Google", "url": lead.url},
-        )  # fmt: skip
-        with run.lock:
-            run.source_counts["perfil"] += 1
-            prospect.location = prospect.location or lead.location
-        _publish(run, prospect, filters)
-    companies = list(run.companies.values())
-    if not companies:
-        run.log("No aparecieron leads con estos filtros. Prueba con menos filtros o más niveles.")
-        return {"companies": 0, "people": 0, **run.serp.totals()}
+SEARCH_BUDGET = 1500  # consultas al buscador por búsqueda (cada una cuesta 1 crédito)
+PEOPLE_BUDGET = 1000  # de ellas, para encontrar personas; el resto, para dominios y correos
+FANOUT_COMPANIES = 80  # empresas del sector a las que se buscan decisores una por una
+_LEVEL_TO_SN = {"c_level": "cxo", "duenio_socio": "propietario", "vp": "vp", "director": "director",
+                "gerente": "gestion_experiencia", "jefe": "gestion_inicial"}  # fmt: skip
 
-    run.log(f"Buscando el sitio web de {len(companies)} empresas…", step="dominios")
+
+def resolve_domains(run: Run, fetcher: Fetcher, companies: list[Candidate], country: str) -> None:
+    """Dominio de cada empresa: memoria de ORKESTA → buscador → deducido y verificado."""
+    country_name = COUNTRIES.get(country, (country,))[0]
 
     def resolve(company: Candidate) -> None:
-        if run.expired() or run.serp.fatal:
+        if company.domain or run.expired():
             return
-        company.domain = serp.company_domain(
-            fetcher, run.serp, company.name, filters.country, country_name
-        )
-        if company.domain:
-            company.website = f"https://{company.domain}"
-        run.save_company(company, filters.country)
+        domain = memory.known_domain(fetcher.factory, country, company.key)
+        source = "memoria"
+        if not domain and serp.enabled() and not run.serp.fatal:
+            domain = serp.company_domain(fetcher, run.serp, company.name, country, country_name)
+            source = "buscador"
+        if not domain:
+            domain = leads.guess_domain(fetcher, company.name, country)
+            source = "deducido"
+        if domain:
+            company.domain = domain
+            company.website = company.website or f"https://{domain}"
+            if source != "memoria":
+                memory.remember_domain(fetcher.factory, country, company.key, domain, source)
+        run.save_company(company, country)
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(resolve, companies))
-    with_domain = [c for c in companies if c.domain]
-    run.log(f"{len(with_domain)} empresas con sitio web identificado.", step="correos")
 
-    patterns: dict[str, tuple[str, int, str]] = {}
 
-    def pattern_for(company: Candidate) -> None:
-        if run.expired():
+def assign_emails(
+    run: Run, fetcher: Fetcher, filters: Filters, companies: list[Candidate]
+) -> dict[str, int]:
+    """Correo de cada lead con empresa conocida, con la mejor evidencia disponible."""
+    counts = {"learned": 0, "evidence": 0, "common": 0}
+    lock = threading.Lock()
+    deep = len(companies) <= 60  # leer los sitios web toma tiempo: solo en búsquedas medianas
+
+    def work(company: Candidate) -> None:
+        missing = [p for p in run.people.get(company.key, []) if not p.email]
+        if not company.domain or not missing or run.expired():
             return
-        patterns[company.key] = serp.email_pattern(fetcher, run.serp, company.domain)
-        _site(run, fetcher, company, filters, add_people=False)  # correos publicados del sitio
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        list(pool.map(pattern_for, with_domain))
-
-    evidence_based = common = 0
-    for company in with_domain:
-        pattern, votes, example = patterns.get(company.key, ("", 0, ""))
-        if company.site_patterns:
-            # El sitio publica correos junto al nombre de su dueño: la evidencia más fuerte.
-            pattern = max(set(company.site_patterns), key=company.site_patterns.count)
-            votes, example = company.site_patterns.count(pattern), company.website
-        if pattern:
-            source = {"type": "patron", "url": example,
-                      "label": f"Formato {pattern}@{company.domain} visto en {votes} correo(s) "
-                               "públicos"}  # fmt: skip
-            confidence = 50 if votes > 1 else 40
-        else:
-            pattern = COMMON_PATTERN
-            label = f"Formato más común ({pattern}@{company.domain}); sin evidencia"
-            source = {"type": "patron", "url": "", "label": label}
-            confidence = 20
-        for prospect in run.people.get(company.key, []):
-            if prospect.email:
-                continue
+        pattern, confidence, label = memory.known_pattern(fetcher.factory, company.domain)
+        kind = "learned"
+        example = ""
+        if not pattern:
+            votes = 0
+            if serp.enabled() and not run.serp.fatal:
+                pattern, votes, example = serp.email_pattern(fetcher, run.serp, company.domain)
+            if not pattern and deep:
+                _site(run, fetcher, company, filters, add_people=False)  # correos del sitio
+                if company.site_patterns:
+                    pattern = max(set(company.site_patterns), key=company.site_patterns.count)
+                    votes, example = company.site_patterns.count(pattern), company.website
+            if pattern:
+                memory.remember_pattern(fetcher.factory, company.domain, pattern, votes, example)
+                kind, confidence = "evidence", 50 if votes > 1 else 40
+                shown = memory.PATTERN_LABELS.get(pattern, pattern)
+                label = f"Formato {shown}@{company.domain} visto en {votes} correo(s) públicos"
+        if not pattern:
+            pattern, kind, confidence = COMMON_PATTERN, "common", 20
+            label = f"Formato más común (nombre.apellido@{company.domain}); por validar"
+        source = {"type": "patron", "url": example, "label": label}
+        for prospect in missing:
             email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
             if not email:
                 continue
-            prospect.set("email", email, source, confidence)
-            prospect.email_status = "estimado"
-            if confidence >= 40:
-                evidence_based += 1
-            else:
-                common += 1
+            with run.lock:
+                prospect.set("email", email, source, confidence)
+                prospect.email_status = "estimado"
+            with lock:
+                counts[kind] += 1
             _publish(run, prospect, filters)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(work, companies))
+    return counts
+
+
+def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    """Motor v2: cargos reales → abanico de consultas → cuentas del sector → dominio → correo."""
+    country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
+    run.serp.budget = SEARCH_BUDGET
+    run.total = 0
     run.log(
-        f"Correos: {evidence_based} con formato verificado en la web, {common} con el formato "
-        "más común (por validar)."
+        f"Buscando todos los posibles clientes que cumplen los filtros en {country_name}…",
+        step="leads",
     )
+    seniority = filters.seniority or [
+        _LEVEL_TO_SN[lv] for lv in filters.levels if lv in _LEVEL_TO_SN
+    ]
+    phrases = leads.title_phrases(seniority, filters.functions, filters.titles)
+    sector_terms = li.sector_terms(filters.sectors, 6) or list(dict.fromkeys(
+        t for c in filters.industries for t in serp.INDUSTRY_TERMS.get(c, [])))[:6]  # fmt: skip
+    excluded = set(li.sector_parents(filters.exclude_sectors)) - set(filters.industries)
+    code = filters.industries[0] if len(filters.industries) == 1 else ""
+    found = 0
+
+    def on_hit(hit: leads.Hit) -> None:
+        nonlocal found
+        key = company_key(hit.employer)
+        if not key:
+            return
+        with run.lock:
+            company = run.companies.get(key)
+            if company is None:
+                company = Candidate(
+                    key=key, name=hit.employer, domain=hit.domain,
+                    website=f"https://{hit.domain}" if hit.domain else "",
+                    city=filters.city, industry=INDUSTRY_LABELS.get(code, ""), industry_code=code,
+                    sources=[{"type": "perfil", "label": "Empresa del perfil", "url": hit.url}],
+                )  # fmt: skip
+                run.companies[key] = company
+            elif hit.domain and not company.domain:
+                company.domain = hit.domain
+        prospect = run.merge_person(
+            company, full_name=hit.full_name, first_name=hit.first_name, last_name=hit.last_name,
+            title=hit.title, title_confidence=65, linkedin=hit.url,
+            source={"type": "perfil", "label": "Perfil público · Google", "url": hit.url},
+        )  # fmt: skip
+        with run.lock:
+            run.source_counts["perfil"] += 1
+            prospect.location = prospect.location or hit.location
+            found += 1
+            done = found
+        _publish(run, prospect, filters)
+        if done % 10 == 0:
+            run.log(f"{done} posibles clientes encontrados…", done=done)
+
+    def accept(title: str, employer: str, first: str, last: str) -> bool:
+        return (
+            filters.wants_title(title)
+            and filters.wants_employer(employer)
+            and filters.wants_name(first, last)
+        )
+
+    collector = leads.Collector(
+        fetcher, run.serp, country=filters.country, country_name=country_name,
+        cities=filters.cities, accept=accept, industries=filters.industries, excluded=excluded,
+        target=filters.limit, on_hit=on_hit, expired=run.expired, max_calls=PEOPLE_BUDGET,
+    )  # fmt: skip
+    name = f"{filters.first_name} {filters.last_name}".strip()
+    exclude = [*filters.exclude_titles, *filters.exclude_companies]
+    exclude += [li.SECTORS[c][2][0] for c in filters.exclude_sectors if c in li.SECTORS]
+    plan = leads.plan_people(
+        country=filters.country, country_name=country_name, cities=filters.cities,
+        phrases=phrases, sector_terms=sector_terms, keywords=filters.keywords,
+        companies=filters.companies, exclude=exclude, first_last=name,
+    )  # fmt: skip
+    collector.run_all(plan)
+
+    # Cuentas → personas: empresas del sector y sus decisores, una por una.
+    if (filters.sectors or filters.industries or filters.keywords) and not collector.full():
+        run.log("Ampliando: buscando empresas del sector y sus decisores…", done=found)
+        accounts: dict[str, tuple[str, str]] = {}
+        for hit in serp.linkedin_companies(
+            fetcher, run.serp, country=filters.country, country_name=country_name,
+            cities=filters.cities, sector_terms=sector_terms, exclude_terms=exclude,
+            keywords=filters.keywords, max_pages=5,
+        ):  # fmt: skip
+            accounts.setdefault(company_key(hit.name), (hit.name, ""))
+        for place in serp.companies(
+            fetcher, run.serp, country=filters.country, country_name=country_name,
+            industries=filters.industries, city=filters.city, keywords=filters.keywords, limit=60,
+        ):  # fmt: skip
+            key = company_key(place.name)
+            accounts[key] = (place.name, place.domain)
+            memory.remember_domain(fetcher.factory, filters.country, key, place.domain, "maps")
+        roles = " OR ".join(f'"{t}"' for t in (phrases[:6] or ["Gerente", "Director"]))
+        tasks = [(f'site:linkedin.com/in "{nm}" ({roles})', nm, dom)
+                 for nm, dom in list(accounts.values())[:FANOUT_COMPANIES]]  # fmt: skip
+
+        def fan(task: tuple[str, str, str]) -> None:
+            if not collector.full():
+                collector.run_query(task[0], max_pages=2, company=task[1], domain=task[2])
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(fan, tasks))
+    run.log(f"{found} posibles clientes encontrados.", done=found)
+    companies = list(run.companies.values())
+    if not companies:
+        run.log("No aparecieron posibles clientes con estos filtros. Prueba con menos filtros.")
+        return {"companies": 0, "people": 0, **run.serp.totals()}
+
+    run.log(f"Identificando el sitio web de {len(companies)} empresas…", step="dominios")
+    resolve_domains(run, fetcher, companies, filters.country)
+    with_domain = [c for c in companies if c.domain]
+    run.log(f"{len(with_domain)} empresas con sitio web identificado.", step="correos")
+    counts = assign_emails(run, fetcher, filters, with_domain)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     for company in companies:
         company.people_found = sum(1 for p in shown if p.company.key == company.key)
@@ -1042,8 +1094,9 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         "people": len(shown),
         "with_email": sum(1 for p in shown if p.email_status == "publicado"),
         "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
-        "pattern_emails": evidence_based,
-        "common_emails": common,
+        "learned_emails": counts["learned"],
+        "pattern_emails": counts["evidence"],
+        "common_emails": counts["common"],
         "domains": len(with_domain),
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},

@@ -174,6 +174,34 @@ _SPLIT = re.compile(r"\s+[-–—|]\s+")
 _AT = re.compile(r"^(.*?)\s+(?:en|at|@|de la empresa)\s+(.+)$", re.IGNORECASE)
 
 
+_EXPERIENCE = re.compile(
+    r"(?:Experiencia|Experience|Experiência)\s*:\s*([^·|\n]{2,80})", re.IGNORECASE
+)
+_SNIPPET_SPLIT = re.compile(r"\s*(?:·|\||\.\s|\n)\s*")
+
+
+def _from_snippet(snippet: str, role: str, employer: str) -> tuple[str, str]:
+    """Completa cargo y empresa con el fragmento de Google («Gerente de Compras en Banco
+    Andino · Experiencia: Banco Andino · Ubicación: Bogotá»)."""
+    text = clean(snippet)
+    if not employer:
+        match = _EXPERIENCE.search(text)
+        if match:
+            employer = clean(match.group(1)).strip(" .,")
+    for segment in _SNIPPET_SPLIT.split(text)[:6]:
+        segment = segment.strip(" .,")
+        if not segment or ":" in segment[:20]:
+            continue
+        at = _AT.match(segment)
+        if at and looks_like_title(at.group(1)):
+            role = role or at.group(1)
+            employer = employer or at.group(2)
+            break
+        if not role and looks_like_title(segment) and len(segment.split()) <= 8:
+            role = segment
+    return role, employer
+
+
 def parse_profile(title: str, snippet: str) -> tuple[str, str, str]:
     """(nombre, cargo, empresa) del título de un perfil público en Google."""
     text = _SUFFIX.sub("", clean(title))
@@ -192,12 +220,8 @@ def parse_profile(title: str, snippet: str) -> tuple[str, str, str]:
             role = rest[0]
         else:
             employer = rest[0]
-    if not role:
-        # «Gerente General en Banco Andino · Experiencia: …» en el fragmento.
-        match = _AT.match(clean(snippet).split("·")[0].split(". ")[0])
-        if match and looks_like_title(match.group(1)):
-            role = match.group(1)
-            employer = employer or match.group(2)
+    if not role or not employer:
+        role, employer = _from_snippet(snippet, role, employer)
     return name, clean_title(role)[:200], clean(employer)[:200]
 
 
@@ -825,7 +849,7 @@ def company_domain(
 
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,24})")
-_NAME_PAIR = re.compile(r"([A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)")
+_CAP_WORD = re.compile(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñü]+\b")
 
 
 def email_pattern(fetcher: Fetcher, stats: SerpStats, domain: str) -> tuple[str, int, str]:
@@ -849,7 +873,11 @@ def email_pattern(fetcher: Fetcher, stats: SerpStats, domain: str) -> tuple[str,
             if local in GENERIC_LOCAL or any(ch.isdigit() for ch in local):
                 continue
             pattern = ""
-            for first, last in _NAME_PAIR.findall(text):
+            words = _CAP_WORD.findall(text)
+            # Pares consecutivos y salteados («Ana María Gómez»): el nombre suele estar cerca.
+            pairs = [(words[i], words[j]) for i in range(len(words))
+                     for j in (i + 1, i + 2) if j < len(words)]  # fmt: skip
+            for first, last in pairs:
                 pattern = detect_pattern(first, last, email) or ""
                 if pattern:
                     break

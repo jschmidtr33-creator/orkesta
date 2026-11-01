@@ -476,6 +476,22 @@ def _gap() -> timedelta:
     return timedelta(seconds=random.randint(70, 180))  # noqa: S311 - ritmo, no criptografía
 
 
+def _learn(session: Session, recipient: Recipient, outcome: str) -> None:
+    """IA propia: una respuesta confirma el formato de correo estimado; un rebote lo debilita."""
+    from orkesta.research.extract import detect_pattern
+    from orkesta.research.memory import feedback
+
+    contact = session.get(Contact, recipient.contact_id)
+    if contact is None or contact.email != recipient.email:
+        return
+    if contact.email_status == "estimado" or outcome == "replied":
+        pattern = detect_pattern(contact.first_name or "", contact.last_name or "", recipient.email)
+        if pattern:
+            feedback(session, recipient.email, pattern, outcome)
+    if outcome == "replied" and contact.email_status in ("estimado", "sin_validar", "desconocido"):
+        contact.email_status = "valido"  # respondió: el correo existe
+
+
 def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     """Envía como máximo un correo de la campaña. ``True`` si envió."""
     tz = _tz(str(campaign.settings.get("timezone", "America/Bogota")))
@@ -628,6 +644,8 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
                 mailbox.status, mailbox.error = "error", str(exc)[:300]
                 return found
             continue
+        if outcome in ("replied", "bounced"):
+            _learn(session, recipient, outcome)
         if outcome == "replied" and recipient.status != "replied":
             recipient.status, recipient.replied_at, recipient.next_send_at = "replied", now(), None
             crm_log(

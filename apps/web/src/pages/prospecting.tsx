@@ -782,12 +782,13 @@ function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boole
 
 function EmailCell({ data, confidence }: { data: PersonData; confidence?: number }) {
   if (!data.email) return <span className="text-[12.5px] text-ork-mist">{data.domain ? "Sin formato" : "Sin dominio"}</span>;
+  const c = confidence ?? 0;
   const label =
-    data.email_status === "publicado" ? "Publicado" : (confidence ?? 0) >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
+    data.email_status === "publicado" ? "Publicado" : c >= 70 ? "Formato confirmado" : c >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
   return (
     <div className="min-w-0">
       <p className="truncate text-[13px] text-ork-ink">{data.email}</p>
-      <Badge tone={data.email_status === "publicado" ? "ok" : (confidence ?? 0) >= 40 ? "violet" : "warn"}>{label}</Badge>
+      <Badge tone={data.email_status === "publicado" || c >= 70 ? "ok" : c >= 40 ? "violet" : "warn"}>{label}</Badge>
     </div>
   );
 }
