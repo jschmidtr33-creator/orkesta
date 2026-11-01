@@ -106,12 +106,22 @@ def current_principal(request: Request, db: Db) -> Principal:
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]
 
 
-def require_roles(*roles: str) -> Callable[[Principal], Principal]:
-    def dependency(principal: CurrentPrincipal) -> Principal:
+def require_roles(*roles: str) -> Callable[[Principal, Session], Principal]:
+    def dependency(principal: CurrentPrincipal, db: Db) -> Principal:
         if principal.tenant is None:
             raise HTTPException(409, "Primero crea o elige un espacio de trabajo.")
         if principal.role not in roles:
             raise HTTPException(403, "Tu rol no tiene permiso para esta acción.")
+        if not principal.user.platform_role:
+            if principal.tenant.status == "suspended":
+                raise HTTPException(
+                    423, "Este espacio de trabajo está suspendido. Escríbenos para reactivarlo."
+                )
+            from orkesta.admin.service import app_settings
+
+            app = app_settings(db)
+            if app["maintenance"]:
+                raise HTTPException(503, app["maintenance_message"])
         return principal
 
     return dependency

@@ -15,9 +15,10 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session, sessionmaker
 
+from orkesta.admin.router import router as admin_router
 from orkesta.automation.router import router as automation_router
 from orkesta.campaigns.router import router as campaigns_router
 from orkesta.campaigns.router import tracking as tracking_router
@@ -110,6 +111,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
             status_code=422,
         )
 
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/{rest:path}", include_in_schema=False)
+    def admin_panel(rest: str = "") -> Response:
+        # El panel de administración vive dentro de la app web, con su propio diseño.
+        return RedirectResponse(f"/app/admin/{rest}".rstrip("/"), status_code=307)
+
     @app.get("/health", include_in_schema=False)
     def root_health() -> dict[str, str]:
         # Alias para servicios de Render configurados con la ruta antigua del health check.
@@ -126,6 +133,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(reports_router)
     app.include_router(automation_router)
     app.include_router(notifications_router)
+    app.include_router(admin_router)
     app.include_router(tracking_router)
     _mount_frontends(app)
     return app

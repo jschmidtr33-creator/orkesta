@@ -46,7 +46,7 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
     } catch {
       /* respuesta sin cuerpo JSON */
     }
-    if (response.status >= 500) message = "El servidor no respondió como esperábamos. Inténtalo de nuevo en un momento.";
+    if (response.status >= 500 && response.status !== 503) message = "El servidor no respondió como esperábamos. Inténtalo de nuevo en un momento.";
     throw new ApiError(message, response.status);
   }
   return (await response.json()) as T;

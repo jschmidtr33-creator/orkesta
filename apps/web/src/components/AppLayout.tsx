@@ -13,6 +13,7 @@ import {
   Plus,
   Radar,
   Settings,
+  ShieldCheck,
   Users,
   Workflow,
   X,
@@ -118,6 +119,12 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
           <Settings className="size-[18px]" aria-hidden />
           Configuración
         </NavLink>
+        {session.user.platform_admin && (
+          <NavLink to="/admin" className={linkClass} onClick={onNavigate}>
+            <ShieldCheck className="size-[18px]" aria-hidden />
+            Panel de administración
+          </NavLink>
+        )}
       </nav>
       <div className="flex items-center gap-3 rounded-xl px-2 py-2">
         <Avatar name={session.user.full_name} email={session.user.email} size={34} />
@@ -183,12 +190,53 @@ export function AppLayout() {
           <NotificationBell />
         </div>
         <NewVersionBanner />
+        <Announcement />
         <Outlet />
       </main>
     </div>
   );
 }
 
+
+/** Anuncio global que el equipo de ORKESTA publica desde el panel de administración. */
+function Announcement() {
+  const q = useQuery({
+    queryKey: ["auth-config"],
+    queryFn: () => api<{ announcement: { text: string; tone: string } | null }>("/api/auth/config"),
+    staleTime: 60_000,
+  });
+  const a = q.data?.announcement;
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem("ork-anuncio") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  if (!a?.text || hidden === a.text) return null;
+  const tone =
+    a.tone === "ok" ? "border-ok/30 bg-ok/10 text-ok" : a.tone === "warn" ? "border-warn/30 bg-warn/10 text-warn" : a.tone === "bad" ? "border-bad/30 bg-bad/10 text-bad" : "border-ork-blue/30 bg-ork-blue/10 text-ork-blue";
+  return (
+    <div className={cx("mb-5 flex items-start justify-between gap-3 rounded-xl border px-4 py-2.5 text-[13.5px] font-semibold", tone)} role="status">
+      <span>{a.text}</span>
+      <button
+        type="button"
+        aria-label="Cerrar anuncio"
+        onClick={() => {
+          setHidden(a.text);
+          try {
+            localStorage.setItem("ork-anuncio", a.text);
+          } catch {
+            /* sin almacenamiento */
+          }
+        }}
+        className="shrink-0 opacity-70 hover:opacity-100"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
 
 /** Avisa cuando se desplegó una versión nueva mientras la pestaña seguía abierta. */
 function NewVersionBanner() {

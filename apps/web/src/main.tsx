@@ -9,6 +9,7 @@ import { SessionProvider } from "./lib/session";
 import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
 import { ContactsPage, ListsPage } from "./pages/contacts";
+import { AdminApp } from "./pages/admin";
 import { AutomationPage } from "./pages/automation";
 import { CampaignDetail, CampaignsPage } from "./pages/campaigns";
 import { CrmPage } from "./pages/crm";
@@ -39,6 +40,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/bienvenida" element={<WelcomePage />} />
             <Route path="/invitacion/:token" element={<InvitationPage />} />
             <Route path="/p/:publicId" element={<PublicProposalPage />} />
+            <Route path="/admin/*" element={<AdminApp />} />
             <Route element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="/prospeccion" element={<ProspectingPage />} />

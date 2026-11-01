@@ -141,14 +141,31 @@ def health() -> dict[str, str]:
 
 
 @router.get("/auth/config")
-def auth_config() -> dict[str, bool]:
-    return {"google": get_settings().google_enabled}
+def auth_config(db: Db) -> dict[str, Any]:
+    from orkesta.admin.service import app_settings
+
+    app = app_settings(db)
+    return {
+        "google": get_settings().google_enabled,
+        "signup_open": app["signup_open"],
+        "maintenance": app["maintenance"],
+        "maintenance_message": app["maintenance_message"],
+        "announcement": app["announcement"] if app["announcement"]["active"] else None,
+    }
+
+
+def _signup_closed(db: Db) -> bool:
+    from orkesta.admin.service import app_settings
+
+    return not app_settings(db)["signup_open"]
 
 
 @router.post("/auth/register")
 def register(body: RegisterIn, request: Request, response: Response, db: Db) -> dict[str, Any]:
     ip = client_ip(request)
     register_limiter.check(ip or "?")
+    if _signup_closed(db):
+        raise HTTPException(403, "El registro de nuevas cuentas está cerrado por ahora.")
     try:
         user, tenant = svc.register(
             db, company=body.company, full_name=body.full_name, email=body.email,
@@ -272,6 +289,8 @@ def google_callback(
         user = db.scalar(select(User).where(User.email == identity.email))
         if user is not None:
             user.google_sub = identity.sub  # mismo correo verificado por Google: se vincula
+        elif _signup_closed(db):
+            return RedirectResponse("/app/ingresar?error=registro_cerrado", status_code=303)
         else:
             user = svc.create_user(
                 db, email=identity.email, full_name=identity.name, google_sub=identity.sub
