@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Eye, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
 import type { Editor } from "@tiptap/react";
+import { CopyAssistant, StepReview } from "../components/CopyAssistant";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
 import { api } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
@@ -360,6 +361,8 @@ function StepsEditor({ c }: { c: Campaign }) {
   const [steps, setSteps] = useState<Step[]>(c.steps ?? []);
   const [dirty, setDirty] = useState(false);
   const [previewing, setPreviewing] = useState<number | null>(null);
+  const [assistant, setAssistant] = useState(false);
+  const [editorKey, setEditorKey] = useState(0);
   const save = useSaveCampaign(c.id);
   const vars = useCampaigns().data?.variables ?? {};
   const focused = useRef<{ index: number; el?: HTMLInputElement; editor?: Editor } | null>(null);
@@ -400,11 +403,18 @@ function StepsEditor({ c }: { c: Campaign }) {
         title="Secuencia de correos"
         description="Los seguimientos sin asunto salen como respuesta en el mismo hilo («Re: …»). Si la persona responde, no recibe los siguientes."
         action={
-          dirty && (
-            <Button size="sm" loading={save.isPending} onClick={() => save.mutate({ steps }, { onSuccess: () => setDirty(false) })}>
-              Guardar cambios
-            </Button>
-          )
+          <div className="flex flex-wrap gap-2">
+            {!locked && (
+              <Button size="sm" variant="secondary" icon={<Sparkles className="size-4 text-ork-violet" aria-hidden />} onClick={() => setAssistant(true)}>
+                Redactar con IA
+              </Button>
+            )}
+            {dirty && (
+              <Button size="sm" loading={save.isPending} onClick={() => save.mutate({ steps }, { onSuccess: () => setDirty(false) })}>
+                Guardar cambios
+              </Button>
+            )}
+          </div>
         }
       />
       {save.error && (
@@ -453,6 +463,7 @@ function StepsEditor({ c }: { c: Campaign }) {
                 )}
               </div>
               <div className="flex items-center gap-1">
+                <StepReview subject={step.subject} body={step.body} step={i} />
                 <Button size="sm" variant="ghost" icon={<Eye className="size-4" aria-hidden />} onClick={() => setPreviewing(i)} disabled={dirty}>
                   Vista previa
                 </Button>
@@ -478,6 +489,7 @@ function StepsEditor({ c }: { c: Campaign }) {
               className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
             />
             <RichEditor
+              key={`${editorKey}-${i}`}
               value={step.body}
               onChange={(html) => update(i, { body: html })}
               onFocus={(editor) => (focused.current = { index: i, editor })}
@@ -500,6 +512,15 @@ function StepsEditor({ c }: { c: Campaign }) {
         </Button>
       )}
       <PreviewModal campaignId={c.id} step={previewing} onClose={() => setPreviewing(null)} />
+      <CopyAssistant
+        open={assistant}
+        onOpenChange={setAssistant}
+        onUse={(generated) => {
+          setSteps(generated);
+          setDirty(true);
+          setEditorKey((k) => k + 1); // el editor toma el texto nuevo
+        }}
+      />
     </Card>
   );
 }
