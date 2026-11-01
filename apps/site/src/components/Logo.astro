@@ -3,19 +3,14 @@ interface Props {
   size?: number;
   id?: string;
 }
-const { size = 30, id = "ork-logo" } = Astro.props;
+const { size = 30 } = Astro.props;
 ---
 
-<span class="inline-flex items-center gap-2.5">
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <defs>
-      <linearGradient id={id} x1="6" y1="58" x2="58" y2="8" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#2563EB"></stop>
-        <stop offset="0.55" stop-color="#4F46E5"></stop>
-        <stop offset="1" stop-color="#8B5CF6"></stop>
-      </linearGradient>
-    </defs>
-    <path d="M30.5 9.5 L55 50.5 L8.5 54 Z" fill="none" stroke={`url(#${id})`} stroke-width="10" stroke-linejoin="round" stroke-linecap="round"></path>
-  </svg>
-  <span class="font-bold tracking-[0.14em] text-white" style={`font-size:${Math.round(size * 0.62)}px`}>ORKESTA</span>
+<span class="inline-flex items-center gap-2.5" role="img" aria-label="ORKESTA">
+  <img src="/logo-mark.svg" alt="" width={size} height={Math.round(size * 0.9)} />
+  <span
+    aria-hidden="true"
+    class="font-medium tracking-[0.2em] text-white"
+    style={`font-size:${Math.round(size * 0.62)}px;font-family:'Avenir Next',Avenir,Montserrat,'Century Gothic','Segoe UI',sans-serif`}
+  >ORKESTΛ</span>
 </span>

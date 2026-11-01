@@ -1,10 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ORKESTA">
-  <defs>
-    <linearGradient id="ork-g" x1="6" y1="58" x2="58" y2="8" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2563EB"/>
-      <stop offset="0.55" stop-color="#4F46E5"/>
-      <stop offset="1" stop-color="#8B5CF6"/>
-    </linearGradient>
-  </defs>
-  <path d="M30.5 9.5 L55 50.5 L8.5 54 Z" fill="none" stroke="url(#ork-g)" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 -3 96 96" role="img" aria-label="ORKESTA">
+<defs>
+<linearGradient id="a" x1="6" y1="62" x2="44" y2="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4FE8FB"/><stop offset=".45" stop-color="#38B6FF"/><stop offset=".8" stop-color="#2F6BFF"/><stop offset="1" stop-color="#2337E8"/></linearGradient>
+<linearGradient id="b" x1="88" y1="30" x2="62" y2="50" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#B57CF9"/><stop offset=".5" stop-color="#8A5DF4"/><stop offset="1" stop-color="#3A2FE2"/></linearGradient>
+<linearGradient id="c" x1="92" y1="84" x2="30" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#B06FF7"/><stop offset=".5" stop-color="#5B5CF8"/><stop offset="1" stop-color="#2230E4"/></linearGradient>
+<linearGradient id="s0" x1="55" y1="29" x2="48.7" y2="32.1" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0A0A3C" stop-opacity=".45"/><stop offset="1" stop-color="#0A0A3C" stop-opacity="0"/></linearGradient><linearGradient id="s1" x1="72" y1="64" x2="73.2" y2="57.1" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0A0A3C" stop-opacity=".45"/><stop offset="1" stop-color="#0A0A3C" stop-opacity="0"/></linearGradient><linearGradient id="s2" x1="28" y1="56" x2="32.9" y2="60.9" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0A0A3C" stop-opacity=".45"/><stop offset="1" stop-color="#0A0A3C" stop-opacity="0"/></linearGradient><mask id="m"><polygon points="50,26 76,64 24,64" fill="#fff" stroke="#fff" stroke-width="42" stroke-linejoin="round"/><polygon points="55,29 72,64 28,56" fill="#000" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></mask>
+</defs>
+<g mask="url(#m)"><polygon points="28,56 72,64 140.9,76.5 150,140 -40,140 -21.5,105.5" fill="url(#c)"/><polygon points="55,29 28,56 -21.5,105.5 -40,60 -20,-30 24.4,-34.0" fill="url(#a)"/><polygon points="72,64 55,29 24.4,-34.0 50,-50 150,0 140.9,76.5" fill="url(#b)"/><polygon points="55,29 24.4,-34.0 18.103442889968015,-30.941672260841607 48.70344288996802,32.05832773915839" fill="url(#s0)"/><polygon points="72,64 140.9,76.5 142.14955890705488,69.61243130431356 73.24955890705488,57.11243130431356" fill="url(#s1)"/><polygon points="28,56 -21.5,105.5 -16.550252531694166,110.44974746830583 32.94974746830583,60.94974746830583" fill="url(#s2)"/></g>
 </svg>

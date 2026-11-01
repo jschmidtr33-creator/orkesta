@@ -15,37 +15,20 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 }
 
 export function Logo({ size = 28, className }: { size?: number; className?: string }) {
-  const id = useId();
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className={className}>
-      <defs>
-        <linearGradient id={id} x1="6" y1="58" x2="58" y2="8" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#2563EB" />
-          <stop offset="0.55" stopColor="#4F46E5" />
-          <stop offset="1" stopColor="#8B5CF6" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M30.5 9.5 L55 50.5 L8.5 54 Z"
-        fill="none"
-        stroke={`url(#${id})`}
-        strokeWidth="10"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <img src="/app/logo-mark.svg" alt="" width={size} height={Math.round(size * 0.9)} className={cx("shrink-0", className)} />;
 }
 
+/** Logo completo: símbolo + «ORKESTΛ» (la A final sin travesaño, como en la marca). */
 export function Wordmark({ dark = false, size = 28 }: { dark?: boolean; size?: number }) {
   return (
-    <span className="inline-flex items-center gap-2.5">
+    <span className="inline-flex items-center gap-2.5" role="img" aria-label="ORKESTA">
       <Logo size={size} />
       <span
-        className={cx("font-bold tracking-[0.14em]", dark ? "text-white" : "text-ork-ink")}
-        style={{ fontSize: size * 0.62 }}
+        aria-hidden="true"
+        className={cx("font-medium tracking-[0.2em]", dark ? "text-white" : "text-ork-ink")}
+        style={{ fontSize: size * 0.62, fontFamily: "'Avenir Next', Avenir, Montserrat, 'Century Gothic', 'Segoe UI', sans-serif" }}
       >
-        ORKESTA
+        ORKESTΛ
       </span>
     </span>
   );
