@@ -25,6 +25,7 @@ import { Alert, Avatar, Badge, Button, Card, cx, Modal, PageHeader, SelectField,
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
+import { NewProposalModal } from "./proposals";
 
 export type Stage = { id: string; name: string; kind: "open" | "won" | "lost"; position: number; probability: number; deals: number; value: Record<string, number> };
 export type Deal = {
@@ -675,6 +676,7 @@ function DealDrawer({ id, onClose, stages, currencies, onMove }: { id: string | 
                     </div>
                   </div>
                 )}
+                <DealProposals dealId={d.id} />
                 <div>
                   <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ork-mist">Actividad</p>
                   <Timeline dealId={d.id} />
@@ -931,5 +933,43 @@ function StagesModal({ open, onOpenChange, stages }: { open: boolean; onOpenChan
         </Button>
       </form>
     </Modal>
+  );
+}
+
+
+function DealProposals({ dealId }: { dealId: string }) {
+  const [creating, setCreating] = useState(false);
+  const list = useQuery({
+    queryKey: ["proposals", "deal", dealId],
+    queryFn: () => api<{ id: string; number: number; title: string; status_label: string; totals: { total: number }; currency: string }[]>(`/api/proposals?oportunidad=${dealId}`),
+  });
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-ork-mist">Propuestas</p>
+        <Button size="sm" variant="secondary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setCreating(true)}>
+          Crear propuesta
+        </Button>
+      </div>
+      {list.data?.length ? (
+        <ul className="space-y-1.5">
+          {list.data.map((p) => (
+            <li key={p.id}>
+              <Link to={`/propuestas/${p.id}`} className="flex items-center justify-between rounded-lg border border-ork-line px-3 py-2 text-[13px] hover:border-ork-blue/40">
+                <span className="font-semibold text-ork-ink">
+                  #{p.number} · {p.title}
+                </span>
+                <span className="text-ork-mist">
+                  {p.status_label} · {money(p.totals.total, p.currency)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[13px] text-ork-mist">Sin propuestas todavía.</p>
+      )}
+      <NewProposalModal open={creating} onOpenChange={setCreating} dealId={dealId} />
+    </div>
   );
 }

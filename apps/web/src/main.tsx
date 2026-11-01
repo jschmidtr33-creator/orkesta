@@ -10,6 +10,8 @@ import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/au
 import { DashboardPage } from "./pages/dashboard";
 import { ContactsPage, ListsPage } from "./pages/contacts";
 import { CrmPage } from "./pages/crm";
+import { ProposalEditor, ProposalsPage } from "./pages/proposals";
+import { PublicProposalPage } from "./pages/publicProposal";
 import { ImportPage } from "./pages/importer";
 import { ModulePage } from "./pages/modules";
 import { ProspectingPage } from "./pages/prospecting";
@@ -34,6 +36,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/registro" element={<RegisterPage />} />
             <Route path="/bienvenida" element={<WelcomePage />} />
             <Route path="/invitacion/:token" element={<InvitationPage />} />
+            <Route path="/p/:publicId" element={<PublicProposalPage />} />
             <Route element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="/prospeccion" element={<ProspectingPage />} />
@@ -43,6 +46,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/campanas" element={<ModulePage slug="campanas" />} />
               <Route path="/automatizacion" element={<ModulePage slug="automatizacion" />} />
               <Route path="/crm" element={<CrmPage />} />
+              <Route path="/propuestas" element={<ProposalsPage />} />
+              <Route path="/propuestas/:id" element={<ProposalEditor />} />
               <Route path="/reportes" element={<ModulePage slug="reportes" />} />
               <Route path="/configuracion/*" element={<SettingsPage />} />
             </Route>

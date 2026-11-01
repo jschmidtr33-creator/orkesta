@@ -4,6 +4,7 @@ import {
   BarChart3,
   Check,
   ChevronsUpDown,
+  FileText,
   Handshake,
   Home,
   LogOut,
@@ -31,6 +32,7 @@ export const NAV: NavItem[] = [
   { to: "/campanas", label: "Campañas", icon: Mail },
   { to: "/automatizacion", label: "Automatización", icon: Workflow },
   { to: "/crm", label: "CRM", icon: Handshake },
+  { to: "/propuestas", label: "Propuestas", icon: FileText },
   { to: "/reportes", label: "Reportes", icon: BarChart3 },
 ];
 

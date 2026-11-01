@@ -292,7 +292,7 @@ def move_deal(
     deal: Deal,
     *,
     stage_id: uuid.UUID,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     lost_reason: str = "",
 ) -> Deal:
     stage = get_stage(session, deal.tenant_id, stage_id)
