@@ -362,3 +362,44 @@ def test_gap_fits_daily_limit_in_window() -> None:
     assert min(fast) >= 12 and max(fast) <= 31  # ~1.500 correos en 9 horas
     slow = [svc._gap(settings, 80).total_seconds() for _ in range(200)]
     assert min(slow) >= 70  # buzones pequeños: ritmo humano
+
+
+def test_estimated_email_that_bounces_teaches_and_proposes_next_format(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str],
+) -> None:  # fmt: skip
+    from orkesta.research import memory
+
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    r = client.post("/api/contacts", json={"first_name": "Laura", "last_name": "Gómez",
+                                           "company": "Banco Andino",
+                                           "email": "laura.gomez@bancoandino.co"})  # fmt: skip
+    cid = r.json()["id"]
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET email_status = 'estimado' WHERE id = %s", (cid,))
+    campaign = client.post("/api/campaigns", json={"name": "Una"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": [cid], "include_estimated": True},
+    })  # fmt: skip
+    assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
+    assert _flush(session_factory) == 1
+    google.reply("th-1", "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+                 "Delivery Status Notification (Failure)")  # fmt: skip
+    _rewind(database)
+    _flush(session_factory)
+
+    contact = client.get(f"/api/contacts/{cid}").json()
+    # El formato nombre.apellido quedó descartado en ese dominio: se propone el siguiente.
+    assert contact["email"] == "lgomez@bancoandino.co" and contact["email_status"] == "estimado"
+    chain, bounced = memory.candidates(session_factory, "bancoandino.co", "first.last")
+    assert "first.last" not in chain and chain[0] == "flast"
+    assert memory.address_hash("laura.gomez@bancoandino.co") in bounced
+    supp = {s["email"] for s in client.get("/api/suppressions").json()}
+    assert "laura.gomez@bancoandino.co" in supp
+    detail = client.get(f"/api/campaigns/{campaign['id']}").json()
+    assert detail["learning"]["reproposed"] == 1
+    retry = client.post(f"/api/campaigns/{campaign['id']}/retry-bounced").json()
+    assert retry["status"] == "draft" and retry["name"].endswith("reintento")
+    assert client.get(f"/api/campaigns/{retry['id']}").json()["audience"]["contact_ids"] == [cid]

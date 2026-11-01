@@ -10,6 +10,7 @@ Solo guarda datos de empresas (dominio y formato), nunca datos de personas.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -18,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
-from orkesta.research.models import CompanyDomain, DomainPattern
+from orkesta.research.models import BouncedAddress, CompanyDomain, PatternStat
 
 if TYPE_CHECKING:
     from orkesta.research.fetch import Fetcher
@@ -76,33 +77,73 @@ def remember_domain(
         logger.exception("memory_domain_write")
 
 
+# Formatos más comunes en empresas de Latinoamérica, en orden: si uno rebota se prueba el siguiente.
+FALLBACK_ORDER = ("first.last", "flast", "first", "firstlast", "f.last", "first_last", "firstl",
+                  "last.first", "lastf")  # fmt: skip
+
+
+def address_hash(email: str) -> str:
+    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
+
+
+def _bad(stat: PatternStat) -> bool:
+    """La evidencia en contra supera a la evidencia a favor: el formato no sirve aquí."""
+    return stat.bounced > stat.confirmed + stat.seen
+
+
+def _stats(session: Session, domain: str) -> list[PatternStat]:
+    return list(session.scalars(select(PatternStat).where(PatternStat.domain == domain)))
+
+
+def _best(stats: list[PatternStat], domain: str) -> tuple[str, int, str]:
+    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen)]
+    if not good:
+        return "", 0, ""
+    st = max(good, key=lambda x: (x.confirmed * 5 + x.seen * 2 - x.bounced * 3, x.confirmed))
+    label = PATTERN_LABELS.get(st.pattern, st.pattern)
+    if st.confirmed:
+        return (
+            st.pattern,
+            75,
+            f"Formato {label}@{domain} confirmado por {st.confirmed} respuesta(s)",
+        )
+    confidence = 55 if st.seen > 1 else 45
+    return st.pattern, confidence, f"Formato {label}@{domain} visto en {st.seen} correo(s) públicos"
+
+
 def known_pattern(factory: sessionmaker[Session], domain: str) -> tuple[str, int, str]:
     """(patrón, confianza 0-100, explicación) aprendido para un dominio; vacío si no hay."""
     try:
         with factory() as session:
-            row = session.get(DomainPattern, domain)
+            return _best(_stats(session, domain), domain)
     except Exception:
         logger.exception("memory_pattern_read")
         return "", 0, ""
-    if row is None:
-        return "", 0, ""
-    if row.bounced > row.confirmed + row.seen:
-        return "", 0, ""  # la evidencia dice que este formato no funciona
-    label = PATTERN_LABELS.get(row.pattern, row.pattern)
-    if row.confirmed:
-        return (
-            row.pattern,
-            75,
-            f"Formato {label}@{domain} confirmado por {row.confirmed} respuesta(s)",
-        )
-    if row.seen:
-        confidence = 55 if row.seen > 1 else 45
-        return (
-            row.pattern,
-            confidence,
-            f"Formato {label}@{domain} visto en {row.seen} correo(s) públicos",
-        )
-    return "", 0, ""
+
+
+def _chain(stats: list[PatternStat], primary: str) -> list[str]:
+    bad = {st.pattern for st in stats if _bad(st)}
+    order = [primary, *FALLBACK_ORDER] if primary else list(FALLBACK_ORDER)
+    return [p for p in dict.fromkeys(order) if p not in bad]
+
+
+def _bounced(session: Session, domain: str) -> set[str]:
+    return set(
+        session.scalars(select(BouncedAddress.address_hash).where(BouncedAddress.domain == domain))
+    )
+
+
+def candidates(
+    factory: sessionmaker[Session], domain: str, primary: str
+) -> tuple[list[str], set[str]]:
+    """Formatos a probar en orden (sin los que la evidencia descartó) y huellas de direcciones
+    que ya rebotaron en el dominio."""
+    try:
+        with factory() as session:
+            return _chain(_stats(session, domain), primary), _bounced(session, domain)
+    except Exception:
+        logger.exception("memory_candidates")
+        return [primary] if primary else list(FALLBACK_ORDER), set()
 
 
 def remember_pattern(
@@ -112,38 +153,53 @@ def remember_pattern(
         return
     try:
         with factory.begin() as session:
-            row = session.get(DomainPattern, domain, with_for_update=True)
-            if row is None:
-                session.add(DomainPattern(domain=domain, pattern=pattern, seen=seen,
-                                          example=example[:500]))  # fmt: skip
-            elif row.pattern == pattern:
-                row.seen = max(row.seen, seen)
-                row.example = row.example or example[:500]
-            elif seen > row.seen + row.confirmed:
-                row.pattern, row.seen, row.confirmed, row.bounced = pattern, seen, 0, 0
-                row.example = example[:500]
+            stmt = pg_insert(PatternStat).values(domain=domain, pattern=pattern, seen=seen)
+            session.execute(stmt.on_conflict_do_update(
+                index_elements=["domain", "pattern"],
+                set_={"seen": func.greatest(PatternStat.seen, seen), "updated_at": func.now()},
+            ))  # fmt: skip
     except Exception:
         logger.exception("memory_pattern_write")
 
 
 def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
-    """Aprende de una campaña: una respuesta confirma el formato; un rebote le resta confianza."""
-    if "@" not in email or not pattern:
+    """Aprende de una campaña: una respuesta confirma el formato; un rebote le resta confianza y
+    la dirección no se vuelve a proponer."""
+    if "@" not in email or outcome not in ("replied", "bounced"):
         return
     domain = email.rsplit("@", 1)[1].lower()
-    row = session.get(DomainPattern, domain, with_for_update=True)
-    if row is None:
-        if outcome == "replied":
-            session.add(DomainPattern(domain=domain, pattern=pattern, confirmed=1))
-        return
-    if row.pattern != pattern:
-        if outcome == "replied" and row.confirmed == 0:
-            row.pattern, row.confirmed, row.bounced, row.seen = pattern, 1, 0, 0
-        return
-    if outcome == "replied":
-        row.confirmed += 1
-    elif outcome == "bounced":
-        row.bounced += 1
+    if pattern:
+        column = "confirmed" if outcome == "replied" else "bounced"
+        stmt = pg_insert(PatternStat).values(domain=domain, pattern=pattern, **{column: 1})
+        session.execute(stmt.on_conflict_do_update(
+            index_elements=["domain", "pattern"],
+            set_={column: getattr(PatternStat, column) + 1, "updated_at": func.now()},
+        ))  # fmt: skip
+    digest = address_hash(email)
+    if outcome == "bounced":
+        session.execute(
+            pg_insert(BouncedAddress)
+            .values(address_hash=digest, domain=domain, pattern=pattern)
+            .on_conflict_do_nothing()
+        )
+    else:
+        row = session.get(BouncedAddress, digest)
+        if row is not None:
+            session.delete(row)
+
+
+def next_email(session: Session, first: str, last: str, domain: str) -> tuple[str, str]:
+    """Siguiente correo a probar para una persona cuyo correo estimado rebotó."""
+    from orkesta.research.extract import apply_pattern
+
+    stats = _stats(session, domain)
+    primary = _best(stats, domain)[0]
+    bounced = _bounced(session, domain)
+    for pattern in _chain(stats, primary):
+        email = apply_pattern(pattern, first, last, domain)
+        if email and address_hash(email) not in bounced:
+            return email, pattern
+    return "", ""
 
 
 # --- Servidores de correo del dominio (DNS, sin terceros ni puerto 25) ----------------------

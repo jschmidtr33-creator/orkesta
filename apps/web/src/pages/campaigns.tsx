@@ -38,6 +38,7 @@ type Campaign = {
   created_at: string;
   steps_count: number;
   stats: Stats;
+  learning?: { confirmed: number; reproposed: number; domains_learned: number };
   steps?: Step[];
   settings?: Settings;
   audience?: Audience;
@@ -334,15 +335,40 @@ export function CampaignDetail() {
 
 function CampaignStats({ c }: { c: Campaign }) {
   const s = c.stats;
+  const navigate = useNavigate();
+  const retry = useMutation({
+    mutationFn: () => api<{ id: string }>(`/api/campaigns/${c.id}/retry-bounced`, { method: "POST" }),
+    onSuccess: (r) => navigate(`/campanas/${r.id}`),
+  });
+  const l = c.learning;
   return (
+    <>
     <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
       <Kpi label="Contactos" value={s.recipients} hint={`${s.contacted} ya contactados`} />
       <Kpi label="Correos enviados" value={s.emails_sent} />
       <Kpi label="Apertura" value={pct(s.open_rate)} hint={`${s.opened} personas`} />
       <Kpi label="Clics" value={pct(s.click_rate)} hint={`${s.clicked} personas`} />
       <Kpi label="Respuesta" value={pct(s.reply_rate)} hint={`${s.replied} respondieron`} />
-      <Kpi label="Rebotes y bajas" value={s.bounced + s.unsubscribed} hint={`${s.bounced} rebotes · ${s.unsubscribed} bajas`} />
+      <Kpi label="Rebotes y bajas" value={s.bounced + s.unsubscribed} hint={`${pct(s.bounce_rate)} de rebote · ${s.unsubscribed} bajas`} />
     </div>
+    {l && (l.confirmed > 0 || l.reproposed > 0 || s.bounced > 0) && (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] px-4 py-3">
+        <p className="flex items-start gap-2 text-[13px] text-ork-graphite">
+          <Sparkles className="mt-0.5 size-4 shrink-0 text-ork-violet" aria-hidden />
+          <span>
+            <strong className="text-ork-ink">ORKESTA aprendió de esta campaña:</strong> {l.confirmed} formato(s) confirmados por respuestas ·{" "}
+            {s.bounced} rebote(s) descartados para siempre · {l.reproposed} contacto(s) ya tienen un nuevo correo propuesto. Las próximas
+            búsquedas usan este aprendizaje en {l.domains_learned} empresa(s).
+          </span>
+        </p>
+        {l.reproposed > 0 && (
+          <Button size="sm" variant="secondary" loading={retry.isPending} onClick={() => retry.mutate()}>
+            Reintentar con el nuevo formato ({l.reproposed})
+          </Button>
+        )}
+      </div>
+    )}
+    </>
   );
 }
 
