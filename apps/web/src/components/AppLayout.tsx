@@ -164,11 +164,13 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
       </nav>
       <ThemeSwitch />
       <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-        <Avatar name={session.user.full_name} email={session.user.email} size={34} />
+        <NavLink to="/configuracion/perfil" onClick={onNavigate} className="ork-focus flex min-w-0 flex-1 items-center gap-3 rounded-lg" title="Mi perfil">
+        <Avatar name={session.user.full_name} email={session.user.email} size={34} src={session.user.avatar_url} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-semibold text-white">{session.user.full_name || session.user.email}</p>
-          <p className="truncate text-[12px] text-ork-mist">{session.user.email}</p>
+          <p className="truncate text-[12px] text-ork-mist">{session.user.job_title || session.user.email}</p>
         </div>
+        </NavLink>
         <button
           type="button"
           className="ork-focus rounded-lg p-2 text-ork-mist hover:bg-white/[0.06] hover:text-white"

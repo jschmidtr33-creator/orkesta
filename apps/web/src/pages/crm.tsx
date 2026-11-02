@@ -41,7 +41,7 @@ export type Deal = {
   probability: number;
   contact: { id: string; full_name: string; job_title: string | null; email: string | null; phone: string | null } | null;
   company: string | null;
-  owner: { id: string; name: string } | null;
+  owner: { id: string; name: string; avatar_url?: string | null } | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -52,7 +52,7 @@ export type ActivityItem = {
   body: string;
   due_at: string | null;
   done_at: string | null;
-  user: { id: string; name: string } | null;
+  user: { id: string; name: string; avatar_url?: string | null } | null;
   created_at: string;
   contact_name?: string | null;
   deal_title?: string | null;
@@ -313,7 +313,7 @@ function Board({ stages, deals, onOpen, onMove }: { stages: Stage[]; deals: Deal
                     <span className="text-[13px] font-semibold text-ork-graphite">{money(d.value, d.currency)}</span>
                     <span className="flex items-center gap-1.5">
                       {d.expected_close && <span className="text-[11px] text-ork-mist">{new Date(d.expected_close + "T00:00").toLocaleDateString("es", { day: "numeric", month: "short" })}</span>}
-                      {d.owner && <Avatar name={d.owner.name} email="" size={22} />}
+                      {d.owner && <Avatar name={d.owner.name} email="" size={22} src={d.owner.avatar_url} />}
                     </span>
                   </div>
                 </button>
@@ -550,7 +550,8 @@ export function Timeline({ contactId, dealId }: { contactId?: string; dealId?: s
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[12px] text-ork-mist">
-                <strong className="font-semibold text-ork-graphite">{a.label}</strong> · {a.user?.name ?? "ORKESTA"} · {formatWhen(a.created_at)}
+                <strong className="font-semibold text-ork-graphite">{a.label}</strong> ·{" "}
+                {a.user && <Avatar name={a.user.name} email="" size={16} src={a.user.avatar_url} />} {a.user?.name ?? "ORKESTA"} · {formatWhen(a.created_at)}
               </p>
               <p className={cx("whitespace-pre-wrap text-[13.5px] text-ork-ink", a.done_at && "text-ork-mist line-through")}>{a.body}</p>
               {a.type === "task" && (

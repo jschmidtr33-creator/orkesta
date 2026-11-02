@@ -30,6 +30,7 @@ from orkesta.data.router import router as data_router
 from orkesta.enrichment.router import router as enrichment_router
 from orkesta.models import load_all
 from orkesta.notifications.router import router as notifications_router
+from orkesta.platform.profile import router as profile_router
 from orkesta.platform.router import router as platform_router
 from orkesta.proposals.router import router as proposals_router
 from orkesta.reports.router import router as reports_router
@@ -40,7 +41,7 @@ logger = logging.getLogger("orkesta")
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
+    "img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; "
     "frame-ancestors 'none'; base-uri 'self'; "
     "form-action 'self' https://accounts.google.com"
 )
@@ -124,6 +125,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(platform_router)
+    app.include_router(profile_router)
     app.include_router(data_router)
     app.include_router(crm_router)
     app.include_router(enrichment_router)

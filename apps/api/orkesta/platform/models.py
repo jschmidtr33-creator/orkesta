@@ -18,6 +18,8 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -58,6 +60,18 @@ class User(IdMixin, Base):
     platform_role: Mapped[str | None] = mapped_column(String(20))
     last_tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Perfil
+    job_title: Mapped[str | None] = mapped_column(String(160))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    recovery_email: Mapped[str | None] = mapped_column(String(320))
+    timezone: Mapped[str | None] = mapped_column(String(60))
+    avatar: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    avatar_type: Mapped[str | None] = mapped_column(String(30))
+    avatar_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    @property
+    def avatar_url(self) -> str | None:
+        return f"/api/avatars/{self.id}?v={self.avatar_version}" if self.avatar_type else None
 
 
 class Membership(IdMixin, Base):

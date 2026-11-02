@@ -346,7 +346,13 @@ def deal_dict(deal: Deal, contact: Contact | None, company: Company | None,
         if contact
         else None,
         "company": company.name if company else (contact.company_name if contact else None),
-        "owner": {"id": str(owner.id), "name": owner.full_name or owner.email} if owner else None,
+        "owner": {
+            "id": str(owner.id),
+            "name": owner.full_name or owner.email,
+            "avatar_url": owner.avatar_url,
+        }
+        if owner
+        else None,
         "created_at": deal.created_at.isoformat(),
         "updated_at": deal.updated_at.isoformat() if deal.updated_at else None,
         "closed_at": deal.closed_at.isoformat() if deal.closed_at else None,
@@ -410,7 +416,13 @@ def activity_dict(activity: Activity, user: User | None) -> dict[str, Any]:
         "deal_id": str(activity.deal_id) if activity.deal_id else None,
         "due_at": activity.due_at.isoformat() if activity.due_at else None,
         "done_at": activity.done_at.isoformat() if activity.done_at else None,
-        "user": {"id": str(user.id), "name": user.full_name or user.email} if user else None,
+        "user": {
+            "id": str(user.id),
+            "name": user.full_name or user.email,
+            "avatar_url": user.avatar_url,
+        }
+        if user
+        else None,
         "created_at": activity.created_at.isoformat(),
     }
 

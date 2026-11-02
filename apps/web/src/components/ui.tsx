@@ -4,6 +4,7 @@ import { Loader2, X } from "lucide-react";
 import {
   forwardRef,
   useId,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -239,7 +240,21 @@ export function initials(name: string, email: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "·";
 }
 
-export function Avatar({ name, email, size = 32 }: { name: string; email: string; size?: number }) {
+export function Avatar({ name, email, size = 32, src }: { name: string; email: string; size?: number; src?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (src && !broken) {
+    return (
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        onError={() => setBroken(true)}
+        className="inline-block shrink-0 rounded-full object-cover ring-1 ring-ork-line"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <span
       className="ork-gradient inline-flex shrink-0 items-center justify-center rounded-full font-bold text-white"
