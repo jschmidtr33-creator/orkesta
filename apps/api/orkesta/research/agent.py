@@ -42,7 +42,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import directory, leads, memory, news, serp, website, wikidata
+from orkesta.research import directory, leads, memory, news, people, serp, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -306,6 +306,7 @@ class Run:
         }  # fmt: skip
         self.serp = serp.SerpStats()
         self.seen: dict[str, Candidate] = {}  # empresas encontradas: alimentan el directorio
+        self.filters: Filters | None = None
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -377,8 +378,9 @@ class Run:
                          company.sources, score)  # fmt: skip
 
     def save_person(self, prospect: Prospect, country: str) -> None:
-        self._upsert("person", prospect.key, prospect.company.key, prospect.data(country),
-                     prospect.sources, prospect.score())  # fmt: skip
+        score, reasons = people.fit_score(prospect, self.filters)
+        data = {**prospect.data(country), "score_reasons": reasons}
+        self._upsert("person", prospect.key, prospect.company.key, data, prospect.sources, score)
 
     def merge_person(
         self,
@@ -792,13 +794,13 @@ def _publish(run: Run, prospect: Prospect, filters: Filters) -> None:
 
 def infer_emails(run: Run, filters: Filters) -> int:
     estimated = 0
-    for key, people in run.people.items():
+    for key, group in run.people.items():
         company = run.companies.get(key)
         if company is None or not company.domain:
             continue
         patterns = [
             detect_pattern(p.first_name, p.last_name, p.email)
-            for p in people
+            for p in group
             if p.email_status == "publicado"
         ]
         known = [p for p in patterns if p]
@@ -811,7 +813,7 @@ def infer_emails(run: Run, filters: Filters) -> int:
             "publicados en el sitio",
             "url": "",
         }
-        for prospect in people:
+        for prospect in group:
             if prospect.email:
                 continue
             email = apply_pattern(pattern, prospect.first_name, prospect.last_name, company.domain)
@@ -1250,15 +1252,57 @@ def from_directory(run: Run, filters: Filters) -> list[Candidate]:
     return out
 
 
+def from_index(run: Run, filters: Filters) -> int:
+    """Perfiles públicos que ORKESTA ya conoce (índice propio): aparecen al instante."""
+    if not filters.country:
+        return 0
+    with run.factory() as session:
+        hits = people.search(session, filters)
+    for hit in hits:
+        person = hit["person"]
+        key = person.company_key
+        with run.lock:
+            company = run.companies.get(key)
+            if company is None:
+                company = Candidate(
+                    key=key, name=person.company, domain=person.domain or "",
+                    website=f"https://{person.domain}" if person.domain else "",
+                    industry=INDUSTRY_LABELS.get(hit["industry"], ""),
+                    industry_code=hit["industry"], employees=hit["employees"],
+                    sources=[{"type": "indice", "label": "Índice ORKESTA", "url": ""}],
+                )  # fmt: skip
+                run.companies[key] = company
+        source = {"type": "indice", "label": "Índice ORKESTA", "url": person.linkedin or ""}
+        prospect = run.merge_person(
+            company, full_name=person.full_name, first_name=person.first_name,
+            last_name=person.last_name, source=source, title=person.title,
+            title_confidence=70, linkedin=person.linkedin or "",
+        )  # fmt: skip
+        with run.lock:
+            prospect.location = prospect.location or person.location
+            if person.email and person.email_status in ("confirmado", "publicado"):
+                confirmed = person.email_status == "confirmado"
+                label = ("Correo confirmado por una respuesta" if confirmed
+                         else "Correo publicado (índice ORKESTA)")  # fmt: skip
+                prospect.set("email", person.email, {"label": label, "url": ""}, 90)
+                prospect.email_status = "publicado"
+        _publish(run, prospect, filters)
+    if hits:
+        run.log(f"{len(hits)} posibles clientes del índice propio de ORKESTA.", done=len(hits))
+    return len(hits)
+
+
 def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
+    run.filters = filters
     if filters.mode == "accounts":
         return execute_accounts(run, filters, fetcher)
+    from_index(run, filters)
     if serp.enabled() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
     first, reserve = pool[: filters.limit], pool[filters.limit :]
     companies = list(first)
-    run.companies = {c.key: c for c in companies}
+    run.companies.update({c.key: c for c in companies})
     for company in companies:
         run.save_company(company, filters.country)
     run.total = len(companies)
@@ -1341,8 +1385,12 @@ def run_research(
             totals = execute(run, filters, fetcher)
             totals["requests"] = fetcher.requests
         directory.learn(factory, filters.country, list(run.seen.values()))
-        people, companies = totals.get("people", 0), totals.get("companies", 0)
-        run.log(f"Listo: {companies} empresas y {people} decisores.", step="listo", done=run.total)
+        if filters.mode != "accounts":
+            found = [p for group in run.people.values() for p in group if filters.wants(p)]
+            people.learn(factory, filters.country, found)
+        n_people, companies = totals.get("people", 0), totals.get("companies", 0)
+        run.log(f"Listo: {companies} empresas y {n_people} decisores.", step="listo",
+                done=run.total)  # fmt: skip
     except Canceled:
         return
     _finish(factory, tenant_id, run_id, status="completed", totals=totals)

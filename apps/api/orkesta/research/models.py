@@ -209,3 +209,49 @@ class CompanyDirectory(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PersonIndex(Base):
+    """Índice global de perfiles profesionales públicos (nombre, cargo, empresa, ubicación,
+    LinkedIn y correo corporativo). Sin teléfonos ni correos personales."""
+
+    __tablename__ = "people_index"
+    __table_args__ = (
+        Index("ix_people_index_country_company", "country", "company_key"),
+        Index("ix_people_index_country_level", "country", "level"),
+        Index("ix_people_index_email", "email"),
+    )
+
+    key: Mapped[str] = mapped_column(String(400), primary_key=True)
+    country: Mapped[str] = mapped_column(String(2), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    last_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    level: Mapped[str | None] = mapped_column(String(20))
+    area: Mapped[str | None] = mapped_column(String(30))
+    company: Mapped[str] = mapped_column(String(300), nullable=False)
+    company_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(253))
+    location: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    linkedin: Mapped[str | None] = mapped_column(String(300))
+    email: Mapped[str | None] = mapped_column(String(320))
+    email_status: Mapped[str | None] = mapped_column(String(12))
+    seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PersonOptOut(Base):
+    """Personas que pidieron salir del índice (solo la huella; no se vuelven a guardar)."""
+
+    __tablename__ = "people_optout"
+
+    hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

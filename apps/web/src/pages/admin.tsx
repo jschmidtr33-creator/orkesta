@@ -651,6 +651,7 @@ type DirectoryData = {
   countries: { country: string; companies: number; with_domain: number }[];
   presets: { id: string; label: string; country: string; source: string; last: ImportInfo | null; live: ImportInfo | null }[];
   uploads: { id: string; last: ImportInfo | null; live: ImportInfo | null }[];
+  people?: { people: number; with_email: number; verified: number };
   crawler?: { by_status: Record<string, number>; patterns: number; running: boolean; last_run?: string; last_batch?: number };
 };
 const COUNTRY_OPTIONS: [string, string][] = [
@@ -681,6 +682,52 @@ type TrainResult = {
   evaluation: { evaluated: number; accuracy: number; baseline: number };
   errors: string[];
 };
+
+/** Índice propio de perfiles profesionales públicos, con salida a pedido de la persona. */
+function PeopleCard({ stats, onDone }: { stats: NonNullable<DirectoryData["people"]>; onDone: () => void }) {
+  const [value, setValue] = useState("");
+  const remove = useMutation({
+    mutationFn: () => api<{ removed: number }>("/api/admin/people/remove", { method: "POST", json: { value } }),
+    onSuccess: () => {
+      setValue("");
+      onDone();
+    },
+  });
+  return (
+    <Card className="mt-4">
+      <CardHeader
+        title="Índice de personas"
+        description="Perfiles profesionales públicos que encuentran las búsquedas (nombre, cargo, empresa, ubicación, LinkedIn y correo corporativo). Las siguientes búsquedas los muestran al instante. No guarda teléfonos ni correos personales."
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Perfiles en el índice" value={n(stats.people)} />
+        <Stat label="Con correo corporativo" value={n(stats.with_email)} />
+        <Stat label="Correos verificados" value={n(stats.verified)} hint="Publicados o confirmados por una respuesta" />
+      </div>
+      <form
+        className="mt-4 flex flex-wrap items-end gap-3 border-t border-ork-line pt-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          remove.mutate();
+        }}
+      >
+        <div className="min-w-[260px] flex-1">
+          <TextField
+            label="Quitar a una persona del índice"
+            placeholder="URL de LinkedIn o correo"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        </div>
+        <Button type="submit" variant="danger" loading={remove.isPending} disabled={value.trim().length < 5}>
+          Quitar para siempre
+        </Button>
+      </form>
+      {remove.data && <p className="mt-2 text-[13px] text-ork-graphite">Listo: {remove.data.removed} perfil(es) quitado(s). No se volverán a guardar.</p>}
+      {remove.error && <Alert>{remove.error.message}</Alert>}
+    </Card>
+  );
+}
 
 /** Rastreador propio: lee los sitios oficiales de las empresas del directorio. */
 function CrawlerCard({ crawler, onStart }: { crawler: NonNullable<DirectoryData["crawler"]>; onStart: () => void }) {
@@ -823,6 +870,7 @@ function DirectoryPage() {
         </ul>
       </Card>
       {d?.crawler && <CrawlerCard crawler={d.crawler} onStart={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
+      {d?.people && <PeopleCard stats={d.people} onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />
       <Card className="mt-4">
         <CardHeader

@@ -76,6 +76,7 @@ type Run = {
 };
 type Item<T> = { id: string; key: string; data: T; provenance: Provenance; sources: SourceRef[]; score: number; saved_contact_id: string | null };
 type PersonData = {
+  score_reasons?: string[];
   full_name: string;
   first_name: string;
   last_name: string;
@@ -1172,6 +1173,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
                     </a>
                   )}
                   {p.saved_contact_id && <Badge tone="ok">Guardado</Badge>}
+                  <ScoreBadge score={p.score} reasons={p.data.score_reasons} />
                 </div>
                 <p className="mt-0.5 text-[13.5px] text-ork-ink">
                   {p.data.title || "Cargo no publicado"}
@@ -1451,4 +1453,17 @@ function OperatorAlerts({ totals }: { totals: Record<string, number> }) {
   if (totals.serp_fatal_clave) return <div className="mt-3"><Alert>Solo administración: la clave de Serper no es válida. Revisa SERPER_API_KEY en Render.</Alert></div>;
   if (totals.serp_fatal_creditos) return <div className="mt-3"><Alert>Solo administración: se acabaron los créditos de Serper. Recarga en serper.dev.</Alert></div>;
   return null;
+}
+
+/** Puntaje del posible cliente (0-100): qué tan bien encaja con lo que buscaste. */
+function ScoreBadge({ score, reasons }: { score: number; reasons?: string[] }) {
+  const tone = score >= 75 ? "ok" : score >= 50 ? "blue" : "neutral";
+  const label = score >= 75 ? "Encaje alto" : score >= 50 ? "Encaje medio" : "Encaje bajo";
+  return (
+    <Tip label={reasons?.length ? reasons.join(" · ") : "Puntaje según nivel, empresa y calidad del correo"}>
+      <Badge tone={tone}>
+        {label} · {score}
+      </Badge>
+    </Tip>
+  );
 }
