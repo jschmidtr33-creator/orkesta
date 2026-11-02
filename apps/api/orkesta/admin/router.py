@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
@@ -312,6 +312,56 @@ def put_app_settings(
     data = svc.save_app_settings(db, body)
     svc.log(db, principal.user, "settings.updated", "", keys=sorted(body))
     return {"settings": data}
+
+
+# --- Directorio de empresas (registros públicos) ---------------------------------------------
+
+Directory = Annotated[Principal, Depends(require("directorio"))]
+
+
+@router.get("/directory")
+def directory_overview(principal: Directory, db: Db) -> dict[str, Any]:
+    from orkesta.research import directory
+
+    return directory.overview(db)
+
+
+@router.post("/directory/presets/{preset_id}")
+def directory_load_preset(
+    preset_id: str, request: Request, principal: Directory, db: Db
+) -> dict[str, Any]:
+    from orkesta.research import directory
+
+    if preset_id not in directory.PRESETS:
+        raise HTTPException(404, "Esa fuente no existe.")
+    factory = request.app.state.session_factory
+    started = directory.start(lambda: directory.run_preset(factory, preset_id), preset_id)
+    svc.log(db, principal.user, "directory.preset", preset_id)
+    return {"started": started}
+
+
+MAX_UPLOAD = 60 * 1024 * 1024
+
+
+@router.post("/directory/upload")
+async def directory_upload(
+    request: Request,
+    principal: Directory,
+    db: Db,
+    file: Annotated[UploadFile, File()],
+    country: Annotated[str, Form(pattern="^[A-Z]{2}$")],
+    source: Annotated[str, Form(min_length=2, max_length=60)],
+) -> dict[str, Any]:
+    from orkesta.research import directory
+
+    raw = await file.read(MAX_UPLOAD + 1)
+    if len(raw) > MAX_UPLOAD:
+        raise HTTPException(413, "El archivo supera 60 MB. Divídelo en partes.")
+    factory = request.app.state.session_factory
+    key = f"archivo:{source}"
+    started = directory.start(lambda: directory.run_upload(factory, raw, country, source), key)
+    svc.log(db, principal.user, "directory.upload", source, country=country, bytes=len(raw))
+    return {"started": started}
 
 
 # --- Equipo, permisos y bitácora -------------------------------------------------------------

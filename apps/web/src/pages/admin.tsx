@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Building2,
   CheckCircle2,
+  Database,
   Inbox,
   LayoutDashboard,
   Lock,
@@ -40,6 +41,7 @@ const NAV: Item[] = [
   { to: "/admin/demos", label: "Solicitudes de demo", icon: Inbox, perm: "ver_demos" },
   { to: "/admin/configuracion", label: "Configuración", icon: Settings2, perm: "configuracion" },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug, perm: "integraciones" },
+  { to: "/admin/directorio", label: "Directorio de empresas", icon: Database, perm: "directorio" },
   { to: "/admin/equipo", label: "Equipo y permisos", icon: UserCog, perm: "" },
   { to: "/admin/bitacora", label: "Bitácora", icon: ScrollText, perm: "bitacora" },
 ];
@@ -103,6 +105,7 @@ export function AdminApp() {
         <Route path="demos" element={<Guard me={me.data} perm="ver_demos"><Demos /></Guard>} />
         <Route path="configuracion" element={<Guard me={me.data} perm="configuracion"><SettingsPage /></Guard>} />
         <Route path="integraciones" element={<Guard me={me.data} perm="integraciones"><Integrations /></Guard>} />
+        <Route path="directorio" element={<Guard me={me.data} perm="directorio"><DirectoryPage /></Guard>} />
         <Route path="equipo" element={<Team />} />
         <Route path="bitacora" element={<Guard me={me.data} perm="bitacora"><Audit /></Guard>} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
@@ -634,6 +637,152 @@ function Integrations() {
           </Card>
         ))}
       </div>
+    </>
+  );
+}
+
+// --- Directorio de empresas -----------------------------------------------------------------
+
+type ImportInfo = { status: string; saved: number; rows?: number; error: string; finished_at?: string; started_at?: string };
+type DirectoryData = {
+  total: number;
+  countries: { country: string; companies: number; with_domain: number }[];
+  presets: { id: string; label: string; country: string; source: string; last: ImportInfo | null; live: ImportInfo | null }[];
+  uploads: { id: string; last: ImportInfo | null; live: ImportInfo | null }[];
+};
+const COUNTRY_OPTIONS: [string, string][] = [
+  ["CO", "Colombia"], ["MX", "México"], ["PE", "Perú"], ["CL", "Chile"], ["AR", "Argentina"], ["EC", "Ecuador"],
+  ["BR", "Brasil"], ["PA", "Panamá"], ["CR", "Costa Rica"], ["GT", "Guatemala"], ["DO", "República Dominicana"],
+  ["UY", "Uruguay"], ["PY", "Paraguay"], ["BO", "Bolivia"], ["SV", "El Salvador"], ["HN", "Honduras"], ["US", "Estados Unidos"], ["ES", "España"],
+];
+
+function ImportStatus({ info }: { info: ImportInfo | null | undefined }) {
+  if (!info) return <span className="text-[12.5px] text-ork-mist">Sin cargar todavía</span>;
+  if (info.status === "running") return <Badge tone="blue">Cargando… {n(info.saved ?? 0)} empresas</Badge>;
+  if (info.status === "failed") return <span className="text-[12.5px] text-bad">Falló: {info.error}</span>;
+  return (
+    <span className="text-[12.5px] text-ork-graphite">
+      <Badge tone="ok">{n(info.saved)} empresas</Badge> {info.finished_at && <span className="ml-1 text-ork-mist">· {formatWhen(info.finished_at)}</span>}
+      {info.error && <span className="ml-1 text-warn">· {info.error}</span>}
+    </span>
+  );
+}
+
+function DirectoryPage() {
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: ["admin-directory"],
+    queryFn: () => api<DirectoryData>("/api/admin/directory"),
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      return d && [...d.presets, ...d.uploads].some((x) => x.live?.status === "running") ? 3000 : false;
+    },
+  });
+  const preset = useMutation({
+    mutationFn: (id: string) => api(`/api/admin/directory/presets/${id}`, { method: "POST" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin-directory"] }),
+  });
+  const [file, setFile] = useState<File | null>(null);
+  const [country, setCountry] = useState("CO");
+  const [source, setSource] = useState("");
+  const upload = useMutation({
+    mutationFn: () => {
+      const body = new FormData();
+      body.append("file", file as File);
+      body.append("country", country);
+      body.append("source", source.trim());
+      return api("/api/admin/directory/upload", { method: "POST", body });
+    },
+    onSuccess: () => {
+      setFile(null);
+      client.invalidateQueries({ queryKey: ["admin-directory"] });
+    },
+  });
+  const d = q.data;
+  return (
+    <>
+      <Title
+        title="Directorio de empresas"
+        description="Base propia de ORKESTA con registros públicos oficiales. La búsqueda de Cuentas la consulta primero, y crece sola con cada búsqueda."
+      />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Stat label="Empresas en el directorio" value={n(d?.total ?? 0)} />
+        <Stat label="Países" value={d?.countries.length ?? 0} />
+        <Stat label="Con sitio web identificado" value={n((d?.countries ?? []).reduce((a, c) => a + c.with_domain, 0))} />
+      </div>
+      <Card className="mt-4">
+        <CardHeader title="Registros oficiales automáticos" description="Se descargan solos la primera vez y se actualizan cada mes." />
+        <ul className="divide-y divide-ork-line">
+          {(d?.presets ?? []).map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-[14px] font-semibold text-ork-ink">{p.label}</p>
+                <ImportStatus info={p.live?.status === "running" ? p.live : p.last} />
+              </div>
+              <Button size="sm" variant="secondary" loading={preset.isPending && preset.variables === p.id} disabled={p.live?.status === "running"} onClick={() => preset.mutate(p.id)}>
+                Actualizar ahora
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card className="mt-4">
+        <CardHeader
+          title="Cargar un registro público (CSV)"
+          description="Sirve cualquier registro oficial descargable: DENUE de INEGI (México), SUNAT (Perú), SII (Chile), RUES o cámaras de comercio. ORKESTA detecta sola las columnas: razón social, NIT/RUT/RFC, actividad (CIIU o SCIAN), ciudad, ingresos, empleados y sitio web."
+        />
+        {upload.error && <Alert>{upload.error.message}</Alert>}
+        <div className="grid gap-3 md:grid-cols-[1fr_180px_1fr_auto] md:items-end">
+          <label className="text-[13px] font-semibold text-ork-ink">
+            Archivo
+            <input type="file" accept=".csv,.txt" className="mt-1 block w-full text-[13px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          </label>
+          <SelectField label="País" value={country} onChange={(e) => setCountry(e.target.value)}>
+            {COUNTRY_OPTIONS.map(([code, label]) => (
+              <option key={code} value={code}>
+                {label}
+              </option>
+            ))}
+          </SelectField>
+          <TextField label="Fuente" placeholder="Ej.: DENUE Jalisco 2026" value={source} onChange={(e) => setSource(e.target.value)} />
+          <Button loading={upload.isPending} disabled={!file || source.trim().length < 2} onClick={() => upload.mutate()}>
+            Cargar
+          </Button>
+        </div>
+        {(d?.uploads.length ?? 0) > 0 && (
+          <ul className="mt-4 divide-y divide-ork-line border-t border-ork-line">
+            {d!.uploads.map((u) => (
+              <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13.5px]">
+                <span className="font-semibold text-ork-ink">{u.id.replace("archivo:", "")}</span>
+                <ImportStatus info={u.live?.status === "running" ? u.live : u.last} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      {(d?.countries.length ?? 0) > 0 && (
+        <Card className="mt-4">
+          <CardHeader title="Por país" />
+          <table className="w-full text-left text-[13.5px]">
+            <thead className="text-[11.5px] uppercase tracking-wide text-ork-mist">
+              <tr>
+                <th className="py-2 font-semibold">País</th>
+                <th className="py-2 font-semibold">Empresas</th>
+                <th className="py-2 font-semibold">Con sitio web</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ork-line">
+              {d!.countries.map((c) => (
+                <tr key={c.country}>
+                  <td className="py-2">{COUNTRY_OPTIONS.find(([code]) => code === c.country)?.[1] ?? c.country}</td>
+                  <td className="py-2">{n(c.companies)}</td>
+                  <td className="py-2">{n(c.with_domain)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
     </>
   );
 }

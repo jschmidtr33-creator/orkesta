@@ -42,7 +42,7 @@ from orkesta.engine.taxonomy.titles import (
     LEVEL_LABELS,
     classify_title,
 )
-from orkesta.research import leads, memory, news, serp, website, wikidata
+from orkesta.research import directory, leads, memory, news, serp, website, wikidata
 from orkesta.research.extract import (
     apply_pattern,
     detect_pattern,
@@ -305,6 +305,7 @@ class Run:
             "wikidata": 0, "sitio": 0, "noticia": 0, "web": 0, "perfil": 0,
         }  # fmt: skip
         self.serp = serp.SerpStats()
+        self.seen: dict[str, Candidate] = {}  # empresas encontradas: alimentan el directorio
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -370,6 +371,7 @@ class Run:
 
     def save_company(self, company: Candidate, country: str) -> None:
         with self.lock:
+            self.seen[company.key] = company
             score = min(100, 20 * len(company.sources) + 10 * company.people_found)
             self._upsert("company", company.key, company.key, company.data(country),
                          company.sources, score)  # fmt: skip
@@ -1172,31 +1174,67 @@ def execute_accounts(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, 
             )  # fmt: skip
             run.save_company(found[key], filters.country)
         run.log(f"{len(found)} cuentas encontradas.", done=len(found))
+    for candidate in from_directory(run, filters):
+        known = found.get(candidate.key)
+        if known is not None:
+            known.domain = known.domain or candidate.domain
+            known.employees = known.employees or candidate.employees
+            known.sources.extend(candidate.sources)
+            continue
+        found[candidate.key] = candidate
+        run.save_company(candidate, filters.country)
     for candidate in discover(run, fetcher, filters):
         if candidate.key not in found:
             found[candidate.key] = candidate
             run.save_company(candidate, filters.country)
     companies = list(found.values())
-    run.log(f"Identificando el sitio web de {len(companies)} cuentas…", step="dominios")
-
-    def resolve(company: Candidate) -> None:
-        if company.domain or run.expired() or run.serp.fatal or not serp.enabled():
-            return
-        company.domain = serp.company_domain(
-            fetcher, run.serp, company.name, filters.country, country_name
-        )
-        if company.domain:
-            company.website = company.website or f"https://{company.domain}"
-            run.save_company(company, filters.country)
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        list(pool.map(resolve, companies))
+    missing = [c for c in companies if not c.domain][:DOMAIN_LOOKUPS]
+    run.log(f"Identificando el sitio web de {len(missing)} cuentas…", step="dominios")
+    resolve_domains(run, fetcher, missing, filters.country)
     return {
         "companies": len(companies),
         "people": 0,
         "with_domain": sum(1 for c in companies if c.domain),
         **run.serp.totals(),
     }
+
+
+DOMAIN_LOOKUPS = 150  # sitios web a identificar por búsqueda de cuentas (el resto, después)
+
+
+def from_directory(run: Run, filters: Filters) -> list[Candidate]:
+    """Empresas del directorio propio (registros públicos oficiales + búsquedas anteriores)."""
+    if not filters.country or filters.companies:
+        return []
+    industries = list(dict.fromkeys([*filters.industries, *li.sector_parents(filters.sectors)]))
+    excluded = [c for c in li.sector_parents(filters.exclude_sectors) if c not in industries]
+    with run.factory() as session:
+        entries = directory.search(
+            session, country=filters.country, industries=industries,
+            exclude_industries=excluded, cities=filters.cities, keywords=filters.keywords,
+            sizes=filters.sizes,
+        )  # fmt: skip
+    out: list[Candidate] = []
+    for e in entries:
+        if not filters.wants_employer(e.name):
+            continue
+        label = (
+            "Registro público oficial"
+            if e.source not in ("", "busquedas")
+            else "Directorio ORKESTA"
+        )
+        detail = f" · {e.source}" if e.source not in ("", "busquedas") else ""
+        out.append(Candidate(
+            key=company_key(e.name), name=e.name, domain=e.domain,
+            website=e.website or (f"https://{e.domain}" if e.domain else ""),
+            employees=e.employees, city=e.city, industry=e.industry,
+            industry_code=e.industry_code, description=e.description(), linkedin=e.linkedin,
+            location=", ".join(p for p in (e.city, e.region) if p),
+            sources=[{"type": "registro", "label": f"{label}{detail}", "url": ""}],
+        ))  # fmt: skip
+    if out:
+        run.log(f"{len(out)} empresas del directorio propio de ORKESTA cumplen tus filtros.")
+    return out
 
 
 def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
@@ -1289,6 +1327,7 @@ def run_research(
         with Fetcher(factory) as fetcher:
             totals = execute(run, filters, fetcher)
             totals["requests"] = fetcher.requests
+        directory.learn(factory, filters.country, list(run.seen.values()))
         people, companies = totals.get("people", 0), totals.get("companies", 0)
         run.log(f"Listo: {companies} empresas y {people} decisores.", step="listo", done=run.total)
     except Canceled:

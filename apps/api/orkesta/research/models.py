@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -12,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -162,5 +164,40 @@ class BouncedAddress(Base):
     domain: Mapped[str] = mapped_column(String(253), nullable=False, index=True)
     pattern: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CompanyDirectory(Base):
+    """Directorio global de empresas de ORKESTA: registros públicos oficiales + lo que aprenden
+    las búsquedas. Solo datos de empresas (dato público), compartido por todas las cuentas."""
+
+    __tablename__ = "company_directory"
+    __table_args__ = (
+        Index("ix_company_directory_country_industry", "country", "industry_code"),
+        Index("ix_company_directory_country_name", "country", "name_key"),
+        Index("ix_company_directory_country_revenue", "country", "revenue"),
+    )
+
+    key: Mapped[str] = mapped_column(String(340), primary_key=True)  # país|NIT o país|n:nombre
+    country: Mapped[str] = mapped_column(String(2), nullable=False)
+    tax_id: Mapped[str | None] = mapped_column(String(30))
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    industry_code: Mapped[str | None] = mapped_column(String(40))
+    activity_code: Mapped[str | None] = mapped_column(String(10))
+    sector: Mapped[str | None] = mapped_column(String(200))
+    city: Mapped[str | None] = mapped_column(String(120))
+    region: Mapped[str | None] = mapped_column(String(120))
+    place_key: Mapped[str | None] = mapped_column(String(250))
+    search_text: Mapped[str] = mapped_column(String(600), nullable=False, default="")
+    revenue: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
+    employees: Mapped[int | None] = mapped_column(Integer)
+    website: Mapped[str | None] = mapped_column(String(300))
+    domain: Mapped[str | None] = mapped_column(String(253))
+    linkedin: Mapped[str | None] = mapped_column(String(300))
+    year: Mapped[int | None] = mapped_column(SmallInteger)
+    source: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -30,6 +30,7 @@ PERMISSIONS = {
     "planes": "Planes y límites por plan",
     "integraciones": "Ver el estado de las integraciones",
     "bitacora": "Ver la bitácora del equipo",
+    "directorio": "Directorio de empresas: cargar registros públicos",
 }
 DEFAULT_MATRIX = {
     "admin": list(PERMISSIONS),
