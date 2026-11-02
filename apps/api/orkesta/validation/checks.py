@@ -220,6 +220,51 @@ class SmtpProber:
         return results
 
 
+class RemoteProber:
+    """Pide la conversación SMTP al verificador propio de ORKESTA (otro servidor con el puerto 25
+    abierto). HTTPS con el certificado del verificador fijado por su huella SHA-256."""
+
+    def __init__(self, url: str, token: str, fingerprint: str, timeout: float = 40.0):
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(url)
+        self.host, self.port = parts.hostname or "", parts.port or 8443
+        self.token, self.timeout = token, timeout
+        self.fingerprint = fingerprint.replace(":", "").lower()
+
+    def probe(self, mx: str, addresses: list[str]) -> dict[str, tuple[int, str]]:
+        import hashlib
+        import http.client
+        import json
+        import ssl
+
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE  # se verifica abajo por huella fijada
+        conn = http.client.HTTPSConnection(self.host, self.port, timeout=self.timeout,
+                                           context=context)  # fmt: skip
+        try:
+            conn.connect()
+            cert = conn.sock.getpeercert(binary_form=True) if conn.sock else None
+            if not cert or hashlib.sha256(cert).hexdigest() != self.fingerprint:
+                raise SmtpUnavailable("La huella del verificador no coincide.")
+            body = json.dumps({"mx": mx, "addresses": addresses})
+            conn.request("POST", "/probe", body, {"Authorization": f"Bearer {self.token}",
+                                                  "Content-Type": "application/json"})  # fmt: skip
+            response = conn.getresponse()
+            data = json.loads(response.read() or b"{}")
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            raise SmtpUnavailable(f"verificador: {exc}") from exc
+        finally:
+            conn.close()
+        if response.status != 200:
+            raise SmtpUnavailable(f"verificador respondió {response.status}")
+        results = data.get("results", {})
+        if "__error__" in results:
+            raise SmtpUnavailable(str(results["__error__"][1]))
+        return {a: (int(v[0]), str(v[1])) for a, v in results.items() if a in addresses}
+
+
 class SmtpHealth:
     """Detecta si esta red puede hablar SMTP. Tras 3 fallos de conexión en dominios distintos
     se desactiva por 1 hora para no hacer esperar a nadie."""
@@ -265,7 +310,7 @@ def _rejected(code: int, message: str) -> bool:
 
 @dataclass
 class Checker:
-    prober: SmtpProber | None
+    prober: SmtpProber | RemoteProber | None
     resolver: Resolver = dns_mx
     health: SmtpHealth = HEALTH
     domains: dict[str, DomainInfo] = field(default_factory=dict)

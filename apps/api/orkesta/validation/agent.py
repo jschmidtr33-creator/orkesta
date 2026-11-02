@@ -27,7 +27,15 @@ from orkesta.core.jobs import handler
 from orkesta.data.models import Company, Contact, DataPoint
 from orkesta.data.service import ContactFilters, _filtered
 from orkesta.research.extract import PATTERNS, apply_pattern
-from orkesta.validation.checks import Checker, Resolver, SmtpProber, Verdict, dns_mx, helo_identity
+from orkesta.validation.checks import (
+    Checker,
+    RemoteProber,
+    Resolver,
+    SmtpProber,
+    Verdict,
+    dns_mx,
+    helo_identity,
+)
 from orkesta.validation.models import ValidationRun
 
 logger = logging.getLogger("orkesta.validation")
@@ -39,7 +47,7 @@ FIND_PER_DOMAIN = 40
 
 # Las pruebas reemplazan la red: resolución DNS y conversación SMTP.
 RESOLVER: Resolver | None = None
-PROBER_FACTORY: Callable[[], SmtpProber | None] | None = None
+PROBER_FACTORY: Callable[[], SmtpProber | RemoteProber | None] | None = None
 
 
 class Canceled(Exception):
@@ -63,7 +71,11 @@ def _checker() -> Checker:
     else:
         settings = get_settings()
         helo, sender = helo_identity(settings.public_base_url or "orkesta.local")
-        prober = SmtpProber(helo, sender) if settings.smtp_probe else None
+        if settings.verifier_url and settings.verifier_token and settings.verifier_fingerprint:
+            prober = RemoteProber(settings.verifier_url, settings.verifier_token,
+                                  settings.verifier_fingerprint)  # fmt: skip
+        else:
+            prober = SmtpProber(helo, sender) if settings.smtp_probe else None
     return Checker(prober=prober, resolver=RESOLVER or dns_mx)
 
 
