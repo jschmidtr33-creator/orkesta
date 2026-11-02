@@ -241,6 +241,9 @@ def test_full_campaign_flow(
     fix = client.post(f"/api/campaigns/{campaign['id']}/recipients/{replied['id']}/category",
                       json={"category": "interesado"})  # fmt: skip
     assert fix.json()["deal_id"] == replied["deal_id"]
+    # Atribución: la oportunidad nació de esta campaña.
+    credited = client.get("/api/crm/attribution").json()["campaigns"]
+    assert credited[0]["campaign_id"] == campaign["id"] and credited[0]["deals"] == 1
 
     # Baja con un clic desde el correo.
     other = next(s for s in google.sent if s["id"] == "m-2")["msg"]

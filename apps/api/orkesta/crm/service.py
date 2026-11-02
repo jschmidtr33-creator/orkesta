@@ -392,7 +392,11 @@ def list_deals(
             | func.lower(func.coalesce(Contact.full_name, "")).like(like)
             | func.lower(func.coalesce(Company.name, "")).like(like)
         )
-    return [deal_dict(*row) for row in session.execute(query).tuples()]
+    from orkesta.crm.intelligence import health
+
+    rows = session.execute(query).tuples().all()
+    scores = health(session, tenant_id, [r[0] for r in rows])
+    return [{**deal_dict(*row), "health": scores.get(row[0].id)} for row in rows]
 
 
 def deal_detail(session: Session, deal: Deal) -> dict[str, Any]:
@@ -400,7 +404,10 @@ def deal_detail(session: Session, deal: Deal) -> dict[str, Any]:
     company = session.get(Company, deal.company_id) if deal.company_id else None
     owner = session.get(User, deal.owner_user_id) if deal.owner_user_id else None
     stage = session.get(Stage, deal.stage_id)
-    return deal_dict(deal, contact, company, owner, stage)
+    from orkesta.crm.intelligence import health
+
+    return {**deal_dict(deal, contact, company, owner, stage),
+            "health": health(session, deal.tenant_id, [deal]).get(deal.id)}  # fmt: skip
 
 
 # --- Actividades ----------------------------------------------------------------------------
