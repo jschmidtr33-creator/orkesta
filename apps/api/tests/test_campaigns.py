@@ -66,8 +66,8 @@ class FakeGoogle:
             return httpx.Response(200, json={"messages": self.threads.get(tid, [])})
         return httpx.Response(404)
 
-    def reply(self, thread: str, sender: str, subject: str = "Re: hola") -> None:
-        self.threads[thread].append({"payload": {"headers": [
+    def reply(self, thread: str, sender: str, subject: str = "Re: hola", snippet: str = "") -> None:
+        self.threads[thread].append({"snippet": snippet, "payload": {"headers": [
             {"name": "From", "value": sender}, {"name": "Subject", "value": subject}]}})  # fmt: skip
 
 
@@ -254,7 +254,8 @@ def test_bounce_suppresses_and_marks_invalid(
     assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
     assert _flush(session_factory) == 1
     google.reply("th-1", "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
-                 "Delivery Status Notification (Failure)")  # fmt: skip
+                 "Delivery Status Notification (Failure)",
+                 "No se ha encontrado la dirección Tu mensaje no se ha entregado")  # fmt: skip
     _rewind(database)
     _flush(session_factory)
     contact = client.get(f"/api/contacts/{ids[0]}").json()
@@ -386,7 +387,8 @@ def test_estimated_email_that_bounces_teaches_and_proposes_next_format(
     assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
     assert _flush(session_factory) == 1
     google.reply("th-1", "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
-                 "Delivery Status Notification (Failure)")  # fmt: skip
+                 "Delivery Status Notification (Failure)",
+                 "No se ha encontrado la dirección Tu mensaje no se ha entregado")  # fmt: skip
     _rewind(database)
     _flush(session_factory)
 
@@ -402,4 +404,107 @@ def test_estimated_email_that_bounces_teaches_and_proposes_next_format(
     assert detail["learning"]["reproposed"] == 1
     retry = client.post(f"/api/campaigns/{campaign['id']}/retry-bounced").json()
     assert retry["status"] == "draft" and retry["name"].endswith("reintento")
+    again = client.post(f"/api/campaigns/{campaign['id']}/retry-bounced").json()
+    assert again["id"] == retry["id"]  # no se duplican los borradores de reintento
     assert client.get(f"/api/campaigns/{retry['id']}").json()["audience"]["contact_ids"] == [cid]
+
+
+def test_blocked_is_not_a_bounce_and_old_bounces_are_repaired(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    from orkesta.campaigns.gmail import classify_bounce
+    from orkesta.research import memory
+
+    assert classify_bounce("El mensaje se ha bloqueado Tu mensaje para x@banco.co") == "blocked"
+    assert classify_bounce("Address not found Your message wasn't delivered") == "bounced"
+    assert classify_bounce("Delivery incomplete, will retry") == ""
+
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Bancos"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids[:2]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    _flush(session_factory, 3)
+    assert {"th-1", "th-2"} <= set(google.threads)
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        threads = dict(conn.execute("SELECT email, thread_id FROM orkesta.campaign_recipients"))
+    laura_th, pedro_th = threads["laura@bancoandino.co"], threads["pedro@bancoandino.co"]
+    blocked = "El mensaje se ha bloqueado Tu mensaje para laura@bancoandino.co se ha bloqueado"
+    google.reply(laura_th, "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+                 "Delivery Status Notification (Failure)", blocked)  # fmt: skip
+    # Simula un rebote registrado con la versión anterior (sin distinción) para el segundo.
+    with session_factory.begin() as s:
+        memory.feedback(s, "pedro@bancoandino.co", "first", "bounced")
+    with psycopg.connect(database[0]) as conn, conn.transaction():  # todo junto: sin carreras
+        tid = conn.execute("SELECT tenant_id FROM orkesta.campaigns").fetchone()[0]
+        conn.execute("INSERT INTO orkesta.suppressions (id, tenant_id, email, reason) VALUES "
+                     "(gen_random_uuid(), %s, 'pedro@bancoandino.co', 'bounced')", (tid,))  # fmt: skip
+        conn.execute("UPDATE orkesta.campaign_recipients SET status = 'bounced', error = NULL "
+                     "WHERE thread_id = %s", (pedro_th,))  # fmt: skip
+    google.reply(pedro_th, "Mail Delivery Subsystem <mailer-daemon@googlemail.com>",
+                 "Delivery Status Notification (Failure)", blocked.replace("laura", "pedro"))  # fmt: skip
+    _rewind(database)
+    _flush(session_factory)
+
+    detail = client.get(f"/api/campaigns/{campaign['id']}").json()
+    assert detail["stats"]["blocked"] == 2 and detail["stats"]["bounced"] == 0
+    contacts = {c["email"]: c for c in (client.get(f"/api/contacts/{i}").json() for i in ids[:2])}
+    assert all(c["email_status"] != "invalido" for c in contacts.values())
+    assert client.get("/api/suppressions").json() == []  # el bloqueo no es una dirección inválida
+    chain, bounced = memory.candidates(session_factory, "bancoandino.co", "first")
+    assert "first" in chain and not bounced  # lo aprendido por error se deshizo
+
+
+def test_campaign_auto_pauses_with_high_failure_rate(
+    client: TestClient, session_factory: sessionmaker[Session], database: tuple[str, str],
+) -> None:  # fmt: skip
+    register(client, "ana@lacteos.co")
+    client.post("/api/campaigns", json={"name": "Masiva"})
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.campaigns SET status = 'active'")
+        tid, cid = conn.execute("SELECT tenant_id, id FROM orkesta.campaigns").fetchone()
+        for i in range(25):
+            contact = conn.execute(
+                "INSERT INTO orkesta.contacts (id, tenant_id, dedup_key, first_name, last_name, "
+                "full_name, email, status, source, search_text) VALUES (gen_random_uuid(), %s, "
+                "%s, 'A', 'B', 'A B', %s, 'nuevo', 'manual', '') RETURNING id",
+                (tid, f"k{i}", f"p{i}@x.co"),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO orkesta.campaign_recipients (id, tenant_id, campaign_id, contact_id, "
+                "email, status, step, sent_count, open_count, click_count) VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 1, 1, 0, 0)",
+                (tid, cid, contact, f"p{i}@x.co", "blocked" if i < 6 else "completed"),
+            )
+    from orkesta.campaigns.models import Campaign, Mailbox
+    from orkesta.core.db import set_context
+
+    with session_factory.begin() as s:
+        set_context(s, tenant_id=tid)
+        c = s.get(Campaign, cid)
+        assert c is not None
+        svc._guard(s, c, Mailbox(user_id=None, email="a@b.co"))
+        assert c.status == "paused" and c.settings["auto_paused_at"]
+
+
+def test_delete_draft_and_sent_campaigns(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session]
+) -> None:
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    draft = client.post("/api/campaigns", json={"name": "Borrador"}).json()
+    assert client.delete(f"/api/campaigns/{draft['id']}").json() == {"ok": True}
+    sent = client.post("/api/campaigns", json={"name": "Enviada"}).json()
+    client.patch(f"/api/campaigns/{sent['id']}", json={"audience": {"contact_ids": ids[:1]}})
+    client.post(f"/api/campaigns/{sent['id']}/launch")
+    _flush(session_factory)
+    r = client.delete(f"/api/campaigns/{sent['id']}")
+    assert r.status_code == 200, r.text
+    assert client.get("/api/campaigns").json()["items"] == []
+    assert client.get(f"/api/contacts/{ids[0]}").status_code == 200  # el contacto se conserva
