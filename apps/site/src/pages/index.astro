@@ -6,7 +6,7 @@ import Base from "../layouts/Base.astro";
 const tour = [
   { key: "ingresar", tag: "Ingresa", title: "Entras con tu cuenta de Google o tu correo", text: "Cada empresa tiene su propio espacio de trabajo, aislado y seguro." },
   { key: "inicio", tag: "Tu día", title: "Lo primero que ves: tus pendientes y las novedades", text: "Tareas de hoy, vencidas, quién respondió y quién abrió tu propuesta." },
-  { key: "prospeccion", tag: "Prospecta", title: "Encuentra decisores con filtros tipo Sales Navigator", text: "Cargo, función, sector y país. Cada lead con su correo, LinkedIn y un puntaje de encaje." },
+  { key: "prospeccion", tag: "Prospecta", title: "Encuentra decisores con filtros inteligentes", text: "Cargo, función, sector y país. Cada lead con su correo, LinkedIn y un puntaje de encaje." },
   { key: "campana", tag: "Contacta", title: "Campañas desde tu propio buzón, con pruebas A/B", text: "Secuencias que se detienen solas cuando responden y aprenden qué versión funciona mejor." },
   { key: "respuestas", tag: "Responden", title: "La IA lee cada respuesta y actúa por ti", text: "Quiere reunión, pide información, más adelante, no interesado: oportunidad y tarea creadas solas." },
   { key: "crm", tag: "CRM", title: "Pipeline en Kanban con la salud de cada oportunidad", text: "Caliente, tibia o fría según actividad, respuestas y propuesta vista." },
@@ -82,7 +82,7 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
             <div class="overflow-hidden rounded-[20px] bg-ork-night">
               <div class="flex items-center gap-1.5 border-b border-white/5 bg-[#0B1020] px-4 py-2.5">
                 <span class="size-2.5 rounded-full bg-[#FF5F57]"></span><span class="size-2.5 rounded-full bg-[#FEBC2E]"></span><span class="size-2.5 rounded-full bg-[#28C840]"></span>
-                <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] text-white/50">orkesta-web.onrender.com/app</span>
+                <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] font-semibold tracking-[0.18em] text-white/55">ORKESTA</span>
               </div>
               <video class="block aspect-[16/10] w-full bg-ork-night" autoplay muted loop playsinline preload="metadata" poster="/media/recorrido-poster.webp" aria-label="Recorrido por ORKESTA: ingreso, prospección, campañas, CRM, pronóstico, automatizaciones y propuesta firmada">
                 <source src="/media/recorrido.webm" type="video/webm" />
@@ -130,7 +130,7 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
           <ol class="flex gap-2 overflow-x-auto pb-2 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:pb-0" role="tablist" aria-label="Pasos del recorrido">
             {tour.map((t, i) => (
               <li class="shrink-0">
-                <button type="button" role="tab" aria-selected={i === 0 ? "true" : "false"} data-step={i}
+                <button type="button" role="tab" aria-selected={i === 0 ? "true" : "false"} data-step={i} data-tag={t.tag}
                   class="tour-tab group relative w-[220px] overflow-hidden rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2.5 text-left transition hover:bg-white/[0.05] aria-selected:border-ork-violet/50 aria-selected:bg-white/[0.07] lg:w-full">
                   <span class="text-[11px] font-semibold uppercase tracking-wider text-ork-violet">{String(i + 1).padStart(2, "0")} · {t.tag}</span>
                   <span class="mt-0.5 line-clamp-2 block text-[13px] font-semibold leading-snug text-white/85 lg:line-clamp-1">{t.title}</span>
@@ -144,7 +144,7 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
               <div class="overflow-hidden rounded-[20px] bg-ork-night">
                 <div class="flex items-center gap-1.5 border-b border-white/5 bg-[#0B1020] px-4 py-2.5">
                   <span class="size-2.5 rounded-full bg-[#FF5F57]"></span><span class="size-2.5 rounded-full bg-[#FEBC2E]"></span><span class="size-2.5 rounded-full bg-[#28C840]"></span>
-                  <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] text-white/50" id="tour-url">orkesta-web.onrender.com/app</span>
+                  <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] font-semibold tracking-[0.12em] text-white/55" id="tour-url">ORKESTA · {tour[0].tag}</span>
                 </div>
                 <div class="relative aspect-[16/10] w-full">
                   {tour.map((t, i) => (
