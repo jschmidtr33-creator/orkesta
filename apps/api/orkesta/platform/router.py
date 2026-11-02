@@ -480,6 +480,7 @@ ACTION_LABELS = {
     "mailbox.removed": "desconectó un buzón de Gmail",
     "campaign.created": "creó una campaña",
     "campaign.launch": "lanzó una campaña",
+    "campaign.deleted": "borró una campaña",
     "campaign.pause": "pausó una campaña",
     "campaign.resume": "reanudó una campaña",
     "proposal.created": "creó una propuesta comercial",

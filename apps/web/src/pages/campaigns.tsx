@@ -24,6 +24,8 @@ type Stats = {
   click_rate: number | null;
   reply_rate: number | null;
   bounce_rate: number | null;
+  blocked?: number;
+  block_rate?: number | null;
 };
 type Step = { subject: string; body: string; delay_days: number };
 type Settings = { timezone: string; days: number[]; start_hour: number; end_hour: number; track_opens: boolean; track_clicks: boolean };
@@ -77,7 +79,8 @@ const RECIPIENT: Record<string, { label: string; tone: "neutral" | "ok" | "warn"
   active: { label: "En secuencia", tone: "blue" },
   replied: { label: "Respondió", tone: "ok" },
   completed: { label: "Secuencia completa", tone: "violet" },
-  bounced: { label: "Rebotó", tone: "bad" },
+  bounced: { label: "No existe", tone: "bad" },
+  blocked: { label: "Bloqueado", tone: "warn" },
   unsubscribed: { label: "Se dio de baja", tone: "warn" },
   failed: { label: "Falló", tone: "bad" },
   skipped: { label: "Detenido", tone: "neutral" },
@@ -111,6 +114,7 @@ export function CampaignsPage() {
   const list = useCampaigns();
   const boxes = useMailboxes();
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<Campaign | null>(null);
   const items = list.data?.items ?? [];
   const totals = items.reduce(
     (acc, c) => ({ sent: acc.sent + c.stats.emails_sent, replied: acc.replied + c.stats.replied, active: acc.active + (c.status === "active" ? 1 : 0) }),
@@ -174,7 +178,8 @@ export function CampaignsPage() {
                 <th className="py-3 text-right font-semibold">Enviados</th>
                 <th className="py-3 text-right font-semibold">Apertura</th>
                 <th className="py-3 text-right font-semibold">Clics</th>
-                <th className="px-5 py-3 text-right font-semibold">Respuesta</th>
+                <th className="py-3 text-right font-semibold">Respuesta</th>
+                <th className="w-12 px-3 py-3"><span className="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ork-line">
@@ -195,7 +200,17 @@ export function CampaignsPage() {
                   <td className="py-3 text-right">{c.stats.emails_sent}</td>
                   <td className="py-3 text-right">{pct(c.stats.open_rate)}</td>
                   <td className="py-3 text-right">{pct(c.stats.click_rate)}</td>
-                  <td className="px-5 py-3 text-right font-semibold text-ok">{pct(c.stats.reply_rate)}</td>
+                  <td className="py-3 text-right font-semibold text-ok">{pct(c.stats.reply_rate)}</td>
+                  <td className="px-3 py-3 text-right">
+                    <button
+                      type="button"
+                      aria-label={`Borrar la campaña ${c.name}`}
+                      onClick={() => setDeleting(c)}
+                      className="ork-focus rounded-lg p-1.5 text-ork-mist hover:bg-bad/10 hover:text-bad"
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -203,7 +218,44 @@ export function CampaignsPage() {
         </Card>
       )}
       <NewCampaignModal open={creating} onOpenChange={setCreating} />
+      <DeleteCampaignModal campaign={deleting} onClose={() => setDeleting(null)} />
     </div>
+  );
+}
+
+/** Confirmación para borrar una campaña (borrador o enviada). */
+function DeleteCampaignModal({ campaign, onClose, onDeleted }: { campaign: Campaign | null; onClose: () => void; onDeleted?: () => void }) {
+  const client = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/api/campaigns/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["campaigns"] });
+      onClose();
+      onDeleted?.();
+    },
+  });
+  const sent = (campaign?.stats.emails_sent ?? 0) > 0;
+  return (
+    <Modal open={campaign !== null} onOpenChange={(o) => !o && onClose()} title="Borrar campaña" description={campaign ? `«${campaign.name}»` : ""}>
+      <div className="flex flex-col gap-4">
+        <p className="text-[13.5px] text-ork-graphite">
+          {campaign?.status === "active"
+            ? "La campaña está enviando: se detiene de inmediato y se borra con su secuencia y sus destinatarios."
+            : sent
+              ? "Se borra con su secuencia, destinatarios y estadísticas. Los contactos, las bajas y los rebotes registrados se conservan."
+              : "Se borra este borrador. No afecta a tus contactos."}
+        </p>
+        {remove.error && <Alert>{remove.error.message}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button variant="danger" loading={remove.isPending} icon={<Trash2 className="size-4" aria-hidden />} onClick={() => campaign && remove.mutate(campaign.id)}>
+            Borrar campaña
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -259,6 +311,8 @@ export function CampaignDetail() {
     },
   });
   const [confirm, setConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const navigate = useNavigate();
   const c = q.data;
   if (q.isLoading) return <Spinner />;
   if (!c) return <Alert>{q.error?.message ?? "No encontramos la campaña."}</Alert>;
@@ -293,14 +347,24 @@ export function CampaignDetail() {
                 Reanudar
               </Button>
             )}
+            <Button variant="ghost" aria-label="Borrar campaña" icon={<Trash2 className="size-4" aria-hidden />} onClick={() => setDeleting(true)} />
           </div>
         }
       />
+      <DeleteCampaignModal campaign={deleting ? c : null} onClose={() => setDeleting(false)} onDeleted={() => navigate("/campanas")} />
       {action.error && !confirm && (
         <div className="mb-4">
           <Alert>{action.error.message}</Alert>
         </div>
       )}
+      {c.status === "paused" && (c.settings as Record<string, unknown> | undefined)?.auto_paused_at ? (
+        <div className="mb-4">
+          <Alert>
+            ORKESTA pausó esta campaña automáticamente porque demasiados correos rebotaron o fueron bloqueados. Revisa los destinatarios antes de
+            reanudar: enviar con muchos rebotes puede hacer que Google limite tu cuenta.
+          </Alert>
+        </div>
+      ) : null}
       {c.next_window && (
         <div className="mb-4">
           <Alert tone="blue">
@@ -349,7 +413,11 @@ function CampaignStats({ c }: { c: Campaign }) {
       <Kpi label="Apertura" value={pct(s.open_rate)} hint={`${s.opened} personas`} />
       <Kpi label="Clics" value={pct(s.click_rate)} hint={`${s.clicked} personas`} />
       <Kpi label="Respuesta" value={pct(s.reply_rate)} hint={`${s.replied} respondieron`} />
-      <Kpi label="Rebotes y bajas" value={s.bounced + s.unsubscribed} hint={`${pct(s.bounce_rate)} de rebote · ${s.unsubscribed} bajas`} />
+      <Kpi
+        label="No entregados y bajas"
+        value={s.bounced + (s.blocked ?? 0) + s.unsubscribed}
+        hint={`${s.bounced} no existen · ${s.blocked ?? 0} bloqueados · ${s.unsubscribed} bajas`}
+      />
     </div>
     {l && (l.confirmed > 0 || l.reproposed > 0 || s.bounced > 0) && (
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] px-4 py-3">
@@ -357,7 +425,7 @@ function CampaignStats({ c }: { c: Campaign }) {
           <Sparkles className="mt-0.5 size-4 shrink-0 text-ork-violet" aria-hidden />
           <span>
             <strong className="text-ork-ink">ORKESTA aprendió de esta campaña:</strong> {l.confirmed} formato(s) confirmados por respuestas ·{" "}
-            {s.bounced} rebote(s) descartados para siempre · {l.reproposed} contacto(s) ya tienen un nuevo correo propuesto. Las próximas
+            {s.bounced} dirección(es) inexistentes descartadas para siempre · {l.reproposed} contacto(s) ya tienen un nuevo correo propuesto. Las próximas
             búsquedas usan este aprendizaje en {l.domains_learned} empresa(s).
           </span>
         </p>

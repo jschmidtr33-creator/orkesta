@@ -188,6 +188,20 @@ def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
             session.delete(row)
 
 
+def unlearn_bounce(session: Session, email: str, pattern: str) -> None:
+    """Deshace un rebote registrado por error (era un bloqueo del destinatario)."""
+    if "@" not in email:
+        return
+    domain = email.rsplit("@", 1)[1].lower()
+    row = session.get(BouncedAddress, address_hash(email))
+    if row is not None:
+        session.delete(row)
+    if pattern:
+        stat = session.get(PatternStat, (domain, pattern))
+        if stat is not None and stat.bounced > 0:
+            stat.bounced -= 1
+
+
 def next_email(session: Session, first: str, last: str, domain: str) -> tuple[str, str]:
     """Siguiente correo a probar para una persona cuyo correo estimado rebotó."""
     from orkesta.research.extract import apply_pattern

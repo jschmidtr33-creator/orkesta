@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit
@@ -273,11 +273,13 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
             "clicked": clicked,
             "replied": replied,
             "bounced": by_status.get("bounced", 0),
+            "blocked": by_status.get("blocked", 0),
             "unsubscribed": by_status.get("unsubscribed", 0),
             "open_rate": rate(opened),
             "click_rate": rate(clicked),
             "reply_rate": rate(replied),
             "bounce_rate": rate(by_status.get("bounced", 0)),
+            "block_rate": rate(by_status.get("blocked", 0)),
         },
     }
     if full:
@@ -326,13 +328,22 @@ def learning(session: Session, c: Campaign) -> dict[str, int]:
     }
 
 
+def delete_campaign(session: Session, c: Campaign) -> None:
+    """Borra la campaña con sus destinatarios y mensajes. Si está enviando, se detiene antes."""
+    session.delete(c)
+
+
 def retry_bounced(session: Session, c: Campaign, user: User) -> Campaign:
     """Nueva campaña (borrador) con la misma secuencia para los correos re-propuestos."""
     ids = _reproposed(session, c)
     if not ids:
         raise CampaignError("No hay correos re-propuestos para reintentar.", 409)
-    retry = create_campaign(session, tenant_id=c.tenant_id, user=user,
-                            name=f"{c.name} · reintento")  # fmt: skip
+    name = f"{c.name} · reintento"[:160]
+    retry = session.scalar(  # un solo borrador de reintento por campaña
+        select(Campaign).where(
+            Campaign.tenant_id == c.tenant_id, Campaign.name == name, Campaign.status == "draft"
+        )
+    ) or create_campaign(session, tenant_id=c.tenant_id, user=user, name=name)
     retry.steps = list(c.steps)
     retry.settings = dict(c.settings)
     retry.mailbox_id = c.mailbox_id or retry.mailbox_id
@@ -700,7 +711,9 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
         .where(
             Recipient.campaign_id == campaign.id,
             Recipient.thread_id.is_not(None),
-            Recipient.status.in_(("active", "completed")),
+            Recipient.status.in_(("active", "completed"))
+            # Rebotes anteriores a la distinción «no existe» / «bloqueado»: se revisan una vez.
+            | ((Recipient.status == "bounced") & Recipient.error.is_(None)),
             (Recipient.checked_at.is_(None)) | (Recipient.checked_at < now() - CHECK_EVERY),
         )
         .order_by(Recipient.checked_at.nulls_first())
@@ -717,6 +730,12 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             if exc.auth:
                 mailbox.status, mailbox.error = "error", str(exc)[:300]
                 return found
+            continue
+        if recipient.status == "bounced":  # rebote antiguo: reclasificar
+            if outcome == "blocked":
+                _undo_bounce(session, campaign, recipient)
+            else:
+                recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
             continue
         if outcome in ("replied", "bounced"):
             _learn(session, recipient, outcome)
@@ -749,8 +768,15 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
                 body=f"Responder a {recipient.email} (campaña «{campaign.name}»)",
             )
             found += 1
+        elif outcome == "blocked":
+            # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
+            # castiga el formato ni se marca inválida; solo se detiene la secuencia.
+            recipient.status, recipient.next_send_at = "blocked", None
+            recipient.error = BLOCKED_NOTE
+            found += 1
         elif outcome == "bounced":
             recipient.status, recipient.next_send_at = "bounced", None
+            recipient.error = NOT_FOUND_NOTE
             suppress(session, campaign.tenant_id, recipient.email, "bounced")
             contact = session.get(Contact, recipient.contact_id)
             if contact is not None and contact.email == recipient.email:
@@ -759,6 +785,63 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             _emit(session, campaign, recipient, "campaign.bounced")
             found += 1
     return found
+
+
+BLOCKED_NOTE = "Bloqueado por el filtro de seguridad del destinatario (la dirección puede existir)"
+NOT_FOUND_NOTE = "Dirección inexistente"
+
+
+def _undo_bounce(session: Session, campaign: Campaign, recipient: Recipient) -> None:
+    """Un «bloqueado» que se contó como rebote: se deshace lo aprendido por error."""
+    from orkesta.research.extract import detect_pattern
+    from orkesta.research.memory import unlearn_bounce
+
+    recipient.status, recipient.error = "blocked", BLOCKED_NOTE
+    session.execute(
+        delete(Suppression).where(
+            Suppression.tenant_id == campaign.tenant_id,
+            Suppression.email == recipient.email,
+            Suppression.reason == "bounced",
+        )
+    )
+    contact = session.get(Contact, recipient.contact_id)
+    if contact is None:
+        return
+    pattern = detect_pattern(contact.first_name or "", contact.last_name or "", recipient.email)
+    unlearn_bounce(session, recipient.email, pattern or "")
+    reason = contact.email_check_reason or ""
+    if contact.email != recipient.email and reason.startswith(recipient.email):
+        contact.email, contact.email_status = recipient.email, "estimado"
+        contact.email_check_reason = BLOCKED_NOTE[:300]
+    elif contact.email == recipient.email and contact.email_status == "invalido":
+        contact.email_status, contact.email_check_reason = "estimado", BLOCKED_NOTE[:300]
+
+
+AUTO_PAUSE_MIN = 20  # envíos antes de evaluar
+AUTO_PAUSE_RATE = 0.15  # rebotes + bloqueos sobre contactados
+
+
+def _guard(session: Session, campaign: Campaign, mailbox: Mailbox) -> None:
+    """Protege la reputación del buzón: pausa la campaña si rebota o la bloquean demasiado."""
+    if campaign.status != "active" or campaign.settings.get("auto_paused_at"):
+        return
+    contacted, failed = session.execute(
+        select(
+            func.count().filter(Recipient.sent_count > 0),
+            func.count().filter(Recipient.status.in_(("bounced", "blocked"))),
+        ).where(Recipient.campaign_id == campaign.id)
+    ).one()
+    if contacted < AUTO_PAUSE_MIN or failed / contacted < AUTO_PAUSE_RATE:
+        return
+    campaign.status = "paused"
+    campaign.settings = {**campaign.settings, "auto_paused_at": now().isoformat()}
+    share = round(100 * failed / contacted)
+    notify(
+        session, tenant_id=campaign.tenant_id, user_id=mailbox.user_id or campaign.created_by,
+        kind="reply", title=f"Pausamos «{campaign.name}»: {share} % de rebotes",
+        body="Para cuidar la reputación de tu correo. Revisa los rebotes antes de reanudar.",
+        link=f"/app/campanas/{campaign.id}",
+    )  # fmt: skip
 
 
 def _finish_if_done(session: Session, campaign: Campaign) -> None:
@@ -818,6 +901,7 @@ def tick(factory: sessionmaker[Session]) -> int:
                     sent += 1
                 if mailbox.status == "active":
                     check_replies(session, campaign, mailbox)
+                    _guard(session, campaign, mailbox)
                 _finish_if_done(session, campaign)
     return sent
 

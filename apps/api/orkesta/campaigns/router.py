@@ -254,15 +254,6 @@ def update(
     return svc.campaign_dict(db, campaign)
 
 
-@router.delete("/api/campaigns/{campaign_id}")
-def delete(campaign_id: uuid.UUID, principal: Member, db: Db) -> dict[str, bool]:
-    campaign = _campaign(db, principal, campaign_id)
-    if campaign.status == "active":
-        raise HTTPException(409, "Pausa la campaña antes de eliminarla.")
-    db.delete(campaign)
-    return {"ok": True}
-
-
 @router.post("/api/campaigns/audience")
 def audience(body: AudienceIn, principal: Member, db: Db) -> dict[str, Any]:
     return svc.audience_preview(db, principal.tenant_id, body.audience)
@@ -366,6 +357,22 @@ def retry_bounced(campaign_id: uuid.UUID, principal: Member, db: Db) -> dict[str
     except svc.CampaignError as exc:
         raise _fail(exc) from exc
     return svc.campaign_dict(db, retry)
+
+
+@router.delete("/api/campaigns/{campaign_id}")
+def delete_campaign(
+    campaign_id: uuid.UUID, request: Request, principal: Member, db: Db
+) -> dict[str, bool]:
+    campaign = _campaign(db, principal, campaign_id)
+    if principal.role == "vendedor" and campaign.created_by != principal.user.id:
+        raise HTTPException(403, "Solo puedes borrar tus propias campañas.")
+    name = campaign.name
+    svc.delete_campaign(db, campaign)
+    audit(
+        db, tenant_id=principal.tenant_id, actor_id=principal.user.id, action="campaign.deleted",
+        entity_type="campaign", entity_id=campaign_id, ip=client_ip(request), name=name,
+    )  # fmt: skip
+    return {"ok": True}
 
 
 @router.post("/api/campaigns/{campaign_id}/pause")

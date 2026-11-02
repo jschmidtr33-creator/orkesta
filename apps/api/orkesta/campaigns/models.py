@@ -25,7 +25,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from orkesta.core.db import Base, IdMixin
 
 RECIPIENT_STATUSES = (
-    "pending", "active", "replied", "bounced", "unsubscribed", "completed", "failed", "skipped",
+    "pending", "active", "replied", "bounced", "blocked", "unsubscribed", "completed", "failed",
+    "skipped",
 )  # fmt: skip
 CAMPAIGN_STATUSES = ("draft", "active", "paused", "completed")
 

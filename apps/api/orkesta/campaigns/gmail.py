@@ -218,8 +218,31 @@ BOUNCE_SUBJECTS = (
 )  # fmt: skip
 
 
+# Avisos de no entrega: «no existe» (dirección inválida) vs. «bloqueado» (el filtro del
+# destinatario rechazó el mensaje; la dirección probablemente existe) vs. «retrasado».
+NOT_FOUND = (
+    "no se ha encontrado la dirección", "no se ha encontrado la direccion", "address not found",
+    "does not exist", "no existe", "user unknown", "unknown user", "recipient not found",
+    "no such user", "mailbox unavailable", "mailbox not found", "invalid recipient",
+    "5.1.1", "550-5.1.1", "endereço não encontrado", "dirección no encontrada",
+    "recipient address rejected: user", "account that you tried to reach does not exist",
+)  # fmt: skip
+DELAYED = ("retrasado", "delayed", "delivery incomplete", "entrega incompleta", "will retry",
+           "se volverá a intentar", "temporarily")  # fmt: skip
+
+
+def classify_bounce(text: str) -> str:
+    """«bounced» (dirección inexistente), «blocked» (rechazado por el destinatario) o «»."""
+    lowered = text.lower()
+    if any(k in lowered for k in NOT_FOUND):
+        return "bounced"
+    if any(k in lowered for k in DELAYED):
+        return ""
+    return "blocked"
+
+
 def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str:
-    """«replied», «bounced» o «» según los mensajes del hilo en Gmail."""
+    """«replied», «bounced», «blocked» o «» según los mensajes del hilo en Gmail."""
     with _client() as client:
         response = client.get(
             f"{API}/threads/{thread_id}",
@@ -241,7 +264,9 @@ def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str
             continue
         subject = headers.get("subject", "").lower()
         if any(b in name for b in BOUNCE_SENDERS) or any(b in subject for b in BOUNCE_SUBJECTS):
-            outcome = "bounced"
+            kind = classify_bounce(f"{subject} {message.get('snippet', '')}")
+            if kind == "bounced" or (kind == "blocked" and outcome != "bounced"):
+                outcome = kind
             continue
         if headers.get("auto-submitted", "no").lower() not in ("", "no"):
             continue  # respuestas automáticas (fuera de oficina) no detienen la secuencia
