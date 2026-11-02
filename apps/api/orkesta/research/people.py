@@ -2,8 +2,9 @@
 
 Índice: perfiles profesionales PÚBLICOS que encuentran las búsquedas (perfiles indexados por
 buscadores y sitios oficiales de empresas): nombre, cargo, empresa, ubicación, LinkedIn y correo
-CORPORATIVO con su estado. La siguiente búsqueda los encuentra al instante, sin gastar consultas.
-No guarda teléfonos personales ni correos personales. Cualquier persona puede pedir salir del
+CORPORATIVO con su estado, más las bases autorizadas que carga la administración (que pueden
+traer teléfono). La siguiente búsqueda los encuentra al instante, sin gastar consultas. No guarda
+correos personales (gmail, hotmail…). Cualquier persona puede pedir salir del
 índice (lista de exclusión permanente).
 
 Puntaje: qué tan bien encaja cada posible cliente con lo que se buscó (0-100), con sus razones.
@@ -74,8 +75,25 @@ def learn(factory: sessionmaker[Session], country: str, prospects: Iterable[Pros
             "linkedin": (p.linkedin or "")[:300] or None, "email": email or None,
             "email_status": (p.email_status or "estimado") if email else None,
         }  # fmt: skip
+    return upsert(factory, list(rows.values()))
+
+
+def upsert(factory: sessionmaker[Session], rows: list[dict[str, Any]]) -> int:
+    """Guarda perfiles en el índice (respeta la lista de exclusión y los correos verificados)."""
+    unique = {r["key"]: r for r in rows}
+    total = 0
+    chunk = list(unique.values())
+    for start in range(0, len(chunk), 1000):
+        total += _upsert(factory, {r["key"]: r for r in chunk[start : start + 1000]})
+    return total
+
+
+def _upsert(factory: sessionmaker[Session], rows: dict[str, dict[str, Any]]) -> int:
     if not rows:
         return 0
+    for r in rows.values():
+        r.setdefault("phone", None)
+        r.setdefault("source", "busquedas")
     try:
         with factory.begin() as session:
             blocked = _blocked(session, [*rows, *(r["email"] for r in rows.values() if r["email"])])
@@ -102,6 +120,7 @@ def learn(factory: sessionmaker[Session], country: str, prospects: Iterable[Pros
                         (locked, PersonIndex.email_status),
                         else_=func.coalesce(stmt.excluded.email_status, PersonIndex.email_status),
                     ),
+                    "phone": func.coalesce(stmt.excluded.phone, PersonIndex.phone),
                     "seen": PersonIndex.seen + 1,
                     "last_seen": func.now(),
                 },

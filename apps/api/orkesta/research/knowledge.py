@@ -2,8 +2,9 @@
 campañas): de cada archivo se aprende el formato de correo de cada empresa y su dominio oficial.
 
 De cada fila se leen ÚNICAMENTE nombre, cargo, empresa, ubicación, correo y teléfono; cualquier
-otra columna se ignora. Y solo se guarda conocimiento de EMPRESAS (dominio, formato de correo y
-país): los datos de las personas se usan en memoria y se descartan.
+otra columna se ignora. Se aprende el dominio y el formato de correo de cada empresa, y las
+personas (bases autorizadas por la administración) entran al índice propio de personas con
+esos mismos campos; nunca correos personales (gmail, hotmail…).
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ class Knowledge:
     )
     # (país, clave de empresa) → datos de la empresa
     companies: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    # Perfiles de las bases autorizadas (nombre, cargo, empresa, ubicación, correo, teléfono)
+    profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
     _domains: dict[tuple[str, str], Counter[str]] = field(
         default_factory=lambda: defaultdict(Counter)
     )
@@ -62,7 +65,19 @@ class Knowledge:
                 {**data, "domain": self._best_domain(key) or data.get("domain", "")}
                 for key, data in self.companies.items()
             ],
+            "profiles": list(self.profiles.values()),
         }
+
+    def add_profile(self, row: dict[str, Any]) -> None:
+        current = self.profiles.get(row["key"])
+        if current is None:
+            self.profiles[row["key"]] = row
+            return
+        for k, v in row.items():
+            if v and not current.get(k):
+                current[k] = v
+        if row.get("email_status") == "publicado" and row.get("email") == current.get("email"):
+            current["email_status"] = "publicado"
 
     def _best_domain(self, key: tuple[str, str]) -> str:
         counts = self._domains.get(key)
@@ -112,6 +127,8 @@ def learn_file(knowledge: Knowledge, content: bytes, filename: str) -> None:
             if name:
                 company = knowledge.companies.setdefault(key, {"name": name, "country": country})
                 company.setdefault("city", r.city or "")
+            if name and country:
+                knowledge.add_profile(_profile(r, name, country, strength))
             if not r.email or not r.corporate_email or not r.email_domain:
                 continue
             knowledge.corporate += 1
@@ -121,6 +138,35 @@ def learn_file(knowledge: Knowledge, content: bytes, filename: str) -> None:
             pattern = detect_pattern(r.first_name, r.last_name, r.email)
             if pattern:
                 knowledge.patterns[domain][pattern][strength] += 1
+
+
+def _profile(r: Any, company: str, country: str, strength: int) -> dict[str, Any]:
+    from orkesta.engine.normalize.location import COUNTRIES
+    from orkesta.engine.taxonomy.titles import classify_title
+    from orkesta.research.directory import name_key
+    from orkesta.research.people import person_key
+
+    ckey = name_key(company)
+    title = " ".join((r.title or "").split())[:300]
+    level, area = classify_title(title) if title else (None, None)
+    email = r.email if r.email and r.corporate_email else None
+    place = [r.city or "", COUNTRIES.get(country, ("",))[0]]
+    return {
+        "key": person_key(country, ckey, r.full_name),
+        "country": country, "full_name": r.full_name[:200], "first_name": r.first_name[:120],
+        "last_name": r.last_name[:160], "title": title, "level": level, "area": area,
+        "company": company, "company_key": ckey,
+        "domain": r.email_domain if email else None,
+        "location": ", ".join(p for p in place if p)[:200], "linkedin": None,
+        "email": email, "email_status": ("publicado" if strength == 0 else "estimado") if email
+        else None,
+        "phone": (r.phone or "")[:30] or None, "source": "bases",
+    }  # fmt: skip
+
+
+PROFILE_FIELDS = ("key", "country", "full_name", "first_name", "last_name", "title", "level",
+                  "area", "company", "company_key", "domain", "location", "linkedin", "email",
+                  "email_status", "phone", "source")  # fmt: skip
 
 
 def load_json(knowledge: Knowledge, content: bytes) -> None:
@@ -134,6 +180,13 @@ def load_json(knowledge: Knowledge, content: bytes) -> None:
             target = knowledge.patterns[str(domain)[:253]][str(pattern)[:40]]
             for i in range(3):
                 target[i] += int(counts[i])
+    for row in data.get("profiles", []):
+        if isinstance(row, dict) and row.get("key") and row.get("full_name") and row.get("company"):
+            clean = {k: row.get(k) for k in PROFILE_FIELDS}
+            if clean["email"] and clean["email_status"] not in ("publicado", "estimado"):
+                clean["email_status"] = "estimado"
+            clean["source"] = "bases"
+            knowledge.add_profile(clean)
     for c in data.get("companies", []):
         name = clean_company(str(c.get("name", "")))
         key = (str(c.get("country", ""))[:2], fold(name)[:300])
@@ -151,7 +204,7 @@ def apply(factory: sessionmaker[Session], knowledge: Knowledge) -> dict[str, int
 
     data = knowledge.to_json()
     memory._ORDER_CACHE.clear()
-    stats = {"domains": 0, "patterns": 0, "companies": 0, "with_domain": 0}
+    stats = {"domains": 0, "patterns": 0, "companies": 0, "with_domain": 0, "profiles": 0}
     with factory.begin() as session:
         rows = [
             {"domain": d, "pattern": p, "confirmed": c[0], "seen": c[1], "bounced": c[2]}
@@ -189,6 +242,9 @@ def apply(factory: sessionmaker[Session], knowledge: Knowledge) -> dict[str, int
         ))  # fmt: skip
     for country, companies in by_country.items():
         stats["companies"] += directory.learn(factory, country, companies)
+    from orkesta.research import people
+
+    stats["profiles"] = people.upsert(factory, [dict(p) for p in knowledge.profiles.values()])
     return stats
 
 

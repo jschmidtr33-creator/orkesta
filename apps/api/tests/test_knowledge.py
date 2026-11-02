@@ -38,16 +38,22 @@ def test_learn_apply_and_country_pattern(session_factory: sessionmaker[Session])
     kn.learn_file(learned, _csv(), "wiza.csv")
     assert learned.people == 41 and learned.corporate == 40
     data = learned.to_json()
-    # Solo conocimiento de empresas: ningún nombre, correo, teléfono, cargo ni industria.
+    # Solo los campos autorizados: nada de industria ni estados de otras columnas, y nunca
+    # correos personales.
     text = json.dumps(data)
-    assert "Rojas" not in text and "+569" not in text and "Gerente" not in text
-    assert "Minería" not in text and "gmail.com" not in text
+    assert "Minería" not in text and "gmail.com" not in text and "valid" not in text
     assert {k for c in data["companies"] for k in c} <= {"name", "country", "city", "domain"}
+    assert len(data["profiles"]) == 41
+    juan = next(p for p in data["profiles"] if p["full_name"] == "Juan Perez")
+    assert juan["email"] is None and juan["title"] == "CEO"
+    ana = next(p for p in data["profiles"] if p["email"] == "arojas@mineraandes.cl")
+    assert ana["phone"].startswith("+569") and ana["email_status"] == "publicado"
+    assert ana["location"] == "Santiago, Chile" and ana["source"] == "bases"
     assert data["patterns"]["mineraandes.cl"] == {"flast": [10, 0, 0]}
     assert kn.evaluate(learned)["accuracy"] == 100.0
 
     stats = kn.apply(session_factory, learned)
-    assert stats["domains"] == 4 and stats["with_domain"] == 4
+    assert stats["domains"] == 4 and stats["with_domain"] == 4 and stats["profiles"] == 41
     with session_factory() as session:
         assert session.scalar(select(PatternStat.confirmed).where(
             PatternStat.domain == "retailsur.cl", PatternStat.pattern == "flast")) == 10  # fmt: skip
