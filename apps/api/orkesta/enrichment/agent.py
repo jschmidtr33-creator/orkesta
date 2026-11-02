@@ -29,7 +29,7 @@ from orkesta.engine.normalize.company import normalize_company
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.engine.normalize.text import fold
 from orkesta.enrichment.models import EnrichmentRun
-from orkesta.research import serp, website
+from orkesta.research import memory, serp, website
 from orkesta.research.extract import apply_pattern, detect_pattern, is_generic_email
 from orkesta.research.fetch import Fetcher
 from orkesta.validation.checks import FREE
@@ -207,7 +207,21 @@ def _work(
 ) -> None:
     country_name = COUNTRIES.get(group.country, ("",))[0] if group.country else ""
     use_serp = serp.enabled() and not stats.fatal
-    # 1. Dominio oficial de la empresa.
+    # 1. Dominio oficial de la empresa: primero la memoria de ORKESTA (sin gastar consultas).
+    if not group.domain and group.name and group.country:
+        from orkesta.research.agent import company_key
+
+        group.domain = memory.known_domain(fetcher.factory, group.country,
+                                           company_key(group.name))  # fmt: skip
+        if group.domain:
+            progress.add("domains_found")
+            if group.company_id:
+                with progress.tx() as session:
+                    session.execute(
+                        update(Company)
+                        .where(Company.id == group.company_id, Company.domain.is_(None))
+                        .values(domain=group.domain)
+                    )
     if not group.domain and group.name and use_serp:
         group.domain = serp.company_domain(fetcher, stats, group.name, group.country,
                                            country_name or "")  # fmt: skip
@@ -230,6 +244,8 @@ def _work(
         if pattern:
             label = f"Formato {pattern}@{domain} visto en {votes} correo(s) de tu base"
             confidence = 55
+        if not pattern:
+            pattern, confidence, label = memory.known_pattern(fetcher.factory, domain)
         if not pattern and use_serp:
             pattern, votes, _ = serp.email_pattern(fetcher, stats, domain)
             if pattern:
@@ -241,8 +257,14 @@ def _work(
                 label = f"Formato {pattern}@{domain} visto en el sitio oficial"
                 confidence = 50
         if not pattern:
-            pattern = COMMON_PATTERN
-            label = f"Formato más común ({pattern}@{domain}); sin evidencia, por validar"
+            pattern, share = memory.likely_pattern(fetcher.factory, domain)
+            shown = memory.PATTERN_LABELS.get(pattern, pattern)
+            suffix = memory.domain_suffix(domain)
+            label = (
+                f"Formato más usado en empresas .{suffix} ({shown}, {share}%); por validar"
+                if share
+                else f"Formato más común ({shown}@{domain}); sin evidencia, por validar"
+            )
             confidence = 20
             progress.add("common_pattern")
         else:

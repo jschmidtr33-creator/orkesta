@@ -585,10 +585,6 @@ function FilterPanel({
             </FilterRow>
             {sectorRow("Industria")}
           </Section>
-          <label className="flex items-start gap-2 px-1 text-[13px] text-ork-graphite">
-            <input type="checkbox" className="mt-0.5 size-4 accent-ork-blue" checked={filters.include_base} onChange={(e) => set({ include_base: e.target.checked })} />
-            Incluir empresas de mi base que cumplan los filtros
-          </label>
         </div>
       ) : (
       <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -721,10 +717,6 @@ function FilterPanel({
               />
             </FilterRow>
           </Section>
-          <label className="flex items-start gap-2 px-1 text-[13px] text-ork-graphite">
-            <input type="checkbox" className="mt-0.5 size-4 accent-ork-blue" checked={filters.include_base} onChange={(e) => set({ include_base: e.target.checked })} />
-            Incluir empresas de mi base que cumplan los filtros
-          </label>
         </div>
       </div>
       )}

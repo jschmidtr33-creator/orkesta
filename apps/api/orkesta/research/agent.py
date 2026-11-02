@@ -968,8 +968,15 @@ def assign_emails(
                 shown = memory.PATTERN_LABELS.get(pattern, pattern)
                 label = f"Formato {shown}@{company.domain} visto en {votes} correo(s) públicos"
         if not pattern:
-            pattern, kind, confidence = COMMON_PATTERN, "common", 30 if provider else 20
-            label = f"Formato más común (nombre.apellido@{company.domain}); por validar"
+            pattern, share = memory.likely_pattern(fetcher.factory, company.domain)
+            kind, confidence = "common", 30 if provider else 20
+            shown = memory.PATTERN_LABELS.get(pattern, pattern)
+            label = (
+                f"Formato más usado en empresas .{memory.domain_suffix(company.domain)} "
+                f"({shown}, {share}%); por validar"
+                if share
+                else f"Formato más común ({shown}@{company.domain}); por validar"
+            )
             if provider_label:
                 label += f" · el dominio recibe correo ({provider_label})"
         source = {"type": "patron", "url": example, "label": label}
