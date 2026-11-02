@@ -967,6 +967,37 @@ function Recipients({ campaignId }: { campaignId: string }) {
 
 // --- Configuración → Integraciones: buzones de Gmail --------------------------------------
 
+type Health = { domain: string; overall: "ok" | "bad" | "unknown"; items: { id: string; status: "ok" | "warn" | "bad" | "unknown"; label: string; tip: string }[] };
+
+/** SPF, DKIM y DMARC del dominio que envía: sin ellos, bancos y corporativos bloquean. */
+function DomainHealth({ mailboxId }: { mailboxId: string }) {
+  const q = useQuery({ queryKey: ["mailbox-health", mailboxId], queryFn: () => api<Health>(`/api/mailboxes/${mailboxId}/health`), staleTime: 300000 });
+  if (q.isLoading) return <p className="text-[12.5px] text-ork-mist">Revisando la autenticación de tu dominio…</p>;
+  if (!q.data) return null;
+  const tone = { ok: "text-ok", warn: "text-warn", bad: "text-bad", unknown: "text-ork-mist" } as const;
+  return (
+    <div className={cx("rounded-xl border p-3", q.data.overall === "bad" ? "border-bad/30 bg-bad/[0.04]" : "border-ork-line")}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[13px] font-semibold text-ork-ink">Autenticación de {q.data.domain}</p>
+        <Button size="sm" variant="ghost" loading={q.isFetching} onClick={() => q.refetch()}>
+          Volver a revisar
+        </Button>
+      </div>
+      {q.data.overall === "bad" && (
+        <p className="mb-2 text-[12.5px] text-bad">Sin esto, muchos bancos y empresas bloquean tus correos. Pásale estos puntos a quien administre tu dominio.</p>
+      )}
+      <ul className="space-y-1.5">
+        {q.data.items.map((i) => (
+          <li key={i.id} className="text-[12.5px]">
+            <span className={cx("font-semibold", tone[i.status])}>{i.status === "ok" ? "✓" : i.status === "unknown" ? "?" : "✕"} {i.label}</span>
+            {i.status !== "ok" && <span className="block break-words text-ork-graphite">{i.tip}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function GmailCard() {
   const boxes = useMailboxes();
   const client = useQueryClient();
@@ -1045,6 +1076,7 @@ export function GmailCard() {
                   vigila el rebote: si Google detecta un salto brusco o muchos rebotes puede limitar temporalmente tu cuenta.
                 </Alert>
               )}
+              <DomainHealth mailboxId={m.id} />
               <SignatureEditor value={m.signature} saving={patch.isPending} onSave={(signature) => patch.mutate({ id: m.id, signature })} />
             </div>
           </li>
