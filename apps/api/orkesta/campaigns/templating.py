@@ -170,6 +170,7 @@ def build(
     track_clicks: bool,
     in_reply_to: str | None = None,
     references: str | None = None,
+    plain: bool = False,
 ) -> Built:
     """Arma el correo. ``body_html`` y ``signature_html`` ya vienen limpios y personalizados."""
     base = get_settings().public_base_url.rstrip("/")
@@ -217,5 +218,6 @@ def build(
         )
         message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     message.set_content(text_body + footer_text)
-    message.add_alternative(html_body, subtype="html")
+    if not plain:  # modo corporativo: solo texto, sin pixel, enlaces rastreados ni imágenes
+        message.add_alternative(html_body, subtype="html")
     return Built(message, rfc_id, subject)

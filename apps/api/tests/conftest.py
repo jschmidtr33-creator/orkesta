@@ -109,3 +109,12 @@ def _offline_mx() -> Iterator[None]:
     memory.MX_RESOLVER = lambda d: [] if d.startswith("sin-correo") else ["aspmx.l.google.com"]
     yield
     memory.MX_RESOLVER = None
+
+
+@pytest.fixture(autouse=True)
+def _no_domain_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Las pruebas escriben a varios contactos de un mismo dominio; el tope por empresa se
+    prueba aparte."""
+    from orkesta.campaigns import service
+
+    monkeypatch.setitem(service.DEFAULT_SETTINGS, "per_domain_daily", 0)

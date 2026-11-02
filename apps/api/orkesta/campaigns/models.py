@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -63,6 +64,10 @@ class Mailbox(IdMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     error: Mapped[str | None] = mapped_column(String(300))
     daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
+    # Calentamiento: el límite real sube día a día desde el primer envío del buzón.
+    warmup: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     signature: Mapped[str] = mapped_column(Text, nullable=False, default="")
     next_send_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

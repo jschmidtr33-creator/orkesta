@@ -527,3 +527,37 @@ def test_sending_domain_health(client: TestClient, google: FakeGoogle) -> None:
         deliverability.RESOLVER = None
     status = {i["id"]: i["status"] for i in health["items"]}
     assert status == {"spf": "ok", "dkim": "bad", "dmarc": "ok"} and health["overall"] == "bad"
+
+
+def test_warmup_domain_cap_and_corporate_mode(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    box = _connect(client)
+    listed = client.get("/api/mailboxes").json()["items"][0]
+    assert (
+        listed["warmup"] is True and listed["effective_limit"] == 20 and listed["warmup_day"] == 1
+    )
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Bancos"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje con <a href='https://x.co'>enlace</a>",
+                   "delay_days": 0}],
+        "settings": {"corporate_mode": True, "per_domain_daily": 2},
+        "audience": {"contact_ids": ids},
+    })  # fmt: skip
+    detail = client.get(f"/api/campaigns/{campaign['id']}").json()
+    assert (
+        detail["settings"]["track_opens"] is False and detail["settings"]["track_clicks"] is False
+    )
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    _flush(session_factory, 5)
+    # Los 3 contactos son de bancoandino.co: con tope 2 por empresa, el tercero espera a mañana.
+    assert len(google.sent) == 2
+    msg = google.sent[0]["msg"]
+    assert msg.get_content_type() == "text/plain"  # modo corporativo: solo texto, sin pixel
+    assert "/t/o/" not in msg.as_string()
+    client.patch(f"/api/mailboxes/{box['id']}", json={"warmup": False})
+    assert client.get("/api/mailboxes").json()["items"][0]["effective_limit"] == 80

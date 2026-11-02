@@ -28,7 +28,16 @@ type Stats = {
   block_rate?: number | null;
 };
 type Step = { subject: string; body: string; delay_days: number };
-type Settings = { timezone: string; days: number[]; start_hour: number; end_hour: number; track_opens: boolean; track_clicks: boolean };
+type Settings = {
+  timezone: string;
+  days: number[];
+  start_hour: number;
+  end_hour: number;
+  track_opens: boolean;
+  track_clicks: boolean;
+  corporate_mode?: boolean;
+  per_domain_daily?: number;
+};
 type Audience = { list_id?: string | null; filters?: Record<string, string>; contact_ids?: string[]; include_estimated?: boolean };
 type Campaign = {
   id: string;
@@ -45,7 +54,19 @@ type Campaign = {
   settings?: Settings;
   audience?: Audience;
 };
-type Mailbox = { id: string; email: string; display_name: string; status: string; error: string | null; daily_limit: number; signature: string; sent_today: number };
+type Mailbox = {
+  id: string;
+  email: string;
+  display_name: string;
+  status: string;
+  error: string | null;
+  daily_limit: number;
+  signature: string;
+  sent_today: number;
+  warmup?: boolean;
+  effective_limit?: number;
+  warmup_day?: number | null;
+};
 type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; too_many: boolean };
 type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; html: string; missing: string[]; threaded: boolean };
 type Recipient = {
@@ -725,12 +746,40 @@ function SendingCard({ c }: { c: Campaign }) {
             ))}
           </SelectField>
         </div>
-        <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
-          <input type="checkbox" checked={s.track_opens} onChange={(e) => set({ track_opens: e.target.checked })} /> Medir aperturas
+        <label className="flex items-start gap-2 rounded-xl border border-ork-line p-3 text-[13.5px] text-ork-graphite">
+          <input type="checkbox" className="mt-1" checked={Boolean(s.corporate_mode)} onChange={(e) => set({ corporate_mode: e.target.checked })} />
+          <span>
+            <strong className="text-ork-ink">Modo corporativo</strong>
+            <span className="block text-[12.5px] text-ork-mist">
+              Solo texto, sin imágenes ni medición de aperturas y clics. Recomendado para bancos, aseguradoras y grandes empresas: sus filtros bloquean
+              menos este tipo de correo.
+            </span>
+          </span>
         </label>
-        <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
-          <input type="checkbox" checked={s.track_clicks} onChange={(e) => set({ track_clicks: e.target.checked })} /> Medir clics en enlaces
-        </label>
+        {!s.corporate_mode && (
+          <>
+            <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
+              <input type="checkbox" checked={s.track_opens} onChange={(e) => set({ track_opens: e.target.checked })} /> Medir aperturas
+            </label>
+            <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
+              <input type="checkbox" checked={s.track_clicks} onChange={(e) => set({ track_clicks: e.target.checked })} /> Medir clics en enlaces
+            </label>
+          </>
+        )}
+        <SelectField
+          label="Máximo de correos al día por empresa"
+          value={String(s.per_domain_daily ?? 3)}
+          onChange={(e) => set({ per_domain_daily: Number(e.target.value) })}
+        >
+          {[1, 2, 3, 5, 10, 0].map((n) => (
+            <option key={n} value={n}>
+              {n === 0 ? "Sin límite" : n}
+            </option>
+          ))}
+        </SelectField>
+        <p className="-mt-2 text-[12px] text-ork-mist">
+          Evita escribir a muchas personas de una misma empresa el mismo día. Las empresas que ya bloquearon un correo reciben uno al día, en texto plano.
+        </p>
         {save.error && <Alert>{save.error.message}</Alert>}
       </div>
     </Card>
@@ -829,7 +878,8 @@ function LaunchModal({ c, open, onOpenChange, launch, pending, error }: { c: Cam
   });
   const box = boxes.data?.items.find((m) => m.id === c.mailbox?.id);
   const eligible = preview.data?.eligible ?? 0;
-  const days = box ? Math.ceil(eligible / Math.max(1, box.daily_limit)) : 0;
+  const perDay = box ? box.effective_limit ?? box.daily_limit : 0;
+  const days = box ? Math.ceil(eligible / Math.max(1, perDay)) : 0;
   return (
     <Modal open={open} onOpenChange={onOpenChange} title="Lanzar campaña" description="Revisa antes de enviar. Puedes pausarla cuando quieras.">
       <div className="flex flex-col gap-3 text-[13.5px] text-ork-graphite">
@@ -843,7 +893,7 @@ function LaunchModal({ c, open, onOpenChange, launch, pending, error }: { c: Cam
           </li>
           <li className="flex items-center gap-2">
             <Reply className="size-4 text-ork-blue" aria-hidden /> {eligible} contactos
-            {box && eligible > 0 && ` · primer correo a todos en unos ${days} día${days === 1 ? "" : "s"} hábil${days === 1 ? "" : "es"} (${box.daily_limit} por día)`}
+            {box && eligible > 0 && ` · primer correo a todos en unos ${days} día${days === 1 ? "" : "s"} hábil${days === 1 ? "" : "es"} (${perDay} por día${box.warmup ? ", en calentamiento: sube cada día" : ""})`}
           </li>
         </ul>
         {(preview.data?.estimated ?? 0) > 0 && (
@@ -1004,7 +1054,7 @@ export function GmailCard() {
   const params = new URLSearchParams(window.location.search);
   const result = params.get("gmail");
   const patch = useMutation({
-    mutationFn: ({ id, ...json }: { id: string; daily_limit?: number; signature?: string }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
+    mutationFn: ({ id, ...json }: { id: string; daily_limit?: number; signature?: string; warmup?: boolean }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["mailboxes"] }),
   });
   const remove = useMutation({
@@ -1045,7 +1095,8 @@ export function GmailCard() {
               <div>
                 <p className="text-[14px] font-semibold text-ork-ink">{m.email}</p>
                 <p className="text-[12.5px] text-ork-mist">
-                  {m.sent_today} enviados hoy de {m.daily_limit}
+                  {m.sent_today} enviados hoy de {m.effective_limit ?? m.daily_limit}
+                  {m.warmup && m.warmup_day ? ` · calentamiento, día ${m.warmup_day}` : ""}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1070,7 +1121,17 @@ export function GmailCard() {
                   if (value !== m.daily_limit) patch.mutate({ id: m.id, daily_limit: value });
                 }}
               />
-              {m.daily_limit > 300 && (
+              <label className="flex items-start gap-2 text-[13px] text-ork-graphite">
+                <input type="checkbox" className="mt-0.5" checked={m.warmup ?? true} onChange={(e) => patch.mutate({ id: m.id, warmup: e.target.checked })} />
+                <span>
+                  <strong className="text-ork-ink">Calentamiento automático</strong> (recomendado)
+                  <span className="block text-[12.5px] text-ork-mist">
+                    El límite real empieza en 20 al día y sube solo cada día de envío (20 → 30 → 45 → 65 → 90 → 125…) hasta tu límite diario. Protege la
+                    reputación de tu correo.
+                  </span>
+                </span>
+              </label>
+              {m.daily_limit > 300 && !m.warmup && (
                 <Alert tone="blue">
                   Con más de 300 correos en frío al día, sube de forma gradual (por ejemplo 100 → 300 → 700 → 1.500 en dos semanas) y
                   vigila el rebote: si Google detecta un salto brusco o muchos rebotes puede limitar temporalmente tu cuenta.

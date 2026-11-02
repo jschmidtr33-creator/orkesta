@@ -46,7 +46,11 @@ DEFAULT_SETTINGS = {
     "end_hour": 17,
     "track_opens": True,
     "track_clicks": True,
+    "corporate_mode": False,  # texto plano, sin medición: para bancos y corporativos
+    "per_domain_daily": 3,  # máximo de correos al día a una misma empresa (0 = sin límite)
 }
+# Calentamiento del buzón: límite máximo por día de envío (día 1, día 2, …).
+WARMUP = (20, 30, 45, 65, 90, 125, 170, 230, 310, 420, 560, 750, 1000, 1350, 1800, 2000)
 
 
 class CampaignError(ValueError):
@@ -81,14 +85,18 @@ def save_mailbox(
     return mailbox
 
 
-def mailbox_dict(m: Mailbox, sent_today: int = 0) -> dict[str, Any]:
+def mailbox_dict(m: Mailbox, sent_today: int = 0, session: Session | None = None) -> dict[str, Any]:
+    limit, day = effective_limit(session, m) if session is not None else (m.daily_limit, None)
     return {
+        "effective_limit": limit,
+        "warmup_day": day,
         "id": str(m.id),
         "email": m.email,
         "display_name": m.display_name,
         "status": m.status,
         "error": m.error,
         "daily_limit": m.daily_limit,
+        "warmup": m.warmup,
         "signature": m.signature,
         "user_id": str(m.user_id) if m.user_id else None,
         "sent_today": sent_today,
@@ -151,10 +159,33 @@ def clean_settings(data: dict[str, Any]) -> dict[str, Any]:
     merged.update(
         start_hour=start,
         end_hour=end,
-        track_opens=bool(merged["track_opens"]),
-        track_clicks=bool(merged["track_clicks"]),
+        track_opens=bool(merged["track_opens"]) and not merged["corporate_mode"],
+        track_clicks=bool(merged["track_clicks"]) and not merged["corporate_mode"],
+        corporate_mode=bool(merged["corporate_mode"]),
+        per_domain_daily=max(0, min(500, int(merged["per_domain_daily"] or 0))),
     )
     return merged
+
+
+def send_days(session: Session, mailbox_id: uuid.UUID) -> int:
+    """Días distintos en que el buzón ya envió correos (para el calentamiento)."""
+    return int(
+        session.scalar(
+            select(func.count(func.distinct(func.date(Message.sent_at)))).where(
+                Message.mailbox_id == mailbox_id, Message.sent_at < _day_start(_tz("UTC"))
+            )
+        )
+        or 0
+    )
+
+
+def effective_limit(session: Session, mailbox: Mailbox) -> tuple[int, int | None]:
+    """(límite de hoy, día de calentamiento o None si está desactivado)."""
+    if not mailbox.warmup:
+        return mailbox.daily_limit, None
+    day = send_days(session, mailbox.id)
+    cap = WARMUP[min(day, len(WARMUP) - 1)]
+    return min(mailbox.daily_limit, cap), day + 1
 
 
 def get_campaign(session: Session, tenant_id: uuid.UUID, campaign_id: uuid.UUID) -> Campaign:
@@ -577,16 +608,53 @@ def _learn(session: Session, recipient: Recipient, outcome: str) -> None:
             )
 
 
+def blocked_domains(session: Session, tenant_id: uuid.UUID) -> set[str]:
+    """Empresas cuyo filtro ya bloqueó un correo de este cliente: se les escribe en texto plano,
+    sin medición y con calma."""
+    rows = session.scalars(
+        select(func.distinct(func.lower(func.split_part(Recipient.email, "@", 2)))).where(
+            Recipient.tenant_id == tenant_id, Recipient.status == "blocked"
+        )
+    )
+    return set(rows)
+
+
+def _pick(
+    session: Session, campaign: Campaign, mailbox: Mailbox, candidates: list[Recipient],
+    tz: ZoneInfo,
+) -> Recipient | None:  # fmt: skip
+    """El siguiente destinatario respetando el máximo diario por empresa destinataria."""
+    cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
+    if not candidates or cap <= 0:
+        return candidates[0] if candidates else None
+    domain = func.lower(func.split_part(Recipient.email, "@", 2))
+    rows = session.execute(
+        select(domain, func.count())
+        .select_from(Message)
+        .join(Recipient, Recipient.id == Message.recipient_id)
+        .where(Message.mailbox_id == mailbox.id, Message.sent_at >= _day_start(tz))
+        .group_by(domain)
+    ).all()
+    counts = {str(row[0]): int(row[1]) for row in rows}
+    blocked = blocked_domains(session, campaign.tenant_id)
+    for r in candidates:
+        d = r.email.rsplit("@", 1)[-1].lower()
+        limit = 1 if d in blocked else cap  # empresas que ya bloquearon: una al día
+        if counts.get(d, 0) < limit:
+            return r
+    return None
+
+
 def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     """Envía como máximo un correo de la campaña. ``True`` si envió."""
     tz = _tz(str(campaign.settings.get("timezone", "America/Bogota")))
-    if sent_today(session, mailbox.id, tz) >= mailbox.daily_limit:
+    if sent_today(session, mailbox.id, tz) >= effective_limit(session, mailbox)[0]:
         return False
     from orkesta.admin.limits import emails_left_today
 
     if emails_left_today(session, campaign.tenant_id, tz) == 0:
         return False  # límite diario del plan: sigue mañana
-    recipient = session.scalar(
+    candidates = session.scalars(
         select(Recipient)
         .where(
             Recipient.campaign_id == campaign.id,
@@ -594,9 +662,10 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
             Recipient.next_send_at <= now(),
         )
         .order_by(Recipient.next_send_at)
-        .limit(1)
+        .limit(40)
         .with_for_update(skip_locked=True)
-    )
+    ).all()
+    recipient = _pick(session, campaign, mailbox, list(candidates), tz)
     if recipient is None:
         return False
     contact = session.get(Contact, recipient.contact_id)
@@ -625,6 +694,11 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
             templating.render(custom, values)[0] if custom else f"Re: {recipient.first_subject}"
         )
         thread_ref = recipient.thread_id
+    domain = recipient.email.rsplit("@", 1)[-1].lower()
+    # Modo corporativo de la campaña, o automático para empresas que ya bloquearon un correo.
+    plain = bool(campaign.settings.get("corporate_mode")) or domain in blocked_domains(
+        session, campaign.tenant_id
+    )
     token = secrets.token_urlsafe(24)
     built = templating.build(
         sender_email=mailbox.email,
@@ -635,8 +709,9 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         body_html=body,
         signature_html=signature,
         token=token,
-        track_opens=bool(campaign.settings.get("track_opens", True)),
-        track_clicks=bool(campaign.settings.get("track_clicks", True)),
+        track_opens=bool(campaign.settings.get("track_opens", True)) and not plain,
+        track_clicks=bool(campaign.settings.get("track_clicks", True)) and not plain,
+        plain=plain,
         in_reply_to=recipient.last_rfc_id if thread_ref else None,
         references=" ".join(x for x in (recipient.first_rfc_id, recipient.last_rfc_id) if x)
         if thread_ref
@@ -897,7 +972,8 @@ def tick(factory: sessionmaker[Session]) -> int:
                     and send_next(session, campaign, mailbox)
                 ):
                     busy.add(mailbox.id)
-                    mailbox.next_send_after = now() + _gap(campaign.settings, mailbox.daily_limit)
+                    limit = effective_limit(session, mailbox)[0]
+                    mailbox.next_send_after = now() + _gap(campaign.settings, limit)
                     sent += 1
                 if mailbox.status == "active":
                     check_replies(session, campaign, mailbox)
