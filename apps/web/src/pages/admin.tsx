@@ -679,6 +679,7 @@ type TrainResult = {
   patterns: number;
   companies: number;
   with_domain: number;
+  profiles?: number;
   evaluation: { evaluated: number; accuracy: number; baseline: number };
   errors: string[];
 };
@@ -777,7 +778,7 @@ function TrainCard({ onDone }: { onDone: () => void }) {
     <Card className="mt-4 border-ork-violet/25">
       <CardHeader
         title="Entrenar la IA con bases reales"
-        description="Sube exportaciones de Wiza, registros de eventos o listas de campañas (CSV o Excel), o el archivo de conocimiento de ORKESTA (.json). De cada fila se leen solo nombre, cargo, empresa, ubicación, correo y teléfono, y se guarda únicamente lo aprendido de cada empresa: su dominio y su formato de correo. Los datos de las personas se descartan."
+        description="Sube exportaciones de Wiza, registros de eventos o listas de campañas (CSV o Excel), o el archivo de conocimiento de ORKESTA (.json). De cada fila se leen solo nombre, cargo, empresa, ubicación, correo y teléfono: ORKESTA aprende el dominio y el formato de correo de cada empresa, y las personas entran al índice de personas. Úsalo solo con bases que tengas autorización para usar. Nunca guarda correos personales (gmail, hotmail…)."
       />
       {train.error && <Alert>{train.error.message}</Alert>}
       <div className="flex flex-wrap items-end gap-3">
@@ -796,7 +797,7 @@ function TrainCard({ onDone }: { onDone: () => void }) {
           </p>
           <p className="mt-1">
             ORKESTA aprendió el formato de correo de {n(r.domains)} dominios y el sitio web de {n(r.with_domain)} empresas; {n(r.companies)} empresas
-            quedaron en el directorio.
+            quedaron en el directorio{r.profiles ? ` y ${n(r.profiles)} personas en el índice` : ""}.
           </p>
           {r.evaluation.evaluated > 0 && (
             <p className="mt-1">

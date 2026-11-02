@@ -237,6 +237,8 @@ class PersonIndex(Base):
     linkedin: Mapped[str | None] = mapped_column(String(300))
     email: Mapped[str | None] = mapped_column(String(320))
     email_status: Mapped[str | None] = mapped_column(String(12))
+    phone: Mapped[str | None] = mapped_column(String(30))
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="busquedas")
     seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     first_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
