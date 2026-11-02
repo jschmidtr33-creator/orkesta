@@ -26,6 +26,7 @@ type Stats = {
   bounce_rate: number | null;
   blocked?: number;
   block_rate?: number | null;
+  replies?: Record<string, number>;
 };
 type Step = { subject: string; body: string; delay_days: number };
 type Settings = {
@@ -87,6 +88,21 @@ type Recipient = {
   replied_at: string | null;
   gmail_url: string | null;
   error: string | null;
+  reply_category?: string | null;
+  reply_snippet?: string | null;
+  deal_id?: string | null;
+};
+
+/** Lo que quiso decir cada respuesta: lo decide el clasificador propio de ORKESTA. */
+const REPLY: Record<string, { label: string; tone: "neutral" | "ok" | "warn" | "blue" | "bad" | "violet" }> = {
+  reunion: { label: "Quiere reunión", tone: "ok" },
+  interesado: { label: "Interesado", tone: "ok" },
+  mas_info: { label: "Pide información", tone: "blue" },
+  referido: { label: "Refirió a otra persona", tone: "violet" },
+  no_ahora: { label: "Más adelante", tone: "warn" },
+  no_interesado: { label: "No interesado", tone: "neutral" },
+  baja: { label: "Pidió no recibir más", tone: "bad" },
+  otro: { label: "Respuesta sin clasificar", tone: "neutral" },
 };
 
 const STATUS: Record<Campaign["status"], { label: string; tone: "neutral" | "ok" | "warn" | "blue" }> = {
@@ -418,6 +434,26 @@ export function CampaignDetail() {
   );
 }
 
+function ReplyBreakdown({ replies }: { replies: Record<string, number> }) {
+  const entries = Object.entries(REPLY).filter(([k]) => (replies[k] ?? 0) > 0);
+  const deals = replies.deals ?? 0;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-ork-line bg-white px-4 py-3 text-[13px]">
+      <span className="font-semibold text-ork-ink">Respuestas:</span>
+      {entries.map(([k, v]) => (
+        <Badge key={k} tone={v.tone}>
+          {replies[k]} {v.label.toLowerCase()}
+        </Badge>
+      ))}
+      {deals > 0 && (
+        <Link to="/crm" className="ml-auto text-[12.5px] font-semibold text-ork-blue hover:underline">
+          {deals} oportunidad{deals === 1 ? "" : "es"} creada{deals === 1 ? "" : "s"} en el CRM →
+        </Link>
+      )}
+    </div>
+  );
+}
+
 function CampaignStats({ c }: { c: Campaign }) {
   const s = c.stats;
   const navigate = useNavigate();
@@ -440,6 +476,7 @@ function CampaignStats({ c }: { c: Campaign }) {
         hint={`${s.bounced} no existen · ${s.blocked ?? 0} bloqueados · ${s.unsubscribed} bajas`}
       />
     </div>
+    {s.replied > 0 && s.replies && <ReplyBreakdown replies={s.replies} />}
     {l && (l.confirmed > 0 || l.reproposed > 0 || s.bounced > 0) && (
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] px-4 py-3">
         <p className="flex items-start gap-2 text-[13px] text-ork-graphite">
@@ -938,6 +975,15 @@ function LaunchModal({ c, open, onOpenChange, launch, pending, error }: { c: Cam
   );
 }
 
+const REPLY_SELECT = {
+  neutral: "bg-ork-ink/5 text-ork-graphite",
+  blue: "bg-ork-blue/10 text-ork-blue",
+  violet: "bg-ork-violet/10 text-ork-violet",
+  ok: "bg-ok/10 text-ok",
+  warn: "bg-warn/10 text-warn",
+  bad: "bg-bad/10 text-bad",
+};
+
 function Recipients({ campaignId }: { campaignId: string }) {
   const [status, setStatus] = useState("");
   const client = useQueryClient();
@@ -945,6 +991,14 @@ function Recipients({ campaignId }: { campaignId: string }) {
     queryKey: ["recipients", campaignId, status],
     queryFn: () => api<{ total: number; items: Recipient[] }>(`/api/campaigns/${campaignId}/recipients?status=${status}`),
     refetchInterval: 30000,
+  });
+  const classify = useMutation({
+    mutationFn: ({ id, category }: { id: string; category: string }) =>
+      api(`/api/campaigns/${campaignId}/recipients/${id}/category`, { method: "POST", json: { category } }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["recipients", campaignId] });
+      client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+    },
   });
   const stop = useMutation({
     mutationFn: ({ id, replied }: { id: string; replied: boolean }) =>
@@ -991,7 +1045,29 @@ function Recipients({ campaignId }: { campaignId: string }) {
                 </td>
                 <td className="whitespace-nowrap py-2.5 pr-3">
                   <Badge tone={RECIPIENT[r.status]?.tone ?? "neutral"}>{RECIPIENT[r.status]?.label ?? r.status}</Badge>
-                  {r.error && <p className="mt-0.5 max-w-[220px] text-[11.5px] text-bad">{r.error}</p>}
+                  {r.error && <p className={cx("mt-0.5 max-w-[220px] text-[11.5px]", r.error.startsWith("Fuera de oficina") ? "text-ork-mist" : "text-bad")}>{r.error}</p>}
+                  {r.replied_at && (
+                    <div className="mt-1 max-w-[260px]">
+                      <select
+                        aria-label="Qué respondió"
+                        value={r.reply_category ?? "otro"}
+                        onChange={(e) => classify.mutate({ id: r.id, category: e.target.value })}
+                        className={cx("ork-focus rounded-full border-0 py-0.5 pl-2 pr-6 text-[12px] font-semibold", REPLY_SELECT[REPLY[r.reply_category ?? "otro"]?.tone ?? "neutral"])}
+                      >
+                        {Object.entries(REPLY).map(([k, v]) => (
+                          <option key={k} value={k}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                      {r.reply_snippet && <p className="mt-1 whitespace-normal text-[11.5px] italic text-ork-graphite">«{r.reply_snippet.slice(0, 160)}{r.reply_snippet.length > 160 ? "…" : ""}»</p>}
+                      {r.deal_id && (
+                        <Link to={`/crm?oportunidad=${r.deal_id}`} className="mt-0.5 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
+                          Ver oportunidad →
+                        </Link>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td className="whitespace-nowrap py-2.5 pr-3 text-ork-graphite">
                   {r.sent_count}

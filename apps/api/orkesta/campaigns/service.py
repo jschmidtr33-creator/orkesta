@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit
-from orkesta.campaigns import gmail, templating
+from orkesta.campaigns import gmail, replies, templating
 from orkesta.campaigns.models import (
     Campaign,
     Mailbox,
@@ -27,6 +27,7 @@ from orkesta.campaigns.models import (
     TrackingToken,
 )
 from orkesta.core.db import set_context
+from orkesta.crm.models import Deal
 from orkesta.crm.service import log as crm_log
 from orkesta.data.models import Contact, DataPoint, ListMember
 from orkesta.data.service import ContactFilters, _filtered
@@ -368,12 +369,25 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
             "reply_rate": rate(replied),
             "bounce_rate": rate(by_status.get("bounced", 0)),
             "block_rate": rate(by_status.get("blocked", 0)),
+            "replies": reply_breakdown(session, c),
         },
     }
     if full:
         data.update(steps=c.steps, settings=c.settings, audience=c.audience)
         data["learning"] = learning(session, c)
     return data
+
+
+def reply_breakdown(session: Session, c: Campaign) -> dict[str, int]:
+    rows = session.execute(
+        select(Recipient.reply_category, func.count())
+        .where(Recipient.campaign_id == c.id, Recipient.replied_at.is_not(None))
+        .group_by(Recipient.reply_category)
+    ).all()
+    out = {(cat or "otro"): int(n) for cat, n in rows}
+    out["deals"] = int(session.scalar(select(func.count()).where(
+        Recipient.campaign_id == c.id, Recipient.deal_id.is_not(None))) or 0)  # fmt: skip
+    return out
 
 
 def _reproposed(session: Session, c: Campaign) -> list[uuid.UUID]:
@@ -847,7 +861,7 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
     for recipient in due:
         recipient.checked_at = now()
         try:
-            outcome = gmail.thread_outcome(
+            outcome, texts = gmail.thread_check(
                 access_token(session, mailbox), recipient.thread_id or "", mailbox.email
             )
         except gmail.GmailError as exc:
@@ -861,36 +875,19 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             else:
                 recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
             continue
+        category, text = "", ""
+        if outcome == "replied":
+            category, text = _read_replies(texts)
+            if category == "fuera_oficina":
+                # Fuera de oficina sin el encabezado automático: la secuencia sigue.
+                recipient.error = f"Fuera de oficina: {text[:200]}" if text else None
+                continue
         if outcome in ("replied", "bounced"):
             _learn(session, recipient, outcome)
         if outcome == "replied" and recipient.status != "replied":
             recipient.status, recipient.replied_at, recipient.next_send_at = "replied", now(), None
-            crm_log(
-                session,
-                tenant_id=campaign.tenant_id,
-                kind="email",
-                user_id=None,
-                contact_id=recipient.contact_id,
-                body=f"Respondió a la campaña «{campaign.name}». Revisa tu Gmail.",
-            )
-            notify(
-                session, tenant_id=campaign.tenant_id,
-                user_id=mailbox.user_id or campaign.created_by, kind="reply",
-                title=f"{recipient.email} respondió a «{campaign.name}»",
-                body="Revisa tu Gmail para contestar.", link=f"/app/campanas/{campaign.id}",
-            )  # fmt: skip
-            if _emit(session, campaign, recipient, "campaign.replied"):
-                found += 1
-                continue  # una automatización decide qué hacer (en vez de la tarea fija)
-            crm_log(
-                session,
-                tenant_id=campaign.tenant_id,
-                kind="task",
-                user_id=campaign.created_by,
-                contact_id=recipient.contact_id,
-                due_at=now() + timedelta(hours=4),
-                body=f"Responder a {recipient.email} (campaña «{campaign.name}»)",
-            )
+            recipient.error = None
+            handle_reply(session, campaign, recipient, category, text, mailbox.user_id)
             found += 1
         elif outcome == "blocked":
             # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
@@ -909,6 +906,91 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             _emit(session, campaign, recipient, "campaign.bounced")
             found += 1
     return found
+
+
+def _read_replies(texts: list[str]) -> tuple[str, str]:
+    """Categoría de la respuesta más reciente que no sea un «fuera de oficina»."""
+    import html
+
+    last_ooo = ""
+    for raw in reversed(texts):
+        text = " ".join(html.unescape(raw).split())
+        category, _confidence = replies.classify(text)
+        if category != "fuera_oficina":
+            return category, text
+        last_ooo = last_ooo or text
+    return ("fuera_oficina", last_ooo) if texts else ("otro", "")
+
+
+def handle_reply(
+    session: Session,
+    campaign: Campaign,
+    recipient: Recipient,
+    category: str,
+    text: str,
+    owner_id: uuid.UUID | None = None,
+    *,
+    automatic: bool = True,
+) -> None:
+    """Actúa según lo que respondió la persona: oportunidad en el CRM, seguimiento o baja."""
+    from orkesta.crm.service import DealInput, create_deal
+
+    category = category if category in replies.CATEGORIES else "otro"
+    label = replies.CATEGORIES[category]["label"]
+    owner = owner_id or campaign.created_by
+    recipient.reply_category = category
+    if text:
+        recipient.reply_snippet = text[:500]
+    tenant = campaign.tenant_id
+    contact = session.get(Contact, recipient.contact_id)
+    name = contact.full_name if contact and contact.full_name else recipient.email
+    quote = f": «{text[:240]}»" if text else ""
+    if automatic:
+        crm_log(session, tenant_id=tenant, kind="email", user_id=None,
+                contact_id=recipient.contact_id,
+                body=f"Respondió a la campaña «{campaign.name}» · {label}{quote}")  # fmt: skip
+    if category in replies.POSITIVE and recipient.deal_id is None and owner is not None:
+        existing = session.scalar(
+            select(Deal.id)
+            .where(
+                Deal.tenant_id == tenant,
+                Deal.contact_id == recipient.contact_id,
+                Deal.status == "open",
+            )
+            .limit(1)
+        )
+        if existing is None:
+            base = (contact.company_name or contact.full_name) if contact else recipient.email
+            deal = create_deal(session, tenant_id=tenant, user_id=owner,
+                               data=DealInput(title=f"{base} · {campaign.name}",
+                                              contact_id=recipient.contact_id))  # fmt: skip
+            existing = deal.id
+        recipient.deal_id = existing
+    if category == "baja":
+        recipient.status = "unsubscribed"
+        suppress(session, tenant, recipient.email, "unsubscribed")
+    if automatic:
+        notify(
+            session, tenant_id=tenant, user_id=owner, kind="reply",
+            title=f"{name} respondió a «{campaign.name}» · {label}",
+            body=text[:200] or "Revisa tu Gmail para contestar.",
+            link=f"/app/crm?oportunidad={recipient.deal_id}" if recipient.deal_id
+            else f"/app/campanas/{campaign.id}",
+        )  # fmt: skip
+        if _emit(session, campaign, recipient, "campaign.replied"):
+            return  # una automatización decide qué hacer (en vez de la tarea fija)
+    task = {
+        "reunion": (timedelta(hours=1), f"Agendar la reunión con {name}: pidió reunirse"),
+        "interesado": (timedelta(hours=2), f"Responder a {name}: está interesado"),
+        "mas_info": (timedelta(hours=2), f"Enviar la información que pidió {name}"),
+        "referido": (timedelta(hours=4), f"Escribir a la persona que refirió {name}"),
+        "no_ahora": (timedelta(days=60), f"Retomar contacto con {name} (pidió más adelante)"),
+        "otro": (timedelta(hours=4), f"Responder a {name}"),
+    }.get(category)
+    if task is not None:
+        crm_log(session, tenant_id=tenant, kind="task", user_id=owner,
+                contact_id=recipient.contact_id, deal_id=recipient.deal_id,
+                due_at=now() + task[0], body=f"{task[1]} (campaña «{campaign.name}»)")  # fmt: skip
 
 
 BLOCKED_NOTE = "Bloqueado por el filtro de seguridad del destinatario (la dirección puede existir)"
