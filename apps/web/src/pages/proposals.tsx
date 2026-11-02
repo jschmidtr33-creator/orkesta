@@ -34,6 +34,7 @@ type ProposalRow = {
   sent_at: string | null;
   decided_at: string | null;
   decided_by: string | null;
+  signature?: { name: string; email: string; signed_at: string; doc_hash: string } | null;
   decision_note: string | null;
   created_at: string;
 };
@@ -556,6 +557,14 @@ export function ProposalEditor() {
           <Alert tone={p.status === "accepted" ? "ok" : "bad"}>
             {p.decided_by ?? "El cliente"} {p.status === "accepted" ? "aceptó" : "rechazó"} esta propuesta el {formatWhen(p.decided_at)}.
             {p.decision_note ? ` Comentario: «${p.decision_note}»` : ""}
+            {p.signature && (
+              <span className="mt-1 block">
+                Firma electrónica de {p.signature.name} ({p.signature.email}).{" "}
+                <a href={`/api/proposals/${p.id}/constancia.pdf`} target="_blank" rel="noreferrer" className="font-semibold underline">
+                  Descargar constancia de firma (PDF)
+                </a>
+              </span>
+            )}
           </Alert>
         </div>
       )}

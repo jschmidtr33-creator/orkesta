@@ -105,6 +105,11 @@ class Proposal(IdMixin, Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_by: Mapped[str | None] = mapped_column(String(160))
     decision_note: Mapped[str | None] = mapped_column(String(500))
+    # Firma electrónica: {name, email, document, image (JPEG base64), ip, user_agent,
+    # signed_at, doc_hash}
+    signature: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
     # Diseño de esta propuesta: plantilla, idioma, colores, portada y datos del ejecutivo.
     design: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"

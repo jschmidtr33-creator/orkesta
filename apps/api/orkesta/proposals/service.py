@@ -7,6 +7,7 @@ productos del catálogo. Cada sección queda editable.
 
 from __future__ import annotations
 
+import re
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -610,6 +611,7 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
         "sent_at": p.sent_at.isoformat() if p.sent_at else None,
         "decided_at": p.decided_at.isoformat() if p.decided_at else None,
         "decided_by": p.decided_by,
+        "signature": signature_public(p),
         "decision_note": p.decision_note,
         "created_at": p.created_at.isoformat(),
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
@@ -750,10 +752,67 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
         "decided_at": data["decided_at"],
         "decided_by": data["decided_by"],
         "created_at": data["created_at"],
+        "signature": signature_public(proposal),
     }
 
 
-def decide(session: Session, proposal: Proposal, *, accept: bool, name: str, note: str) -> None:
+SIGNATURE_CONSENT = (
+    "Acepto esta propuesta y la firmo electrónicamente. Mi firma tiene la misma validez que una "
+    "firma manuscrita para este acuerdo comercial."
+)
+MAX_SIGNATURE = 200_000
+
+
+def document_hash(session: Session, proposal: Proposal) -> str:
+    """Huella SHA-256 del contenido firmado: cualquier cambio posterior la invalida."""
+    import hashlib
+    import json
+
+    tenant = session.get(Tenant, proposal.tenant_id)
+    content = {
+        "number": proposal.number, "title": proposal.title, "currency": proposal.currency,
+        "items": proposal.items, "sections": proposal.sections,
+        "tax_rate": str(proposal.tax_rate), "valid_until": str(proposal.valid_until or ""),
+        "issuer": tenant.name if tenant else "",
+    }  # fmt: skip
+    raw = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def signature_public(proposal: Proposal) -> dict[str, Any] | None:
+    s = proposal.signature or {}
+    if not s.get("signed_at"):
+        return None
+    return {"name": s.get("name"), "email": s.get("email"), "signed_at": s.get("signed_at"),
+            "doc_hash": s.get("doc_hash"), "has_image": bool(s.get("image"))}  # fmt: skip
+
+
+def _signature_image(data_url: str) -> str:
+    import base64
+
+    prefix = "data:image/jpeg;base64,"
+    if not data_url.startswith(prefix):
+        raise ProposalError("Dibuja tu firma para aceptar.")
+    raw = base64.b64decode(data_url[len(prefix) :], validate=False)
+    if len(raw) > MAX_SIGNATURE or not raw.startswith(b"\xff\xd8"):
+        raise ProposalError("La firma no es válida. Vuelve a dibujarla.")
+    return base64.b64encode(raw).decode()
+
+
+def decide(
+    session: Session,
+    proposal: Proposal,
+    *,
+    accept: bool,
+    name: str,
+    note: str,
+    email: str = "",
+    document: str = "",
+    signature: str = "",
+    consent: bool = False,
+    ip: str = "",
+    user_agent: str = "",
+) -> None:
     if proposal.status in ("accepted", "rejected"):
         raise ProposalError("Esta propuesta ya fue respondida.", 409)
     if proposal.status == "draft":
@@ -763,6 +822,18 @@ def decide(session: Session, proposal: Proposal, *, accept: bool, name: str, not
     who = " ".join(name.split())[:160]
     if accept and len(who) < 3:
         raise ProposalError("Escribe tu nombre completo para aceptar.")
+    if accept:
+        if not consent:
+            raise ProposalError("Confirma que aceptas firmar electrónicamente.")
+        mail = email.strip().lower()
+        if not re.fullmatch(r"[^@\s]{1,64}@[^@\s]+\.[a-z]{2,}", mail):
+            raise ProposalError("Escribe tu correo para recibir la constancia de la firma.")
+        proposal.signature = {
+            "name": who, "email": mail, "document": " ".join(document.split())[:40],
+            "image": _signature_image(signature), "ip": ip[:64], "user_agent": user_agent[:300],
+            "signed_at": now().isoformat(), "doc_hash": document_hash(session, proposal),
+            "consent": SIGNATURE_CONSENT,
+        }  # fmt: skip
     proposal.status = "accepted" if accept else "rejected"
     proposal.decided_at = now()
     proposal.decided_by = who or None
@@ -793,3 +864,77 @@ def decide(session: Session, proposal: Proposal, *, accept: bool, name: str, not
         )  # fmt: skip
         if won is not None:
             move_deal(session, deal, stage_id=won.id, user_id=None)
+
+
+# --- Constancia de firma en PDF (motor propio) ---------------------------------------------
+
+
+def certificate_pdf(session: Session, proposal: Proposal) -> bytes:
+    """PDF del acuerdo firmado: resumen de la propuesta, firma y evidencia de la firma."""
+    import base64
+
+    from orkesta.proposals.pdf import PDF, strip_html
+
+    s = proposal.signature or {}
+    if not s.get("signed_at"):
+        raise ProposalError("Esta propuesta no tiene firma.", 404)
+    tenant = session.get(Tenant, proposal.tenant_id)
+    data = personalize(proposal_dict(session, proposal), variable_values(session, proposal))
+    color = str((data.get("look") or {}).get("primary") or "#2563EB")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        color = "#2563EB"
+    doc = PDF()
+    doc.band(color, 8)
+    doc.text("CONSTANCIA DE FIRMA ELECTRÓNICA", size=9, bold=True, color=color)
+    doc.text(f"Propuesta N.º {proposal.number} · {proposal.title}", size=17, bold=True)
+    doc.text(f"Emitida por {tenant.name if tenant else ''}"
+             + (f" para {data['company']}" if data.get("company") else ""), size=10,
+             color="#4B5563")  # fmt: skip
+    doc.rule()
+    doc.text("Resumen del acuerdo", size=12, bold=True)
+    for item in data["items"]:
+        qty = item.get("quantity", 1)
+        price = float(item.get("unit_price", 0))
+        off = f" (−{item['discount']} %)" if item.get("discount") else ""
+        doc.text(f"• {item.get('name', '')} — {qty} × {proposal.currency} {price:,.2f}{off}",
+                 size=10)  # fmt: skip
+    t = data["totals"]
+    doc.space(4)
+    doc.text(f"Total: {proposal.currency} {t['total']:,.2f}"
+             + (f"  (incluye impuestos {proposal.currency} {t['tax']:,.2f})" if t["tax"] else ""),
+             size=11, bold=True)  # fmt: skip
+    if proposal.valid_until:
+        doc.text(f"Válida hasta: {proposal.valid_until.isoformat()}", size=9, color="#6B7280")
+    for section in data["sections"][:6]:
+        body = strip_html(str(section.get("body", "")))
+        if body:
+            doc.space(4)
+            doc.text(str(section.get("title", "")), size=10.5, bold=True)
+            doc.text(body[:1500], size=9.5, color="#374151")
+    doc.rule()
+    doc.text("Firma", size=12, bold=True)
+    if s.get("image"):
+        doc.space(4)
+        doc.image(base64.b64decode(s["image"]), 180)
+    ident = f" · Documento {s['document']}" if s.get("document") else ""
+    doc.text(f"{s.get('name', '')}{ident}", size=11, bold=True)
+    doc.text(str(s.get("email", "")), size=10, color="#4B5563")
+    doc.rule()
+    doc.text("Evidencia de la firma", size=12, bold=True)
+    for label, value in (
+        ("Fecha y hora (UTC)", str(s.get("signed_at", ""))[:19].replace("T", " ")),
+        ("Dirección IP", s.get("ip") or "—"),
+        ("Navegador", s.get("user_agent") or "—"),
+        ("Huella del documento (SHA-256)", s.get("doc_hash", "")),
+        ("Declaración aceptada", s.get("consent", SIGNATURE_CONSENT)),
+    ):
+        doc.text(label, size=9, bold=True, color="#374151")
+        doc.text(str(value), size=9, color="#111827")
+    current = document_hash(session, proposal)
+    doc.space(6)
+    intact = current == s.get("doc_hash")
+    doc.text("El contenido de la propuesta no ha cambiado desde la firma." if intact
+             else "Atención: la propuesta cambió después de la firma.", size=9, bold=True,
+             color="#15803D" if intact else "#B91C1C")  # fmt: skip
+    doc.text("Generado por ORKESTA.", size=8, color="#9CA3AF")
+    return doc.build()
