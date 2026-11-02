@@ -159,6 +159,22 @@ def register(
     return user, tenant
 
 
+ONE_WORKSPACE = "Tu cuenta ya pertenece a un espacio de trabajo; cada cuenta puede tener solo uno."
+
+
+def many_workspaces(user: User) -> bool:
+    """Solo la creadora de ORKESTA puede tener varios espacios de trabajo."""
+    return user.platform_role == "owner"
+
+
+def ensure_single_workspace(session: Session, user: User, joining: uuid.UUID | None = None) -> None:
+    if many_workspaces(user):
+        return
+    others = [t for _, t in active_memberships(session, user.id) if t.id != joining]
+    if others:
+        raise PlatformError(ONE_WORKSPACE, 403)
+
+
 def active_memberships(session: Session, user_id: uuid.UUID) -> list[tuple[Membership, Tenant]]:
     set_context(session, user_id=user_id)
     rows = session.execute(
@@ -411,6 +427,7 @@ def accept_invitation(
         raise PlatformError(
             f"La invitación es para {invitation.email}. Inicia sesión con ese correo.", 403
         )
+    ensure_single_workspace(session, user, joining=tenant.id)
     set_context(session, tenant_id=tenant.id, user_id=user.id)
     member = session.scalar(
         select(Membership).where(Membership.tenant_id == tenant.id, Membership.user_id == user.id)

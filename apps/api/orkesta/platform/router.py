@@ -120,6 +120,7 @@ def _session_payload(db: Db, user: User, tenant_id: uuid.UUID | None) -> dict[st
             "avatar_url": user.avatar_url,
             "platform_admin": user.is_platform_admin,
             "has_password": user.password_hash is not None,
+            "can_create_workspace": svc.many_workspaces(user) or not workspaces,
         },
         "workspace": current,
         "workspaces": workspaces,
@@ -317,6 +318,7 @@ def create_workspace(
     body: WorkspaceIn, request: Request, response: Response, principal: CurrentPrincipal, db: Db
 ) -> dict[str, Any]:
     try:
+        svc.ensure_single_workspace(db, principal.user)
         tenant = svc.create_tenant(db, owner=principal.user, name=body.name, ip=client_ip(request))
         tokens = svc.start_session(
             db, principal.user, tenant_id=tenant.id,

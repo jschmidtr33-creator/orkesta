@@ -71,7 +71,7 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
 export type Workspace = { id: string; name: string; role: string; role_label: string };
 
 export type Session = {
-  user: { id: string; email: string; full_name: string; platform_admin: boolean; has_password: boolean; job_title?: string; avatar_url?: string | null };
+  user: { id: string; email: string; full_name: string; platform_admin: boolean; has_password: boolean; job_title?: string; avatar_url?: string | null; can_create_workspace?: boolean };
   workspace: Workspace | null;
   workspaces: Workspace[];
 };

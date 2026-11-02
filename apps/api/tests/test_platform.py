@@ -162,8 +162,15 @@ def test_workspaces_are_isolated(
         assert row == (False, False)
 
 
-def test_multiple_workspaces_and_switch(client: TestClient) -> None:
+def test_multiple_workspaces_and_switch(client: TestClient, database: tuple[str, str]) -> None:
+    import psycopg
+
     register(client, "ana@lacteos.mx", "Lácteos Inventados")
+    # Solo la creadora de ORKESTA puede tener varios espacios de trabajo.
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute(
+            "UPDATE orkesta.users SET platform_role = 'owner' WHERE email = 'ana@lacteos.mx'"
+        )
     created = client.post("/api/workspaces", json={"name": "Nuevo Trabajo SAS"}).json()
     assert created["workspace"]["name"] == "Nuevo Trabajo SAS"
     names = {w["name"] for w in created["workspaces"]}
