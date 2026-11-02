@@ -84,6 +84,8 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
               {w.id === current?.id && <Check className="size-4 text-ork-blue" aria-hidden />}
             </Menu.Item>
           ))}
+          {session.user.can_create_workspace && (
+            <>
           <Menu.Separator className="my-1 h-px bg-ork-line" />
           <Menu.Item
             onSelect={() => navigate("/bienvenida")}
@@ -91,6 +93,8 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
           >
             <Plus className="size-4" aria-hidden /> Crear otro espacio
           </Menu.Item>
+            </>
+          )}
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>
