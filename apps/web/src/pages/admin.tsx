@@ -994,6 +994,7 @@ type BrainTask = {
         per_label: Record<string, { precision: number; recall: number; f1: number; support: number }> | null;
         confusions: [string, string, number][] | null;
         size_kb: number;
+        extra?: { titles: number; coverage_rules: number; coverage_model: number } | null;
       })
     | null;
   history: BrainVersion[];
@@ -1002,7 +1003,7 @@ type BrainTask = {
 type BrainData = { tasks: BrainTask[]; nightly: string | null; schedule: string };
 
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 1000) / 10} %`);
-const ALGORITHMS: Record<string, string> = { naive_bayes: "Naive Bayes", logistic: "Regresión logística" };
+const ALGORITHMS: Record<string, string> = { naive_bayes: "Naive Bayes", logistic: "Regresión logística", lexicon: "Léxico aprendido" };
 
 function AccuracyBar({ label, value, tone }: { label: string; value: number | null; tone: "model" | "rules" }) {
   return (
@@ -1088,6 +1089,12 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
                 duda y deja la decisión a las reglas o a una persona.
               </p>
             )}
+            {a.extra && (
+              <p className="rounded-xl bg-ok/5 px-3 py-2 text-[12.5px] text-ork-graphite">
+                En los {n(a.extra.titles)} cargos del índice: <strong>{pct(a.extra.coverage_rules)}</strong> con solo reglas →{" "}
+                <strong className="text-ok">{pct(a.extra.coverage_model)}</strong> con el modelo.
+              </p>
+            )}
             <p className="text-[12px] text-ork-mist">
               {ALGORITHMS[a.algorithm] ?? a.algorithm} · {n(a.n_train)} ejemplos de entrenamiento · {a.size_kb} KB · entrenado {formatWhen(a.trained_at)}
             </p>
@@ -1120,7 +1127,7 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
                 <ul className="mt-1 text-[12.5px] text-ork-mist">
                   {a.confusions.slice(0, 4).map(([real, pred, count]) => (
                     <li key={`${real}-${pred}`}>
-                      {real} → {pred}: {count}
+                      {real === "_ninguna" ? "sin área" : real} → {pred === "_ninguna" ? "sin área" : pred}: {count}
                     </li>
                   ))}
                 </ul>
@@ -1129,7 +1136,107 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
           </div>
         </div>
       )}
+      {task.name === "cargos" && <TitleTeacher onTaught={onChange} />}
     </Card>
+  );
+}
+
+type TitleTry = {
+  title: string;
+  rules: { level: string | null; area: string | null };
+  cargos: { label: string | null; confidence: number; sure: boolean; evidence: string[] } | null;
+  cargos_nivel: { label: string | null; confidence: number; sure: boolean; evidence: string[] } | null;
+  final: { level: string | null; area: string | null };
+};
+type Doubts = { items: { title: string; count: number }[]; areas: Record<string, string>; levels: Record<string, string> };
+
+function TitleTeacher({ onTaught }: { onTaught: () => void }) {
+  const client = useQueryClient();
+  const [title, setTitle] = useState("");
+  const doubts = useQuery({ queryKey: ["admin-brain-doubts"], queryFn: () => api<Doubts>("/api/admin/brain/cargos/doubts") });
+  const tryIt = useMutation({ mutationFn: (t: string) => api<TitleTry>("/api/admin/brain/cargos/try", { method: "POST", json: { title: t } }) });
+  const teach = useMutation({
+    mutationFn: (body: { title: string; area: string | null; level?: string | null }) => api("/api/admin/brain/cargos/teach", { method: "POST", json: body }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["admin-brain-doubts"] });
+      onTaught();
+    },
+  });
+  const areas = doubts.data?.areas ?? {};
+  const label = (code: string | null | undefined) => (code ? areas[code] ?? doubts.data?.levels[code] ?? code : "Sin área");
+  const r = tryIt.data;
+  return (
+    <div className="mt-5 grid gap-5 border-t border-ork-line pt-5 lg:grid-cols-2">
+      <div>
+        <p className="text-[13.5px] font-bold text-ork-ink">Probar un cargo</p>
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (title.trim()) tryIt.mutate(title.trim());
+          }}
+        >
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Ej.: Gerente de Siniestros"
+            className="ork-focus h-10 min-w-0 flex-1 rounded-xl border border-ork-line bg-ork-card px-3 text-[13.5px] text-ork-ink"
+          />
+          <Button type="submit" size="sm" loading={tryIt.isPending}>
+            Probar
+          </Button>
+        </form>
+        {r && (
+          <div className="mt-3 rounded-xl bg-ork-ink/[0.03] p-3 text-[13px]">
+            <p>
+              <span className="text-ork-mist">Reglas:</span> <strong className="text-ork-ink">{label(r.rules.area)}</strong> · {label(r.rules.level)}
+            </p>
+            {r.cargos && (
+              <p className="mt-1">
+                <span className="text-ork-mist">Modelo:</span> <strong className="text-ork-ink">{label(r.cargos.label)}</strong> ({Math.round(r.cargos.confidence * 100)} %
+                {r.cargos.sure ? ", seguro" : ", duda"})
+                {r.cargos.evidence.length > 0 && <span className="text-ork-mist"> por «{r.cargos.evidence.join("», «")}»</span>}
+              </p>
+            )}
+            <p className="mt-1">
+              <span className="text-ork-mist">ORKESTA decide:</span> <strong className="text-ork-blue">{label(r.final.area)}</strong> · {label(r.final.level)}
+            </p>
+          </div>
+        )}
+      </div>
+      <div>
+        <p className="text-[13.5px] font-bold text-ork-ink">Cargos por enseñar</p>
+        <p className="text-[12.5px] text-ork-mist">Los más frecuentes del índice que aún quedan sin área. Cada respuesta enseña al modelo en el próximo entrenamiento.</p>
+        {teach.error && <div className="mt-2"><Alert>{teach.error.message}</Alert></div>}
+        <ul className="mt-2 max-h-72 divide-y divide-ork-line overflow-y-auto pr-1 text-[13px]">
+          {(doubts.data?.items ?? []).map((d) => (
+            <li key={d.title} className="flex items-center justify-between gap-2 py-1.5">
+              <span className="min-w-0 truncate text-ork-ink" title={d.title}>
+                {d.title} <span className="text-ork-mist">· {d.count}</span>
+              </span>
+              <select
+                aria-label={`Área de ${d.title}`}
+                className="ork-focus h-8 shrink-0 rounded-lg border border-ork-line bg-ork-card px-2 text-[12.5px] text-ork-ink"
+                defaultValue=""
+                disabled={teach.isPending}
+                onChange={(e) => e.target.value && teach.mutate({ title: d.title, area: e.target.value === "_" ? null : e.target.value })}
+              >
+                <option value="" disabled>
+                  Elegir área…
+                </option>
+                <option value="_">No tiene área</option>
+                {Object.entries(areas).map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </li>
+          ))}
+          {doubts.data && doubts.data.items.length === 0 && <li className="py-2 text-ork-mist">No quedan cargos frecuentes por enseñar.</li>}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -1432,6 +1539,7 @@ const ACTIONS: Record<string, string> = {
   "tenant.plan": "cambió el plan de",
   "brain.train": "entrenó el modelo",
   "brain.activate": "activó la versión",
+  "brain.teach": "enseñó el cargo",
   "user.suspended": "suspendió a",
   "user.active": "reactivó a",
   "user.logout": "cerró las sesiones de",

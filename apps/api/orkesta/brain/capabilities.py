@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orkesta.brain import ml
 from orkesta.brain.registry import Task, register
 from orkesta.core.db import set_context
 
@@ -142,11 +143,34 @@ def _copy_status(session: Session) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
-register(Task(
-    name="cargos", label="Cargos → nivel y área",
-    description="Entiende cualquier cargo (con errores de tipeo, en inglés o nuevos) y lo ubica "
-                "en su nivel y su área para buscar, filtrar y puntuar.",
-    step=2, status=_titles_status,
+def _level_status(session: Session) -> list[dict[str, Any]]:
+    return [row for row in _titles_status(session) if row["label"] != "Con área identificada"]
+
+
+def _title_task(name: str, label: str, description: str, status: Any) -> Task:
+    from orkesta.brain import titles
+
+    return Task(
+        name=name, label=label, description=description, step=2, status=status,
+        build=lambda s: titles.build(s, name), make=lambda: ml.Lexicon(2, 0.66),
+        baseline=titles._baseline(name), predictor=titles._predictor(name),
+        threshold=titles.THRESHOLD, extras=titles._extras(name),
+        on_activate=titles._on_activate(name), test_filter=lambda ex: ex.key[0] in "sf",
+        min_examples=300,
+    )  # fmt: skip
+
+
+register(_title_task(
+    "cargos", "Cargos → área",
+    "Entiende cualquier cargo (con errores de tipeo, en inglés o nuevos) y lo ubica en su área "
+    "para buscar, filtrar y puntuar. Las reglas mandan; el modelo completa lo que no reconocen.",
+    _titles_status,
+))  # fmt: skip
+register(_title_task(
+    "cargos_nivel", "Cargos → nivel",
+    "Ubica el nivel de responsabilidad de cargos que las reglas no reconocen («Experto», "
+    "«Profesional», «Gestor»).",
+    _level_status,
 ))  # fmt: skip
 register(Task(
     name="respuestas", label="Clasificador de respuestas",

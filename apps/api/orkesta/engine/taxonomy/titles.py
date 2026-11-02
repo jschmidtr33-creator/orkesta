@@ -8,6 +8,7 @@ palabras clave sobre el cargo plegado (sin tildes ni mayúsculas).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from functools import lru_cache
 
 from orkesta.engine.normalize.text import fold
@@ -516,9 +517,36 @@ def _prepare(title: str) -> str:
     )
 
 
+# Modelo propio aprendido (IA propia, paso 2): completa lo que las reglas no reconocen.
+# Recibe el cargo y devuelve (nivel, área) solo cuando el modelo está seguro.
+LearnedHook = Callable[[str], tuple[str | None, str | None]]
+_learned: LearnedHook | None = None
+
+
+def set_learned(hook: LearnedHook | None) -> None:
+    global _learned
+    _learned = hook
+    classify_title.cache_clear()
+
+
 @lru_cache(maxsize=50_000)
 def classify_title(title: str | None) -> tuple[str | None, str | None]:
-    """(nivel, área) de un cargo; ``None`` donde no se reconoce."""
+    """(nivel, área) de un cargo; ``None`` donde no se reconoce.
+
+    Primero las reglas; lo que no reconocen lo completa el modelo propio si está seguro."""
+    level, area = classify_rules(title)
+    if title and _learned is not None and (level is None or area is None):
+        learned_level, learned_area = _learned(title)
+        level = level or learned_level
+        area = area or learned_area
+        if level == "c_level" and area is None:
+            area = "direccion"
+    return level, area
+
+
+@lru_cache(maxsize=50_000)
+def classify_rules(title: str | None) -> tuple[str | None, str | None]:
+    """(nivel, área) solo con reglas fijas por palabras clave."""
     if not title:
         return None, None
     text = _prepare(title)

@@ -221,6 +221,132 @@ class LogisticRegression:
         return model
 
 
+# --- Léxico aprendido (palabras con evidencia, explicable) -----------------------------------
+
+_STOP = frozenset((
+    "de", "del", "la", "las", "los", "el", "y", "e", "en", "para", "a", "al", "of", "the", "and",
+    "for", "in", "con", "por", "un", "una", "sr", "senior", "jr",
+))  # fmt: skip
+
+
+def word_features(text: str) -> Features:
+    """Palabras y pares de palabras (sin conectores ni números) de un texto corto."""
+    tokens = [t for t in fold(text).split() if t not in _STOP and not t.isdigit() and len(t) > 1]
+    feats = dict.fromkeys(tokens, 1.0)
+    feats.update({f"{a}_{b}": 1.0 for a, b in itertools.pairwise(tokens)})
+    return feats
+
+
+class Lexicon:
+    """Aprende qué palabras indican cada etiqueta y decide solo con evidencia.
+
+    Una palabra cuenta si aparece al menos `min_support` veces y casi siempre con la misma
+    etiqueta (`purity`). Las palabras genéricas («gerente», «senior») no cuentan. Una palabra
+    nunca vista se compara con las conocidas para tolerar errores de tipeo («Cibersecurity»).
+    Puede explicar su decisión: devuelve las palabras que la justificaron.
+    """
+
+    kind = "lexicon"
+    NONE = "_ninguna"
+
+    def __init__(self, min_support: int = 2, purity: float = 0.66) -> None:
+        self.min_support, self.purity = min_support, purity
+        self.labels: list[str] = []
+        self.table: dict[str, tuple[str, float, int]] = {}
+        self.known: set[str] = set()
+        self._deletes: dict[str, set[str]] = {}
+
+    def fit(self, xs: Sequence[Features], ys: Sequence[str]) -> Lexicon:
+        counts: dict[str, Counter[str]] = defaultdict(Counter)
+        for x, y in zip(xs, ys, strict=True):
+            for token in x:
+                counts[token][y] += 1
+        self.labels = sorted(set(ys) | {self.NONE})
+        self.table = {}
+        for token, c in counts.items():
+            n = sum(c.values())
+            if n < self.min_support:
+                continue
+            label, top = c.most_common(1)[0]
+            p = top / (n + 1)
+            if p >= self.purity:
+                self.table[token] = (label, round(p, 4), n)
+        self.known = {t for t, c in counts.items() if sum(c.values()) >= 2}
+        self._index()
+        return self
+
+    def _index(self) -> None:
+        deletes: dict[str, set[str]] = defaultdict(set)
+        for token, (_, _, n) in self.table.items():
+            if "_" in token or len(token) < 5 or n < 3:
+                continue
+            for i in range(len(token)):
+                deletes[token[:i] + token[i + 1 :]].add(token)
+        self._deletes = dict(deletes)
+
+    def _lookup(self, token: str) -> tuple[str, str, float, int] | None:
+        """(palabra que decide, etiqueta, pureza, apoyo) o None."""
+        if token in self.table:
+            label, p, n = self.table[token]
+            return token, label, p, n
+        if "_" in token or len(token) < 5 or token in self.known:
+            return None
+        cands = set(self._deletes.get(token, ()))
+        for i in range(len(token)):
+            shorter = token[:i] + token[i + 1 :]
+            if shorter in self.table:
+                cands.add(shorter)
+            cands |= self._deletes.get(shorter, set())
+        cands = {c for c in cands if c in self.table and self.table[c][2] >= 3}
+        if not cands:
+            return None
+        best = max(cands, key=lambda c: self.table[c][2])
+        label, p, n = self.table[best]
+        return best, label, p * 0.9, n  # una corrección de tipeo pesa un poco menos
+
+    def explain(self, x: Features) -> list[tuple[str, str, str, float, int]]:
+        """(palabra del cargo, palabra conocida, etiqueta, pureza, apoyo) de cada evidencia."""
+        found = []
+        for token in x:
+            hit = self._lookup(token)
+            if hit:
+                found.append((token, *hit))
+        pairs = [e for e in found if "_" in e[0]]
+        if pairs:  # si un par de palabras contradice a sus palabras sueltas, manda el par
+            covered = {w: e[2] for e in pairs for w in e[0].split("_")}
+            found = pairs + [
+                e for e in found if "_" not in e[0] and covered.get(e[0], e[2]) == e[2]
+            ]
+        return found
+
+    def predict_proba(self, x: Features) -> dict[str, float]:
+        evidence = self.explain(x)
+        if not evidence:
+            return {self.NONE: 1.0}
+        score: dict[str, float] = defaultdict(float)
+        for _, _, label, p, n in evidence:
+            score[label] += math.log(p / (1 - p + 1e-9)) * min(1.0, math.log(1 + n) / math.log(20))
+        label, top = max(score.items(), key=lambda kv: kv[1])
+        share = math.exp(top) / sum(math.exp(v) for v in score.values())
+        confidence = share * (1 - 1 / (1 + math.exp(top)))
+        if label == self.NONE:
+            return {self.NONE: 1.0}
+        return {label: confidence, self.NONE: 1 - confidence}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "params": [self.min_support, self.purity], "labels": self.labels,
+                "table": self.table, "known": sorted(self.known)}  # fmt: skip
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Lexicon:
+        model = cls(*data["params"])
+        model.labels = data["labels"]
+        model.table = {k: (v[0], float(v[1]), int(v[2])) for k, v in data["table"].items()}
+        model.known = set(data["known"])
+        model._index()
+        return model
+
+
 def _softmax(scores: dict[str, float]) -> dict[str, float]:
     top = max(scores.values())
     exps = {k: math.exp(v - top) for k, v in scores.items()}
@@ -231,6 +357,7 @@ def _softmax(scores: dict[str, float]) -> dict[str, float]:
 KINDS: dict[str, Callable[[dict[str, Any]], Model]] = {
     NaiveBayes.kind: NaiveBayes.from_dict,
     LogisticRegression.kind: LogisticRegression.from_dict,
+    Lexicon.kind: Lexicon.from_dict,
 }
 
 
