@@ -1312,6 +1312,12 @@ class Scheduler(threading.Thread):
                     send_due(self.factory)
                 except Exception:
                     logger.exception("digest_failed")
+                try:
+                    from orkesta.brain.registry import train_due
+
+                    train_due(self.factory)
+                except Exception:
+                    logger.exception("brain_nightly_failed")
 
     def stop(self) -> None:
         self.stop_event.set()

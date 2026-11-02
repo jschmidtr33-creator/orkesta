@@ -606,6 +606,13 @@ def set_reply_category(
         raise HTTPException(404, "Ese destinatario no existe.")
     if data.category not in CATEGORIES:
         raise HTTPException(422, "Categoría desconocida.")
+    if data.category != recipient.reply_category:
+        from orkesta.brain.registry import record_feedback
+
+        # La corrección enseña al clasificador de respuestas (paso 3 de la IA propia).
+        record_feedback(db, "respuestas", data.category, text=recipient.reply_snippet or "",
+                        predicted=recipient.reply_category, tenant_id=principal.tenant_id,
+                        user_id=principal.user.id)  # fmt: skip
     if recipient.replied_at is None:
         recipient.status, recipient.replied_at, recipient.next_send_at = "replied", svc.now(), None
     svc.handle_reply(db, campaign, recipient, data.category, "", principal.user.id,

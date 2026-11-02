@@ -37,6 +37,8 @@ jobs:
         run: mypy orkesta
       - name: Pruebas (incluye aislamiento entre empresas con RLS)
         run: pytest
+      - name: Librerías sin vulnerabilidades conocidas
+        run: pip install pip-audit==2.* && pip-audit -r requirements.txt --progress-spinner off
 
   frontend:
     runs-on: ubuntu-latest
@@ -47,6 +49,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Librerías sin vulnerabilidades conocidas
+        run: npm audit --audit-level=high
       - run: mkdir -p apps/api/orkesta/static
       - name: Tipos y compilación de la app y el sitio
         run: npm run build

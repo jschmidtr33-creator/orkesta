@@ -10,7 +10,7 @@
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "@orkesta/ui": "^0.1.0",
-    "astro": "^5.18.2"
+    "astro": "^7.4.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
