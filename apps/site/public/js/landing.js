@@ -61,7 +61,6 @@
     var captions = tour.querySelectorAll("[data-caption]");
     var url = document.getElementById("tour-url");
     var pauseBtn = document.getElementById("tour-pause");
-    var paths = ["/app/ingresar", "/app", "/app/prospeccion", "/app/campanas", "/app/campanas", "/app/crm", "/app/crm?vista=tareas", "/app/crm?vista=pronostico", "/app/automatizacion", "/p/propuesta"];
     var DURATION = 6000;
     var current = 0;
     var timer = null;
@@ -85,7 +84,7 @@
           bar.classList.add("run");
         }
       });
-      if (url) url.textContent = "orkesta-web.onrender.com" + paths[current];
+      if (url) url.textContent = "ORKESTA · " + (tabs[current].getAttribute("data-tag") || "");
       var active = tabs[current];
       if (active && active.parentElement && window.innerWidth < 1024) {
         active.parentElement.parentElement.scrollTo({ left: active.parentElement.offsetLeft - 16, behavior: reduced ? "auto" : "smooth" });

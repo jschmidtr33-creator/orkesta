@@ -6,7 +6,7 @@ type ModuleInfo = { title: string; description: string; stage: number; items: st
 export const MODULES: Record<string, ModuleInfo> = {
   prospeccion: {
     title: "Prospección",
-    description: "Encuentra empresas y decisores con filtros combinables, como en Apollo o Sales Navigator.",
+    description: "Encuentra empresas y decisores con filtros inteligentes y combinables.",
     stage: 4,
     items: [
       "Filtros por país, ciudad, industria, empresa, cargo, nivel, departamento y tamaño",

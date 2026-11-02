@@ -198,7 +198,7 @@ export function ProspectingPage() {
 
   return (
     <>
-      <PageHeader title="Búsqueda de contactos" description="Encuentra posibles clientes con los mismos filtros de Sales Navigator y obtén su correo de contacto." />
+      <PageHeader title="Búsqueda de contactos" description="Encuentra posibles clientes con filtros inteligentes y obtén su correo de contacto." />
       {staff && options.data && !options.data.web_search && (
         <div className="mb-5">
           <Alert tone="blue">
