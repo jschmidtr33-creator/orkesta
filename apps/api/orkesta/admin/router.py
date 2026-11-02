@@ -364,6 +364,43 @@ async def directory_upload(
     return {"started": started}
 
 
+@router.post("/knowledge")
+async def train_knowledge(
+    request: Request,
+    principal: Directory,
+    db: Db,
+    files: Annotated[list[UploadFile], File()],
+) -> dict[str, Any]:
+    """Entrena la IA con bases reales (Wiza, registros, campañas) o con un archivo de
+    conocimiento de ORKESTA. Solo se guarda lo que se sabe de cada empresa."""
+    from starlette.concurrency import run_in_threadpool
+
+    from orkesta.engine.files.reader import ImportFileError
+    from orkesta.research import knowledge as kn
+
+    if not files or len(files) > 40:
+        raise HTTPException(422, "Sube entre 1 y 40 archivos.")
+    learned = kn.Knowledge()
+    errors: list[str] = []
+    for upload in files:
+        raw = await upload.read(MAX_UPLOAD + 1)
+        name = upload.filename or "archivo"
+        if len(raw) > MAX_UPLOAD:
+            errors.append(f"{name}: supera 60 MB")
+            continue
+        try:
+            if name.lower().endswith(".json"):
+                await run_in_threadpool(kn.load_json, learned, raw)
+            else:
+                await run_in_threadpool(kn.learn_file, learned, raw, name)
+        except (ImportFileError, ValueError) as exc:
+            errors.append(f"{name}: {exc}"[:200])
+    stats = await run_in_threadpool(kn.apply, request.app.state.session_factory, learned)
+    svc.log(db, principal.user, "directory.knowledge", "", files=len(files), **stats)
+    return {"people": learned.people, "files": learned.files, **stats,
+            "evaluation": kn.evaluate(learned), "errors": errors}  # fmt: skip
+
+
 # --- Equipo, permisos y bitácora -------------------------------------------------------------
 
 

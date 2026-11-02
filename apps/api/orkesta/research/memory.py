@@ -78,8 +78,8 @@ def remember_domain(
 
 
 # Formatos más comunes en empresas de Latinoamérica, en orden: si uno rebota se prueba el siguiente.
-FALLBACK_ORDER = ("first.last", "flast", "first", "firstlast", "f.last", "first_last", "firstl",
-                  "last.first", "lastf")  # fmt: skip
+FALLBACK_ORDER = ("first.last", "flast", "first", "f.last", "firstlast", "first_last", "firstl",
+                  "lastf", "last.first")  # fmt: skip
 
 
 def address_hash(email: str) -> str:
@@ -121,10 +121,67 @@ def known_pattern(factory: sessionmaker[Session], domain: str) -> tuple[str, int
         return "", 0, ""
 
 
-def _chain(stats: list[PatternStat], primary: str) -> list[str]:
+def _chain(stats: list[PatternStat], primary: str, learned: list[str] | None = None) -> list[str]:
     bad = {st.pattern for st in stats if _bad(st)}
-    order = [primary, *FALLBACK_ORDER] if primary else list(FALLBACK_ORDER)
+    order = [primary, *(learned or []), *FALLBACK_ORDER] if primary else [
+        *(learned or []), *FALLBACK_ORDER]  # fmt: skip
     return [p for p in dict.fromkeys(order) if p not in bad]
+
+
+# --- Formato más probable por país (aprendido de todas las empresas conocidas) ---------------
+
+_GENERIC_SLD = ("com", "gob", "gov", "org", "net", "edu", "co", "ac")
+_ORDER_CACHE: dict[str, tuple[float, list[tuple[str, int]]]] = {}
+MIN_EVIDENCE = 30
+
+
+def domain_suffix(domain: str) -> str:
+    """«empresa.com.co» → «com.co»; «empresa.cl» → «cl»."""
+    parts = domain.lower().split(".")
+    if len(parts) > 2 and parts[-2] in _GENERIC_SLD:
+        return ".".join(parts[-2:])
+    return parts[-1] if parts else ""
+
+
+def _ranking(session: Session, suffix: str) -> list[tuple[str, int]]:
+    total = func.sum(PatternStat.confirmed + PatternStat.seen)
+    query = select(PatternStat.pattern, total).where(PatternStat.bounced <= PatternStat.confirmed
+                                                     + PatternStat.seen)  # fmt: skip
+    if suffix:
+        query = query.where(PatternStat.domain.endswith(f".{suffix}"))
+    rows = session.execute(query.group_by(PatternStat.pattern).order_by(total.desc())).all()
+    return [(p, int(n or 0)) for p, n in rows if n]
+
+
+def learned_ranking(factory: sessionmaker[Session], domain: str) -> list[tuple[str, int]]:
+    """Formatos ordenados por lo que ORKESTA vio en empresas del mismo país (o en todas)."""
+    import time
+
+    suffix = domain_suffix(domain)
+    cached = _ORDER_CACHE.get(suffix)
+    if cached and time.monotonic() - cached[0] < 3600:
+        return cached[1]
+    try:
+        with factory() as session:
+            ranking = _ranking(session, suffix)
+            if sum(n for _, n in ranking) < MIN_EVIDENCE:
+                ranking = _ranking(session, "")
+    except Exception:
+        logger.exception("memory_ranking")
+        ranking = []
+    if sum(n for _, n in ranking) < MIN_EVIDENCE:
+        ranking = []
+    _ORDER_CACHE[suffix] = (time.monotonic(), ranking)
+    return ranking
+
+
+def likely_pattern(factory: sessionmaker[Session], domain: str) -> tuple[str, int]:
+    """(formato más probable, % de empresas del país que lo usan) sin evidencia propia."""
+    ranking = learned_ranking(factory, domain)
+    if not ranking:
+        return FALLBACK_ORDER[0], 0
+    total = sum(n for _, n in ranking)
+    return ranking[0][0], round(100 * ranking[0][1] / total)
 
 
 def _bounced(session: Session, domain: str) -> set[str]:
@@ -139,8 +196,9 @@ def candidates(
     """Formatos a probar en orden (sin los que la evidencia descartó) y huellas de direcciones
     que ya rebotaron en el dominio."""
     try:
+        learned = [p for p, _ in learned_ranking(factory, domain)]
         with factory() as session:
-            return _chain(_stats(session, domain), primary), _bounced(session, domain)
+            return _chain(_stats(session, domain), primary, learned), _bounced(session, domain)
     except Exception:
         logger.exception("memory_candidates")
         return [primary] if primary else list(FALLBACK_ORDER), set()
@@ -209,7 +267,8 @@ def next_email(session: Session, first: str, last: str, domain: str) -> tuple[st
     stats = _stats(session, domain)
     primary = _best(stats, domain)[0]
     bounced = _bounced(session, domain)
-    for pattern in _chain(stats, primary):
+    learned = [p for p, _ in _ranking(session, domain_suffix(domain))]
+    for pattern in _chain(stats, primary, learned):
         email = apply_pattern(pattern, first, last, domain)
         if email and address_hash(email) not in bounced:
             return email, pattern

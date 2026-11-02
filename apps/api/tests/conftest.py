@@ -107,6 +107,7 @@ def _offline_mx() -> Iterator[None]:
     from orkesta.research import memory
 
     memory.MX_RESOLVER = lambda d: [] if d.startswith("sin-correo") else ["aspmx.l.google.com"]
+    memory._ORDER_CACHE.clear()
     yield
     memory.MX_RESOLVER = None
 

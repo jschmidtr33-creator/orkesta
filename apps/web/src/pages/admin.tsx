@@ -668,6 +668,70 @@ function ImportStatus({ info }: { info: ImportInfo | null | undefined }) {
   );
 }
 
+type TrainResult = {
+  people: number;
+  files: number;
+  domains: number;
+  patterns: number;
+  companies: number;
+  with_domain: number;
+  evaluation: { evaluated: number; accuracy: number; baseline: number };
+  errors: string[];
+};
+
+/** Entrena la IA con bases reales: solo se guarda lo aprendido de cada empresa. */
+function TrainCard({ onDone }: { onDone: () => void }) {
+  const [files, setFiles] = useState<File[]>([]);
+  const train = useMutation({
+    mutationFn: () => {
+      const body = new FormData();
+      files.forEach((f) => body.append("files", f));
+      return api<TrainResult>("/api/admin/knowledge", { method: "POST", body });
+    },
+    onSuccess: () => {
+      setFiles([]);
+      onDone();
+    },
+  });
+  const r = train.data;
+  return (
+    <Card className="mt-4 border-ork-violet/25">
+      <CardHeader
+        title="Entrenar la IA con bases reales"
+        description="Sube exportaciones de Wiza, registros de eventos o listas de campañas (CSV o Excel), o el archivo de conocimiento de ORKESTA (.json). De cada fila se leen solo nombre, cargo, empresa, ubicación, correo y teléfono, y se guarda únicamente lo aprendido de cada empresa: su dominio y su formato de correo. Los datos de las personas se descartan."
+      />
+      {train.error && <Alert>{train.error.message}</Alert>}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-[13px] font-semibold text-ork-ink">
+          Archivos (hasta 40)
+          <input type="file" multiple accept=".csv,.xlsx,.json" className="mt-1 block text-[13px]" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+        </label>
+        <Button loading={train.isPending} disabled={files.length === 0} onClick={() => train.mutate()}>
+          Entrenar con {files.length || ""} archivo{files.length === 1 ? "" : "s"}
+        </Button>
+      </div>
+      {r && (
+        <div className="mt-4 rounded-xl bg-ork-violet/[0.06] p-4 text-[13.5px] text-ork-graphite">
+          <p className="font-semibold text-ork-ink">
+            Listo: {n(r.people)} personas leídas de {r.files} archivo(s).
+          </p>
+          <p className="mt-1">
+            ORKESTA aprendió el formato de correo de {n(r.domains)} dominios y el sitio web de {n(r.with_domain)} empresas; {n(r.companies)} empresas
+            quedaron en el directorio.
+          </p>
+          {r.evaluation.evaluated > 0 && (
+            <p className="mt-1">
+              Prueba de exactitud con {n(r.evaluation.evaluated)} correos reales: acierta el <strong className="text-ok">{r.evaluation.accuracy}%</strong> en empresas
+              conocidas (adivinando nombre.apellido sería {r.evaluation.baseline}%).
+            </p>
+          )}
+          {r.errors.length > 0 && <p className="mt-1 text-warn">No se pudieron leer: {r.errors.join(" · ")}</p>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DirectoryPage() {
   const client = useQueryClient();
   const q = useQuery({
@@ -726,6 +790,7 @@ function DirectoryPage() {
           ))}
         </ul>
       </Card>
+      <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />
       <Card className="mt-4">
         <CardHeader
           title="Cargar un registro público (CSV)"
