@@ -478,6 +478,12 @@ def maybe_refresh(factory: sessionmaker[Session]) -> None:
         start(lambda p=preset_id: run_preset(factory, p), preset_id)  # type: ignore[misc]
 
 
+def crawler_overview(session: Session) -> dict[str, Any]:
+    from orkesta.research import crawler
+
+    return crawler.overview(session)
+
+
 def overview(session: Session) -> dict[str, Any]:
     from orkesta.admin.service import _get
 
@@ -503,6 +509,7 @@ def overview(session: Session) -> dict[str, Any]:
             }
             for k, v in PRESETS.items()
         ],
+        "crawler": crawler_overview(session),
         "uploads": [
             {"id": k, "last": v, "live": live.get(k)}
             for k, v in history.items()
@@ -580,6 +587,10 @@ class Entry:
     revenue: Decimal | None
     tax_id: str
     source: str
+    phone: str = ""
+    company_email: str = ""
+    about: str = ""
+    email_pattern: str = ""
 
     @property
     def industry(self) -> str:
@@ -591,6 +602,8 @@ class Entry:
             parts.append(self.sector)
         if self.revenue:
             parts.append(f"Ingresos reportados: {_money(self.revenue)}")
+        if self.about and not parts:
+            parts.append(self.about)
         return " · ".join(parts)
 
 
@@ -638,7 +651,9 @@ def search(
             website=r.website or "", linkedin=r.linkedin or "",
             industry_code=r.industry_code or "", sector=r.sector or "", city=r.city or "",
             region=r.region or "", employees=r.employees, revenue=r.revenue,
-            tax_id=r.tax_id or "", source=r.source or "",
+            tax_id=r.tax_id or "", source=r.source or "", phone=r.phone or "",
+            company_email=r.company_email or "", about=r.description or "",
+            email_pattern=r.email_pattern or "",
         )
         for r in rows
     ]  # fmt: skip

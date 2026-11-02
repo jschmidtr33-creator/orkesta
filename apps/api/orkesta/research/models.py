@@ -177,6 +177,7 @@ class CompanyDirectory(Base):
         Index("ix_company_directory_country_industry", "country", "industry_code"),
         Index("ix_company_directory_country_name", "country", "name_key"),
         Index("ix_company_directory_country_revenue", "country", "revenue"),
+        Index("ix_company_directory_crawl", "crawled_at"),
     )
 
     key: Mapped[str] = mapped_column(String(340), primary_key=True)  # país|NIT o país|n:nombre
@@ -198,6 +199,13 @@ class CompanyDirectory(Base):
     linkedin: Mapped[str | None] = mapped_column(String(300))
     year: Mapped[int | None] = mapped_column(SmallInteger)
     source: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    # Rastreador propio: lo leído del sitio oficial.
+    crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    site_status: Mapped[str | None] = mapped_column(String(20))
+    phone: Mapped[str | None] = mapped_column(String(30))
+    company_email: Mapped[str | None] = mapped_column(String(320))
+    description: Mapped[str | None] = mapped_column(String(400))
+    email_pattern: Mapped[str | None] = mapped_column(String(20))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

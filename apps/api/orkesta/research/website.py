@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
 from orkesta.engine.net.domains import normalize_host, registrable_domain
-from orkesta.engine.normalize.text import fold
+from orkesta.engine.normalize.text import clean, fold
 from orkesta.research.extract import (
     Document,
     Person,
@@ -51,6 +52,58 @@ class SiteResult:
     phones: dict[str, str] = field(default_factory=dict)
     pages_read: int = 0
     blocked: bool = False
+    description: str = ""
+    linkedin: str = ""
+    employees: int | None = None
+
+
+_LINKEDIN_CO = re.compile(r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/company/[A-Za-z0-9_\-%.]+",
+                          re.IGNORECASE)  # fmt: skip
+
+
+def _organization(result: SiteResult, doc: Document) -> None:
+    """Datos de la empresa publicados por el propio sitio (JSON-LD, metadatos, enlaces)."""
+    result.description = result.description or doc.description
+    for href, _ in doc.links:
+        match = _LINKEDIN_CO.match(href)
+        if match and not result.linkedin:
+            result.linkedin = match.group(0).split("?")[0].rstrip("/")[:300]
+    stack: list[object] = list(doc.json_ld)
+    while stack:
+        item = stack.pop()
+        if isinstance(item, list):
+            stack.extend(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        stack.extend(v for k, v in item.items() if k == "@graph")
+        kind = item.get("@type")
+        kinds = kind if isinstance(kind, list) else [kind]
+        if not any(str(k).endswith(("Organization", "Corporation", "LocalBusiness", "Company"))
+                   for k in kinds):  # fmt: skip
+            continue
+        same = item.get("sameAs") or []
+        for url in same if isinstance(same, list) else [same]:
+            if isinstance(url, str) and _LINKEDIN_CO.match(url) and not result.linkedin:
+                result.linkedin = url.split("?")[0].rstrip("/")[:300]
+        staff = item.get("numberOfEmployees")
+        if isinstance(staff, dict):
+            staff = staff.get("value") or staff.get("maxValue") or staff.get("minValue")
+        if isinstance(staff, int | str) and str(staff).isdigit() and result.employees is None:
+            result.employees = int(staff)
+        if isinstance(item.get("description"), str) and not result.description:
+            result.description = clean(item["description"])[:400]
+        email = item.get("email")
+        if isinstance(email, str) and "@" in email:
+            address = email.removeprefix("mailto:").strip().lower()
+            if address.endswith("@" + result.domain):
+                result.emails.setdefault(address, result.home_url)
+        phone = item.get("telephone")
+        if isinstance(phone, str):
+            digits = re.sub(r"\D", "", phone)
+            if 7 <= len(digits) <= 15:
+                result.phones.setdefault(("+" if phone.strip().startswith("+") else "") + digits,
+                                         result.home_url)  # fmt: skip
 
 
 def _same_site(url: str, domain: str) -> bool:
@@ -119,6 +172,7 @@ def investigate(fetcher: Fetcher, domain: str, website: str = "") -> SiteResult:
     doc = parse_html(home.text)
     result.name = doc.site_name or doc.title.split("|")[0].split(" - ")[0].strip()
     _collect(result, doc, home.final_url)
+    _organization(result, doc)
     team, contact = candidate_pages(doc, home.final_url, domain)
     if len(team) < 2:
         team += [u for u in _from_sitemap(fetcher, home.final_url, domain) if u not in team]
@@ -195,6 +249,35 @@ def _guess_paths(fetcher: Fetcher, result: SiteResult, home_url: str, visited: s
         _collect(result, parse_html(page.text), page.final_url)
         if len(result.people) > before:
             break
+
+
+def site_patterns(result: SiteResult) -> Counter[str]:
+    """Formatos de correo que confirma el propio sitio: correos publicados que coinciden con el
+    nombre de una persona del sitio."""
+    from orkesta.research.extract import detect_pattern, is_generic_email
+
+    personal = [e for e in result.emails if not is_generic_email(e)]
+    votes: Counter[str] = Counter()
+    seen: set[str] = set()
+    for person, _ in result.people:
+        for email in personal:
+            pattern = detect_pattern(person.first_name, person.last_name, email)
+            if pattern and email not in seen:
+                votes[pattern] += 1
+                seen.add(email)
+    return votes
+
+
+def learn_patterns(fetcher: Fetcher, result: SiteResult) -> str:
+    """Guarda en la memoria de ORKESTA el formato confirmado por el sitio; lo devuelve."""
+    from orkesta.research import memory
+
+    votes = site_patterns(result)
+    if not votes:
+        return ""
+    pattern, count = votes.most_common(1)[0]
+    memory.remember_pattern(fetcher.factory, result.domain, pattern, count, result.home_url)
+    return pattern
 
 
 def read_pages(fetcher: Fetcher, result: SiteResult, urls: list[str]) -> int:

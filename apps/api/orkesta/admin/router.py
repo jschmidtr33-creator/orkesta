@@ -340,6 +340,15 @@ def directory_load_preset(
     return {"started": started}
 
 
+@router.post("/directory/crawl")
+def directory_crawl(request: Request, principal: Directory, db: Db) -> dict[str, Any]:
+    from orkesta.research import crawler
+
+    crawler.start_batch(request.app.state.session_factory)
+    svc.log(db, principal.user, "directory.crawl", "")
+    return {"started": True}
+
+
 MAX_UPLOAD = 60 * 1024 * 1024
 
 
