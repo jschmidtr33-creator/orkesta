@@ -88,6 +88,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
         openapi_url=None if settings.is_deployed else "/api/openapi.json",
     )
     app.state.session_factory = factory
+    from orkesta.brain.titles import install as install_titles
+
+    install_titles(factory)  # el clasificador de cargos usa el modelo propio activo
 
     @app.middleware("http")
     async def security(

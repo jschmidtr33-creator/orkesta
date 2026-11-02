@@ -382,6 +382,50 @@ def brain_activate(task: str, version: int, principal: Brain, db: Db) -> dict[st
     return registry.overview(db)
 
 
+class TitleIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+
+
+class TitleLabelIn(TitleIn):
+    area: str | None = Field(default=None, max_length=40)
+    level: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/brain/cargos/try")
+def brain_try_title(body: TitleIn, principal: Brain) -> dict[str, Any]:
+    from orkesta.brain import titles
+
+    return titles.explain(body.title.strip())
+
+
+@router.get("/brain/cargos/doubts")
+def brain_title_doubts(principal: Brain, db: Db) -> dict[str, Any]:
+    from orkesta.brain import titles
+    from orkesta.engine.taxonomy.titles import AREA_LABELS, LEVEL_LABELS
+
+    return {"items": titles.doubts(db), "areas": AREA_LABELS, "levels": LEVEL_LABELS}
+
+
+@router.post("/brain/cargos/teach", status_code=201)
+def brain_teach_title(body: TitleLabelIn, principal: Brain, db: Db) -> dict[str, Any]:
+    """Enseña un cargo: queda como ejemplo humano para el próximo entrenamiento."""
+    from orkesta.brain import titles
+    from orkesta.brain.registry import record_feedback
+    from orkesta.engine.taxonomy.titles import AREAS, LEVELS, classify_title
+
+    title = body.title.strip()
+    if body.area not in (None, *AREAS) or body.level not in (None, *LEVELS):
+        raise HTTPException(422, "Área o nivel desconocido.")
+    level, area = classify_title(title)
+    record_feedback(db, titles.AREA, body.area or titles.NONE, text=title, predicted=area,
+                    user_id=principal.user.id)  # fmt: skip
+    if body.level:
+        record_feedback(db, titles.LEVEL, body.level, text=title, predicted=level,
+                        user_id=principal.user.id)  # fmt: skip
+    svc.log(db, principal.user, "brain.teach", title, area=body.area, level=body.level)
+    return {"ok": True}
+
+
 @router.get("/directory")
 def directory_overview(principal: Directory, db: Db) -> dict[str, Any]:
     from orkesta.research import directory

@@ -49,6 +49,13 @@ class Task:
     min_examples: int = 200
     target: float = 0.95  # acierto mínimo para que el modelo «se atreva» a decidir solo
     method: str = "Reglas fijas"
+    threshold: float | None = None  # confianza fija (si no, se calibra con `target`)
+    # Qué ejemplos de la partición de prueba cuentan para medir (p. ej. solo los curados).
+    test_filter: Callable[[ml.Example], bool] | None = None
+    # Cómo decide el sistema en producción (p. ej. reglas primero y el modelo después).
+    predictor: Callable[[Any, float, ml.Example], tuple[str | None, float]] | None = None
+    extras: Callable[[Session, Any, float], dict[str, Any]] | None = None
+    on_activate: Callable[[Session, Any, float], None] | None = None
 
 
 TASKS: dict[str, Task] = {}
@@ -85,9 +92,18 @@ def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
     if not test_set or len({ex.y for ex in train_set}) < 2:
         raise BrainError("Los ejemplos no alcanzan para separar entrenamiento y prueba.")
     candidate = task.make().fit([ex.x for ex in train_set], [ex.y for ex in train_set])
-    threshold = ml.best_threshold(candidate, test_set, task.target)
-    metrics = ml.evaluate(candidate, test_set, threshold).as_dict()
-    baseline = task.baseline(session, test_set).as_dict() if task.baseline else None
+    measured = [ex for ex in test_set if task.test_filter(ex)] if task.test_filter else test_set
+    measured = list({ex.key: ex for ex in measured}.values())  # sin duplicados al medir
+    if not measured:
+        raise BrainError("No hay ejemplos de prueba para medir este modelo.")
+    threshold = task.threshold or ml.best_threshold(candidate, measured, task.target)
+    if task.predictor:
+        predictor = task.predictor
+        pairs = [(ex.y, *predictor(candidate, threshold, ex)) for ex in measured]
+        metrics = ml.score(pairs, threshold).as_dict()
+    else:
+        metrics = ml.evaluate(candidate, measured, threshold).as_dict()
+    baseline = task.baseline(session, measured).as_dict() if task.baseline else None
     current = active_row(session, name)
     better_than_rules = baseline is None or metrics["accuracy"] >= baseline["accuracy"]
     not_worse = (
@@ -100,6 +116,8 @@ def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
         if promote
         else candidate
     )
+    if task.extras:
+        metrics["extra"] = task.extras(session, final, threshold)
     version = int(session.scalar(select(func.max(BrainModel.version)).where(
         BrainModel.task == name)) or 0) + 1  # fmt: skip
     if promote:
@@ -110,13 +128,15 @@ def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
     )  # fmt: skip
     row = BrainModel(
         task=name, version=version, algorithm=final.kind, active=promote, trigger=trigger,
-        n_train=len(train_set), n_test=len(test_set), threshold=threshold, metrics=metrics,
+        n_train=len(train_set), n_test=len(measured), threshold=threshold, metrics=metrics,
         baseline=baseline, data_hash=_fingerprint(examples),
         duration_ms=int((time.monotonic() - started) * 1000), blob=ml.dumps(final), notes=notes,
     )  # fmt: skip
     session.add(row)
     session.flush()
     _CACHE.pop(name, None)
+    if promote and task.on_activate:
+        task.on_activate(session, final, threshold)
     logger.info("brain_trained", extra={"task": name, "version": version, "active": promote,
                                         "accuracy": metrics["accuracy"]})  # fmt: skip
     return row
@@ -131,6 +151,9 @@ def activate(session: Session, name: str, version: int) -> BrainModel:
     row.active = True
     session.flush()
     _CACHE.pop(name, None)
+    task = TASKS.get(name)
+    if task and task.on_activate:
+        task.on_activate(session, ml.loads(row.blob), row.threshold)
     return row
 
 
@@ -200,6 +223,7 @@ def record_feedback(
 
 def train_due(factory: sessionmaker[Session], force: bool = False) -> list[str]:
     """Una vez por noche (2 a 5 a. m., hora de Bogotá) reentrena lo que tenga datos nuevos."""
+    import orkesta.brain.capabilities  # noqa: F401  (registra las capacidades)
     from orkesta.admin.service import _get, _put
 
     local = datetime.now(ZoneInfo("America/Bogota"))
@@ -287,6 +311,7 @@ def overview(session: Session) -> dict[str, Any]:
             "status": status, "feedback": feedback,
             "active": {
                 **_version_dict(current), "threshold": current.threshold,
+                "extra": current.metrics.get("extra"),
                 "confident": current.metrics.get("confident"),
                 "per_label": current.metrics.get("per_label"),
                 "confusions": current.metrics.get("confusions"),

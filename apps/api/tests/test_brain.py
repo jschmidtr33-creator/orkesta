@@ -91,7 +91,7 @@ def test_registry_trains_promotes_and_rolls_back(session_factory: sessionmaker[S
         registry.TASKS["prueba"] = _task(data, baseline=0.5)
         with session_factory.begin() as session:
             registry.activate(session, "prueba", 1)
-        assert registry.train_due(session_factory, force=True) == []
+        assert "prueba" not in registry.train_due(session_factory, force=True)
     finally:
         registry.TASKS.pop("prueba", None)
 
@@ -105,13 +105,20 @@ def test_brain_panel(client: TestClient, database: tuple[str, str],
     client.headers["X-Admin-Token"] = r.json()["token"]
     data = client.get("/api/admin/brain").json()
     names = [t["name"] for t in data["tasks"]]
-    assert names[:5] == ["cargos", "respuestas", "formato_correo", "puntaje", "redaccion"]
+    assert names[:6] == [
+        "cargos",
+        "cargos_nivel",
+        "respuestas",
+        "formato_correo",
+        "puntaje",
+        "redaccion",
+    ]
     cargos = data["tasks"][0]
     assert (
         cargos["method"] == "Reglas fijas" and cargos["status"][0]["label"] == "Cargos en el índice"
     )
-    blocked = client.post("/api/admin/brain/cargos/train")
-    assert blocked.status_code == 409 and "paso 2" in blocked.json()["detail"]
+    blocked = client.post("/api/admin/brain/respuestas/train")
+    assert blocked.status_code == 409 and "paso 3" in blocked.json()["detail"]
 
     registry.TASKS["prueba"] = _task(_titles(400), baseline=0.4)
     try:
@@ -129,3 +136,73 @@ def test_brain_panel(client: TestClient, database: tuple[str, str],
     finally:
         registry.TASKS.pop("prueba", None)
         registry.RUNNING.pop("prueba", None)
+
+
+def _person(i: int, title: str) -> dict:
+    from orkesta.engine.taxonomy.titles import classify_title
+
+    level, area = classify_title(title)
+    return {"key": f"n:CO|empresa{i}|persona {i}", "country": "CO", "full_name": f"Persona {i}",
+            "first_name": "Persona", "last_name": str(i), "title": title, "level": level,
+            "area": area, "company": f"Empresa {i}", "company_key": f"empresa{i}",
+            "domain": None, "location": "", "linkedin": None, "email": None,
+            "email_status": None}  # fmt: skip
+
+
+def test_titles_model_learns_relabels_and_teaches(
+    client: TestClient, database: tuple[str, str], session_factory: sessionmaker[Session]
+) -> None:
+    from orkesta.brain import titles
+    from orkesta.engine.taxonomy.titles import classify_rules, classify_title
+    from orkesta.research import people
+
+    base = ["Gerente de Compras", "Jefe de Sistemas", "Director Comercial", "Analista de Datos",
+            "Gerente de Siniestros", "Jefe de Facilities", "Gerente General", "Docente"]  # fmt: skip
+    people.upsert(session_factory, [_person(i, t) for i, t in enumerate(base * 3)])
+    assert classify_rules("Gerente de Siniestros") == ("gerente", None)
+
+    register(client, "jenn@orkesta.co")
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.users SET platform_role = 'owner'")
+    r = client.post("/api/admin/unlock", json={"email": "jenn@orkesta.co", "password": PASSWORD})
+    client.headers["X-Admin-Token"] = r.json()["token"]
+    doubts = client.get("/api/admin/brain/cargos/doubts").json()["items"]
+    assert {"title": "Gerente de Siniestros", "count": 3} in doubts
+
+    import orkesta.brain.capabilities  # noqa: F401
+
+    with session_factory.begin() as session:
+        row = registry.train(session, "cargos")
+        assert row.active and row.algorithm == "lexicon"
+        assert row.metrics["accuracy"] > row.baseline["accuracy"]
+        extra = row.metrics["extra"]
+        assert extra["coverage_model"] > extra["coverage_rules"]
+    # Las reglas siguen igual; el modelo completa lo que no reconocen.
+    assert classify_title("Gerente de Siniestros") == ("gerente", "finanzas")
+    assert classify_title("Gerente de Compras") == ("gerente", "compras")
+    assert classify_title("Docente")[1] is None
+    assert classify_title("Cibersecurity Manager")[1] == "seguridad"  # error de tipeo
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        areas = dict(conn.execute("SELECT title, area FROM orkesta.people_index").fetchall())
+    assert (
+        areas["Gerente de Siniestros"] == "finanzas"
+        and areas["Jefe de Facilities"] == "operaciones"
+    )
+
+    tried = client.post("/api/admin/brain/cargos/try", json={"title": "Jefe de Siniestros"}).json()
+    assert tried["rules"]["area"] is None and tried["final"]["area"] == "finanzas"
+    assert "siniestros" in tried["cargos"]["evidence"]
+    # Enseñar un cargo: queda como ejemplo humano y deja de aparecer entre las dudas.
+    assert client.post("/api/admin/brain/cargos/teach",
+                       json={"title": "Docente", "area": None}).status_code == 201  # fmt: skip
+    taught = client.post("/api/admin/brain/cargos/teach", json={"title": "Gerente de Planta Piloto",
+                                                                  "area": "operaciones"})  # fmt: skip
+    assert taught.status_code == 201
+    assert client.post("/api/admin/brain/cargos/teach",
+                       json={"title": "X", "area": "inventada"}).status_code == 422  # fmt: skip
+    with session_factory() as session:
+        assert titles._feedback(session, "cargos")["gerente de planta piloto"][1] == "operaciones"
+    panel = client.get("/api/admin/brain").json()["tasks"]
+    cargos = next(t for t in panel if t["name"] == "cargos")
+    assert cargos["method"] == "Modelo propio v1" and cargos["feedback"] == 2
+    assert cargos["active"]["extra"]["coverage_model"] > 0
