@@ -116,6 +116,8 @@ def _session_payload(db: Db, user: User, tenant_id: uuid.UUID | None) -> dict[st
             "id": str(user.id),
             "email": user.email,
             "full_name": user.full_name,
+            "job_title": user.job_title or "",
+            "avatar_url": user.avatar_url,
             "platform_admin": user.is_platform_admin,
             "has_password": user.password_hash is not None,
         },
@@ -372,6 +374,8 @@ def team(principal: Member, db: Db) -> dict[str, Any]:
                 "user_id": str(u.id),
                 "full_name": u.full_name,
                 "email": u.email,
+                "job_title": u.job_title or "",
+                "avatar_url": u.avatar_url,
                 "role": m.role,
                 "active": m.status == "active",
                 "is_me": u.id == principal.user.id,
@@ -475,6 +479,9 @@ def accept(
 
 
 ACTION_LABELS = {
+    "profile.updated": "actualizó su perfil",
+    "profile.photo": "cambió su foto de perfil",
+    "profile.password": "cambió su contraseña",
     "automation.created": "creó una automatización",
     "mailbox.connected": "conectó un buzón de Gmail",
     "mailbox.removed": "desconectó un buzón de Gmail",
@@ -518,6 +525,7 @@ def audit_log(principal: Manager, db: Db, limit: int = 50) -> list[dict[str, Any
             "id": str(a.id),
             "at": a.created_at.isoformat(),
             "actor": (u.full_name or u.email) if u else "Sistema",
+            "actor_avatar": u.avatar_url if u else None,
             "action": a.action,
             "label": ACTION_LABELS.get(a.action, a.action),
             "detail": a.detail,

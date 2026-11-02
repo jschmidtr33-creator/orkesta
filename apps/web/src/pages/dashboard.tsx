@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Bell, CalendarClock, Check, CheckCircle2, Clock3, FileText, Reply } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Badge, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
+import { Avatar, Badge, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 
@@ -12,7 +12,7 @@ type Summary = {
   integrations: { google_sign_in: boolean };
 };
 
-type AuditItem = { id: string; at: string; actor: string; label: string };
+type AuditItem = { id: string; at: string; actor: string; actor_avatar?: string | null; label: string };
 type Task = { id: string; body: string; due_at: string | null; done_at: string | null; contact_id: string | null; deal_id: string | null; contact_name: string | null; deal_title: string | null };
 type Notice = { id: string; kind: string; title: string; body: string; link: string; read: boolean; created_at: string };
 
@@ -231,7 +231,7 @@ export function DashboardPage() {
           <ul className="flex flex-col gap-3">
             {audit.data?.map((item) => (
               <li key={item.id} className="flex gap-3">
-                <span className="ork-gradient mt-1.5 size-2 shrink-0 rounded-full" aria-hidden />
+                <Avatar name={item.actor} email="" size={28} src={item.actor_avatar} />
                 <div>
                   <p className="text-[13.5px] text-ork-ink">
                     <strong>{item.actor}</strong> {item.label}
