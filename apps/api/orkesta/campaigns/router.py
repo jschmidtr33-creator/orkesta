@@ -100,6 +100,7 @@ class MailboxPatch(BaseModel):
     daily_limit: int | None = Field(default=None, ge=1, le=2000)  # tope de Gmail Workspace
     signature: str | None = Field(default=None, max_length=50000)
     display_name: str | None = Field(default=None, max_length=160)
+    warmup: bool | None = None
 
 
 def _mailbox(db: Db, principal: Principal, mailbox_id: uuid.UUID) -> Mailbox:
@@ -119,7 +120,7 @@ def mailboxes(principal: Member, db: Db) -> dict[str, Any]:
     tz = svc._tz("America/Bogota")
     return {
         "enabled": gmail.enabled(),
-        "items": [svc.mailbox_dict(m, svc.sent_today(db, m.id, tz)) for m in rows],
+        "items": [svc.mailbox_dict(m, svc.sent_today(db, m.id, tz), db) for m in rows],
     }
 
 
@@ -151,7 +152,10 @@ def update_mailbox(
         )
     if body.display_name is not None:
         mailbox.display_name = " ".join(body.display_name.split())
-    return svc.mailbox_dict(mailbox)
+    if body.warmup is not None:
+        mailbox.warmup = body.warmup
+    db.flush()
+    return svc.mailbox_dict(mailbox, 0, db)
 
 
 @router.delete("/api/mailboxes/{mailbox_id}")
