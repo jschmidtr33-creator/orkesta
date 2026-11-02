@@ -438,7 +438,7 @@ function ReplyBreakdown({ replies }: { replies: Record<string, number> }) {
   const entries = Object.entries(REPLY).filter(([k]) => (replies[k] ?? 0) > 0);
   const deals = replies.deals ?? 0;
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-ork-line bg-white px-4 py-3 text-[13px]">
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-ork-line bg-ork-card px-4 py-3 text-[13px]">
       <span className="font-semibold text-ork-ink">Respuestas:</span>
       {entries.map(([k, v]) => (
         <Badge key={k} tone={v.tone}>

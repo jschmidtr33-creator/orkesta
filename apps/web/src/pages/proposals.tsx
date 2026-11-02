@@ -79,7 +79,7 @@ export function ProposalsPage() {
           </Button>
         }
       />
-      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-white p-0.5" role="tablist">
+      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5" role="tablist">
         {(
           [
             ["propuestas", "Propuestas", <Files key="f" className="size-4" aria-hidden />],
@@ -511,7 +511,7 @@ export function ProposalEditor() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a href={`/app/p/${p.public_id}?vista_previa=1`} target="_blank" rel="noreferrer" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-white px-3 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
+          <a href={`/app/p/${p.public_id}?vista_previa=1`} target="_blank" rel="noreferrer" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-3 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
             <Eye className="size-4" aria-hidden /> Vista previa / PDF
           </a>
           <Button variant="secondary" icon={copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />} onClick={copyLink}>
@@ -560,7 +560,7 @@ export function ProposalEditor() {
         </div>
       )}
 
-      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-white p-0.5" role="tablist" aria-label="Editor">
+      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5" role="tablist" aria-label="Editor">
         {(
           [
             ["contenido", "Contenido", <LayoutTemplate key="c" className="size-4" aria-hidden />],
@@ -641,7 +641,7 @@ export function ProposalEditor() {
                       title={p.values?.[k] ? `Para este cliente: ${p.values[k]}` : "Sin dato para este cliente"}
                       className={cx(
                         "ork-focus rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
-                        p.values?.[k] ? "border-ork-line bg-white text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue" : "border-dashed border-ork-line text-ork-mist",
+                        p.values?.[k] ? "border-ork-line bg-ork-card text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue" : "border-dashed border-ork-line text-ork-mist",
                       )}
                     >
                       {label}
@@ -649,7 +649,7 @@ export function ProposalEditor() {
                   ))}
                 </div>
                 <p className="mt-1.5 text-[12px] text-ork-mist">
-                  Haz clic en un campo (título, sección o texto) y luego en el dato. El cliente verá su valor real; usa <code className="rounded bg-white px-1">{"{{cargo|equipo directivo}}"}</code> para un texto alterno si falta.
+                  Haz clic en un campo (título, sección o texto) y luego en el dato. El cliente verá su valor real; usa <code className="rounded bg-ork-card px-1">{"{{cargo|equipo directivo}}"}</code> para un texto alterno si falta.
                 </p>
               </div>
             )}
@@ -776,7 +776,7 @@ export function ProposalEditor() {
                       const prod = products.data?.find((x) => x.id === e.target.value);
                       if (prod) setDraft({ ...draft, items: [...draft.items, { name: prod.name, description: prod.description, quantity: 1, unit: prod.unit, unit_price: prod.unit_price, discount: 0, image_url: prod.image_url, payment_url: prod.payment_url }] });
                     }}
-                    className="ork-focus h-8 rounded-lg border border-ork-line bg-white px-2 text-[13px]"
+                    className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
                   >
                     <option value="">＋ Desde el catálogo…</option>
                     {products.data.filter((x) => x.active).map((x) => (

@@ -210,7 +210,7 @@ function Switch({ on, onClick, label }: { on: boolean; onClick: () => void; labe
       onClick={onClick}
       className={cx("ork-focus relative h-6 w-11 rounded-full transition", on ? "bg-ok" : "bg-ork-ink/20")}
     >
-      <span className={cx("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", on ? "left-[22px]" : "left-0.5")} />
+      <span className={cx("absolute top-0.5 size-5 rounded-full bg-ork-card shadow transition-all", on ? "left-[22px]" : "left-0.5")} />
     </button>
   );
 }
@@ -346,7 +346,7 @@ function RuleEditor({ catalog: c, rule, onClose, onSaved }: { catalog: Catalog; 
         <div className="flex flex-col gap-3 rounded-xl bg-ork-surface p-4">
           <p className="text-[12px] font-bold uppercase tracking-wide text-ork-violet">2 · Entonces</p>
           {actions.map((a, i) => (
-            <div key={i} className="rounded-lg border border-ork-line bg-white p-3">
+            <div key={i} className="rounded-lg border border-ork-line bg-ork-card p-3">
               <div className="flex items-end gap-2">
                 <SelectField label={`Acción ${i + 1}`} className="flex-1" value={a.type} onChange={(e) => setAction(i, { type: e.target.value })}>
                   {Object.entries(c.actions).map(([k, v]) => (

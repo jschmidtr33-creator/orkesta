@@ -148,7 +148,7 @@ export function ValidationBanner() {
       </div>
       {active && (
         <>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ork-card">
             <div className="ork-gradient h-full rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
           </div>
           {lastLog && <p className="mt-1.5 text-[12.5px] text-ork-mist">{lastLog}</p>}
@@ -284,7 +284,7 @@ export function EnrichmentBanner() {
       </div>
       {active && (
         <>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ork-card">
             <div className="ork-gradient h-full rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
           </div>
           {latest.progress.log?.at(-1) && <p className="mt-1.5 text-[12.5px] text-ork-mist">{latest.progress.log.at(-1)?.text}</p>}

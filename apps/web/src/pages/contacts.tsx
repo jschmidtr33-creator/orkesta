@@ -169,7 +169,7 @@ export function ContactsPage() {
             <Link to="/contactos/listas" className="ork-focus inline-flex h-10 items-center rounded-xl px-3 text-sm font-semibold text-ork-graphite hover:bg-ork-ink/5">
               Listas
             </Link>
-            <Link to="/contactos/importar" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-white px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
+            <Link to="/contactos/importar" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
               <FileUp className="size-4" aria-hidden /> Importar
             </Link>
             <Button variant="secondary" icon={<Sparkles className="size-4" aria-hidden />} onClick={() => setEnrichOpen(true)}>
@@ -214,7 +214,7 @@ export function ContactsPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar por nombre, empresa, cargo o correo…"
-              className="ork-focus h-10 w-full rounded-xl border border-ork-line bg-white pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
+              className="ork-focus h-10 w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
             />
           </label>
           <FilterSelect label="País" value={filters.pais} onChange={(v) => setFilter("pais", v)} options={meta.data?.countries ?? []} />
@@ -393,7 +393,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cx(
-          "ork-focus h-10 max-w-[200px] rounded-xl border bg-white px-3 text-[13.5px]",
+          "ork-focus h-10 max-w-[200px] rounded-xl border bg-ork-card px-3 text-[13.5px]",
           value ? "border-ork-blue/40 text-ork-blue" : "border-ork-line text-ork-graphite",
         )}
       >
@@ -462,8 +462,8 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
   return (
     <Dialog.Root open={Boolean(id)} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-ink/40" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw,480px)] flex-col bg-white shadow-[var(--shadow-pop)]">
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-sidebar/40" />
+        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw,480px)] flex-col bg-ork-card shadow-[var(--shadow-pop)]">
           <div className="flex items-start justify-between gap-3 border-b border-ork-line p-5">
             {c ? (
               <div className="flex items-center gap-3">

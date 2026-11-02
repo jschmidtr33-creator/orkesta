@@ -22,6 +22,7 @@ import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Logo, SelectField, Spinner, TextField } from "../components/ui";
 import { ADMIN_LOCKED_EVENT, api, ApiError, hasAdminToken, setAdminToken } from "../lib/api";
+import { ThemeSwitch } from "../components/AppLayout";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
 
@@ -252,6 +253,7 @@ function AdminLayout({ me, onLock }: { me: Me; onLock: () => void }) {
           </NavLink>
         ))}
       </nav>
+      <ThemeSwitch />
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
         <div className="flex items-center gap-3">
           <Avatar name={me.user.name} email={me.user.email} size={34} />
@@ -270,7 +272,7 @@ function AdminLayout({ me, onLock }: { me: Me; onLock: () => void }) {
     </div>
   );
   return (
-    <div className="min-h-dvh bg-[#F4F5FA] lg:pl-[264px]">
+    <div className="min-h-dvh bg-ork-surface lg:pl-[264px]">
       <aside className="fixed inset-y-0 left-0 hidden w-[264px] overflow-hidden bg-[#05070D] lg:block">
         <div className="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full bg-[#2563EB]/25 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-28 -right-20 size-72 rounded-full bg-[#8B5CF6]/20 blur-3xl" />
@@ -459,7 +461,7 @@ function Tenants({ me }: { me: Me }) {
                   </td>
                   <td className="py-3">
                     {manage ? (
-                      <select value={t.plan} onChange={(e) => patch.mutate({ id: t.id, plan: e.target.value })} className="ork-focus h-9 rounded-lg border border-ork-line bg-white px-2 text-[13px]">
+                      <select value={t.plan} onChange={(e) => patch.mutate({ id: t.id, plan: e.target.value })} className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]">
                         {Object.entries(list.data?.plans ?? {}).map(([k, v]) => (
                           <option key={k} value={k}>
                             {v}
@@ -876,7 +878,7 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
         onClick={() => onChange(!checked)}
         className={cx("relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition", checked ? "bg-gradient-to-r from-[#2563EB] to-[#8B5CF6]" : "bg-ork-ink/20")}
       >
-        <span className={cx("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", checked ? "left-[22px]" : "left-0.5")} />
+        <span className={cx("absolute top-0.5 size-5 rounded-full bg-ork-card shadow transition-all", checked ? "left-[22px]" : "left-0.5")} />
       </button>
     </label>
   );
@@ -1045,7 +1047,7 @@ function Team() {
                   <Badge tone={m.role === "owner" ? "violet" : "blue"}>{d.roles[m.role]}</Badge>
                 ) : (
                   <div className="flex items-center gap-1">
-                    <select value={m.role} onChange={(e) => change.mutate({ id: m.id, role: e.target.value })} className="ork-focus h-9 rounded-lg border border-ork-line bg-white px-2 text-[13px]">
+                    <select value={m.role} onChange={(e) => change.mutate({ id: m.id, role: e.target.value })} className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]">
                       {editable.map((r) => (
                         <option key={r} value={r}>
                           {d.roles[r]}

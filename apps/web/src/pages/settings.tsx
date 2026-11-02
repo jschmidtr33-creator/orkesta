@@ -199,7 +199,7 @@ function TeamSettings() {
                         aria-label={`Rol de ${m.email}`}
                         value={m.role}
                         onChange={(e) => update.mutate({ id: m.id, role: e.target.value })}
-                        className="ork-focus h-9 rounded-lg border border-ork-line bg-white px-2 text-[13.5px]"
+                        className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13.5px]"
                       >
                         {data.roles.map((r) => (
                           <option key={r.value} value={r.value}>
