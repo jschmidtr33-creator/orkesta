@@ -38,7 +38,7 @@ type Settings = {
   corporate_mode?: boolean;
   per_domain_daily?: number;
 };
-type Audience = { list_id?: string | null; filters?: Record<string, string>; contact_ids?: string[]; include_estimated?: boolean };
+type Audience = { list_id?: string | null; filters?: Record<string, string>; contact_ids?: string[]; include_estimated?: boolean; quality?: "todos" | "confiables" };
 type Campaign = {
   id: string;
   name: string;
@@ -67,7 +67,7 @@ type Mailbox = {
   effective_limit?: number;
   warmup_day?: number | null;
 };
-type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; too_many: boolean };
+type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; no_mail_domain?: number; trusted?: number; common?: number; excluded_common?: number; too_many: boolean };
 type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; html: string; missing: string[]; threaded: boolean };
 type Recipient = {
   id: string;
@@ -853,19 +853,42 @@ function AudienceCard({ c }: { c: Campaign }) {
             Incluir correos estimados <span className="text-ork-mist">(deducidos del patrón de la empresa; pueden rebotar)</span>
           </span>
         </label>
+        <SelectField label="Enviar a" value={a.quality ?? "todos"} onChange={(e) => setAudience({ quality: e.target.value as Audience["quality"] })}>
+          <option value="todos">Todos los correos válidos</option>
+          <option value="confiables">Solo los de mayor confianza (menos rebotes)</option>
+        </SelectField>
         {p && (
           <div className="rounded-xl bg-ork-surface p-3 text-[13px]">
             <p className="text-[20px] font-bold text-ork-ink">{p.eligible}</p>
-            <p className="text-ork-graphite">recibirán la campaña{p.estimated ? ` (${p.estimated} con correo estimado)` : ""}</p>
+            <p className="text-ork-graphite">recibirán la campaña</p>
+            {p.eligible > 0 && <QualityBar trusted={p.trusted ?? 0} common={p.common ?? 0} />}
             <p className="mt-1 text-[12px] text-ork-mist">
               Fuera: {p.no_email} sin correo · {p.invalid} inválidos · {p.suppressed} bajas o rebotes
               {p.excluded_estimated ? ` · ${p.excluded_estimated} estimados` : ""}
+              {p.no_mail_domain ? ` · ${p.no_mail_domain} de empresas que no reciben correo` : ""}
+              {p.excluded_common ? ` · ${p.excluded_common} de formato común` : ""}
             </p>
             {p.too_many && <p className="mt-1 text-[12px] text-warn">Máximo 5.000 por campaña; se tomarán los primeros.</p>}
           </div>
         )}
       </div>
     </Card>
+  );
+}
+
+function QualityBar({ trusted, common }: { trusted: number; common: number }) {
+  const total = Math.max(1, trusted + common);
+  return (
+    <div className="mt-2">
+      <div className="flex h-2 overflow-hidden rounded-full bg-ork-line" aria-hidden>
+        <div className="bg-ok" style={{ width: `${(100 * trusted) / total}%` }} />
+        <div className="bg-warn" style={{ width: `${(100 * common) / total}%` }} />
+      </div>
+      <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-ork-graphite">
+        <span><span className="mr-1 inline-block size-2 rounded-full bg-ok" />{trusted} confiables</span>
+        <span><span className="mr-1 inline-block size-2 rounded-full bg-warn" />{common} formato común</span>
+      </p>
+    </div>
   );
 }
 
@@ -896,10 +919,15 @@ function LaunchModal({ c, open, onOpenChange, launch, pending, error }: { c: Cam
             {box && eligible > 0 && ` · primer correo a todos en unos ${days} día${days === 1 ? "" : "s"} hábil${days === 1 ? "" : "es"} (${perDay} por día${box.warmup ? ", en calentamiento: sube cada día" : ""})`}
           </li>
         </ul>
-        {(preview.data?.estimated ?? 0) > 0 && (
+        {eligible > 0 && <QualityBar trusted={preview.data?.trusted ?? 0} common={preview.data?.common ?? 0} />}
+        {(preview.data?.no_mail_domain ?? 0) > 0 && (
+          <p className="text-[12.5px] text-ork-mist">{preview.data?.no_mail_domain} contactos quedan fuera: su empresa no tiene servidor de correo.</p>
+        )}
+        {(preview.data?.common ?? 0) > 0 && (
           <Alert tone="blue">
             <TriangleAlert className="mr-1 inline size-4" aria-hidden />
-            {preview.data?.estimated} correos son estimados. Los que reboten se marcan como inválidos y no se vuelven a usar.
+            {preview.data?.common} correos usan el formato más común de la empresa y pueden rebotar. Si rebotan, ORKESTA aprende y prueba otro formato.
+            {c.audience?.quality !== "confiables" && " Para cuidar tu dominio, en la audiencia puedes elegir «Solo los de mayor confianza»."}
           </Alert>
         )}
         <Button icon={<Rocket className="size-4" aria-hidden />} loading={pending} disabled={eligible === 0} onClick={launch}>

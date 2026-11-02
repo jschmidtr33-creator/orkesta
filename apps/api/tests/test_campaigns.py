@@ -561,3 +561,72 @@ def test_warmup_domain_cap_and_corporate_mode(
     assert "/t/o/" not in msg.as_string()
     client.patch(f"/api/mailboxes/{box['id']}", json={"warmup": False})
     assert client.get("/api/mailboxes").json()["items"][0]["effective_limit"] == 80
+
+
+def test_prelaunch_quality(client: TestClient, database: tuple[str, str]) -> None:
+    """Verificación previa: excluye empresas sin servidor de correo y, si se pide, los correos
+    estimados con el formato común (sin evidencia)."""
+    register(client, "ana@lacteos.co")
+    ids = _contacts(client)
+    client.post("/api/contacts", json={"first_name": "Rita", "last_name": "Paz",
+                "company": "Fantasma", "email": "rita@sin-correo-sa.co"})  # fmt: skip
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET email_status = 'estimado' WHERE id = %s",
+                     (ids[0],))  # fmt: skip
+        conn.execute("UPDATE orkesta.data_points SET confidence = 30 WHERE contact_id = %s "
+                     "AND field = 'email'", (ids[0],))  # fmt: skip
+    everyone = client.post("/api/campaigns/audience", json={"audience": {}}).json()
+    assert everyone["no_mail_domain"] == 1
+    assert everyone["eligible"] == 3 and everyone["trusted"] == 2 and everyone["common"] == 1
+    trusted = client.post(
+        "/api/campaigns/audience", json={"audience": {"quality": "confiables"}}
+    ).json()
+    assert trusted["eligible"] == 2 and trusted["excluded_common"] == 1
+
+
+def test_remote_prober(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El verificador remoto se usa por HTTPS con huella fijada; si no coincide, no se confía."""
+    import hashlib
+    import http.client
+
+    from orkesta.validation.checks import RemoteProber, SmtpUnavailable
+
+    cert = b"certificado-falso"
+    calls: list[dict[str, Any]] = []
+
+    class FakeSock:
+        def getpeercert(self, binary_form: bool = False) -> bytes:
+            return cert
+
+    class FakeResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps({"results": {"a@x.co": [250, "OK"], "b@x.co": [550, "no"]}}).encode()
+
+    class FakeConn:
+        def __init__(self, host: str, port: int, **kw: Any) -> None:
+            self.sock: FakeSock | None = None
+            calls.append({"host": host, "port": port})
+
+        def connect(self) -> None:
+            self.sock = FakeSock()
+
+        def request(self, method: str, path: str, body: str, headers: dict[str, str]) -> None:
+            calls[-1].update(path=path, auth=headers["Authorization"], body=json.loads(body))
+
+        def getresponse(self) -> FakeResponse:
+            return FakeResponse()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(http.client, "HTTPSConnection", FakeConn)
+    good = RemoteProber("https://10.0.0.5:8443", "tok", hashlib.sha256(cert).hexdigest())
+    assert good.probe("mx.x.co", ["a@x.co", "b@x.co"]) == {"a@x.co": (250, "OK"),
+                                                          "b@x.co": (550, "no")}  # fmt: skip
+    assert calls[0]["host"] == "10.0.0.5" and calls[0]["auth"] == "Bearer tok"
+    assert calls[0]["body"]["mx"] == "mx.x.co"
+    bad = RemoteProber("https://10.0.0.5:8443", "tok", "00" * 32)
+    with pytest.raises(SmtpUnavailable):
+        bad.probe("mx.x.co", ["a@x.co"])

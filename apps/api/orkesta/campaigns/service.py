@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -27,7 +28,7 @@ from orkesta.campaigns.models import (
 )
 from orkesta.core.db import set_context
 from orkesta.crm.service import log as crm_log
-from orkesta.data.models import Contact, ListMember
+from orkesta.data.models import Contact, DataPoint, ListMember
 from orkesta.data.service import ContactFilters, _filtered
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.notifications.service import notify
@@ -220,37 +221,93 @@ def _audience_query(tenant_id: uuid.UUID, audience: dict[str, Any]) -> Any:
     return query
 
 
-def audience_preview(
-    session: Session, tenant_id: uuid.UUID, audience: dict[str, Any]
-) -> dict[str, Any]:
-    contacts = session.scalars(_audience_query(tenant_id, audience).limit(MAX_RECIPIENTS + 1)).all()
+_MX_CACHE: dict[str, tuple[datetime, list[str] | None]] = {}
+
+
+def _mail_servers(domain: str) -> list[str] | None:
+    """MX del dominio con caché de 6 horas (``[]`` = no recibe correo, ``None`` = no se sabe)."""
+    from orkesta.research import memory
+
+    hit = _MX_CACHE.get(domain)
+    if hit and hit[0] > now() - timedelta(hours=6):
+        return hit[1]
+    hosts = (memory.MX_RESOLVER or memory._resolve_mx)(domain)
+    _MX_CACHE[domain] = (now(), hosts)
+    return hosts
+
+
+def email_quality(
+    session: Session, tenant_id: uuid.UUID, contacts: Sequence[Contact]
+) -> dict[uuid.UUID, str]:
+    """Calidad de cada correo antes de enviar (verificación previa, sin terceros):
+    «confiable» (validado, publicado o con formato visto/confirmado), «comun» (estimado con el
+    formato más común, sin evidencia) o «sin_correo» (el dominio no recibe correo)."""
+    estimated = [c.id for c in contacts if c.email and c.email_status == "estimado"]
+    confidence: dict[uuid.UUID, int] = {}
+    if estimated:
+        for cid, _value, conf in session.execute(
+            select(DataPoint.contact_id, DataPoint.value, DataPoint.confidence).where(
+                DataPoint.tenant_id == tenant_id, DataPoint.field == "email",
+                DataPoint.contact_id.in_(estimated),
+            )
+        ).all():  # fmt: skip
+            confidence[cid] = max(confidence.get(cid, 0), int(conf))
+    domains = {c.email.rsplit("@", 1)[-1].lower() for c in contacts if c.email}
+    no_mail = {d for d in list(domains)[:400] if _mail_servers(d) == []}
+    out: dict[uuid.UUID, str] = {}
+    for c in contacts:
+        if not c.email:
+            continue
+        if c.email.rsplit("@", 1)[-1].lower() in no_mail:
+            out[c.id] = "sin_correo"
+        elif c.email_status == "estimado" and confidence.get(c.id, 0) < 40:
+            out[c.id] = "comun"
+        else:
+            out[c.id] = "confiable"
+    return out
+
+
+def _eligible(
+    session: Session, tenant_id: uuid.UUID, audience: dict[str, Any], contacts: Sequence[Contact]
+) -> tuple[list[Contact], dict[str, int]]:
     suppressed = set(
         session.scalars(select(Suppression.email).where(Suppression.tenant_id == tenant_id))
     )
     include_estimated = bool(audience.get("include_estimated", True))
-    counts = {
-        "total": len(contacts),
-        "eligible": 0,
-        "no_email": 0,
-        "invalid": 0,
-        "suppressed": 0,
-        "estimated": 0,
-        "excluded_estimated": 0,
-    }
-    sample = None
+    trusted_only = audience.get("quality") == "confiables"
+    quality = email_quality(session, tenant_id, contacts)
+    counts = {"total": len(contacts), "eligible": 0, "no_email": 0, "invalid": 0,
+              "suppressed": 0, "estimated": 0, "excluded_estimated": 0, "no_mail_domain": 0,
+              "trusted": 0, "common": 0, "excluded_common": 0}  # fmt: skip
+    keep: list[Contact] = []
     for c in contacts:
+        q = quality.get(c.id, "")
         if not c.email:
             counts["no_email"] += 1
         elif c.email in suppressed:
             counts["suppressed"] += 1
         elif c.email_status == "invalido":
             counts["invalid"] += 1
+        elif q == "sin_correo":
+            counts["no_mail_domain"] += 1
         elif c.email_status == "estimado" and not include_estimated:
             counts["excluded_estimated"] += 1
+        elif q == "comun" and trusted_only:
+            counts["excluded_common"] += 1
         else:
             counts["eligible"] += 1
             counts["estimated"] += c.email_status == "estimado"
-            sample = sample or c
+            counts["trusted" if q == "confiable" else "common"] += 1
+            keep.append(c)
+    return keep, counts
+
+
+def audience_preview(
+    session: Session, tenant_id: uuid.UUID, audience: dict[str, Any]
+) -> dict[str, Any]:
+    contacts = session.scalars(_audience_query(tenant_id, audience).limit(MAX_RECIPIENTS + 1)).all()
+    keep, counts = _eligible(session, tenant_id, audience, contacts)
+    sample = keep[0] if keep else None
     return {
         **counts,
         "sample": {"id": str(sample.id), "full_name": sample.full_name} if sample else None,
@@ -451,6 +508,7 @@ def update_campaign(session: Session, campaign: Campaign, data: dict[str, Any]) 
             },
             "contact_ids": [str(i) for i in (audience.get("contact_ids") or [])][:MAX_RECIPIENTS],
             "include_estimated": bool(audience.get("include_estimated", True)),
+            "quality": "confiables" if audience.get("quality") == "confiables" else "todos",
         }
     if "mailbox_id" in data:
         mailbox = session.get(Mailbox, data["mailbox_id"]) if data["mailbox_id"] else None
@@ -488,22 +546,13 @@ def launch(session: Session, campaign: Campaign) -> int:
     problems = validate_for_launch(session, campaign)
     if problems:
         raise CampaignError(" ".join(problems))
-    suppressed = set(
-        session.scalars(
-            select(Suppression.email).where(Suppression.tenant_id == campaign.tenant_id)
-        )
-    )
-    include_estimated = bool(campaign.audience.get("include_estimated", True))
     contacts = session.scalars(
         _audience_query(campaign.tenant_id, campaign.audience).limit(MAX_RECIPIENTS)
     ).all()
+    keep, _ = _eligible(session, campaign.tenant_id, campaign.audience, contacts)
     created = 0
     start = now()
-    for c in contacts:
-        if not c.email or c.email in suppressed or c.email_status == "invalido":
-            continue
-        if c.email_status == "estimado" and not include_estimated:
-            continue
+    for c in keep:
         session.add(
             Recipient(
                 tenant_id=campaign.tenant_id,

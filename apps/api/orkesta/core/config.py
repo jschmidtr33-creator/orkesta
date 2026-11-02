@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     run_worker: bool = False
     # Verificación de buzones por SMTP (puerto 25). Se desactiva si la red lo bloquea.
     smtp_probe: bool = True
+    # Verificador de buzones propio en un servidor con puerto 25 (apps/verifier).
+    verifier_url: str = ""
+    verifier_token: str = ""
+    verifier_fingerprint: str = ""
     worker_threads: int = Field(default=2, ge=1, le=8)
 
     # Buscador de Google por API (Serper.dev): motor principal de prospección.
