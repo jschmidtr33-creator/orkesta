@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Circle,
   KanbanSquare,
+  LineChart,
   ListChecks,
   Mail,
   MessageSquare,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Alert, Avatar, Badge, Button, Card, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
+import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
@@ -44,6 +45,7 @@ export type Deal = {
   owner: { id: string; name: string; avatar_url?: string | null } | null;
   created_at: string;
   updated_at: string | null;
+  health?: Health | null;
 };
 export type ActivityItem = {
   id: string;
@@ -70,6 +72,156 @@ type Metrics = {
   overdue_tasks: number;
 };
 
+type Health = { score: number; label: "caliente" | "tibia" | "fria"; reasons: string[] };
+type ForecastTotals = Record<string, { weighted: number; commit: number; best: number; deals: number }>;
+type Forecast = {
+  periods: { key: string; totals: ForecastTotals }[];
+  stages: Record<string, { probability: number; learned: number | null; sample: number }>;
+  won_last_90: Record<string, number>;
+};
+type Attribution = {
+  campaigns: { campaign_id: string; campaign: string; deals: number; won: number; lost: number; won_value: Record<string, number>; pipeline: Record<string, number> }[];
+};
+
+const HEALTH = {
+  caliente: { label: "Caliente", tone: "ok" },
+  tibia: { label: "Tibia", tone: "warn" },
+  fria: { label: "Fría", tone: "bad" },
+} as const;
+
+function HealthChip({ health }: { health: Health }) {
+  const h = HEALTH[health.label];
+  return (
+    <span className="mt-1 inline-flex">
+      <Tip label={health.reasons.join(" · ") || "Salud de la oportunidad"}>
+        <Badge tone={h.tone}>
+          {h.label} · {health.score}
+        </Badge>
+      </Tip>
+    </span>
+  );
+}
+
+function periodLabel(key: string): string {
+  if (key === "vencidas") return "Fecha de cierre vencida";
+  if (key === "despues") return "Más adelante";
+  if (key === "sin_fecha") return "Sin fecha estimada";
+  const [y, m] = key.split("-").map(Number);
+  const text = new Date(y, m - 1, 1).toLocaleDateString("es", { month: "long", year: "numeric" });
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function sumBy(totals: ForecastTotals, field: "weighted" | "commit" | "best"): Record<string, number> {
+  return Object.fromEntries(Object.entries(totals).map(([c, v]) => [c, v[field]]));
+}
+
+/** Pronóstico de cierre, oportunidades en riesgo y atribución por campaña. */
+function ForecastView({ stages, deals, onOpen }: { stages: Stage[]; deals: Deal[]; onOpen: (id: string) => void }) {
+  const f = useQuery({ queryKey: ["crm-forecast"], queryFn: () => api<Forecast>("/api/crm/forecast") });
+  const a = useQuery({ queryKey: ["crm-attribution"], queryFn: () => api<Attribution>("/api/crm/attribution") });
+  const risky = deals.filter((d) => d.health && d.health.label === "fria").sort((x, y) => (x.health!.score - y.health!.score));
+  if (f.isLoading) return <Card><Spinner /></Card>;
+  const learned = stages.filter((s) => f.data?.stages[s.id]?.learned != null);
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader
+          title="Pronóstico de cierre"
+          description="Ponderado = valor × probabilidad de ganar (según la etapa, lo que ORKESTA aprendió de tus ventas cerradas y la salud de cada oportunidad). Comprometido = oportunidades con 70 % o más."
+        />
+        {(f.data?.periods.length ?? 0) === 0 ? (
+          <p className="text-[13.5px] text-ork-mist">Aún no hay oportunidades abiertas. Ponles valor y fecha estimada de cierre para ver el pronóstico.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-[13.5px]">
+              <thead className="border-b border-ork-line text-[11.5px] uppercase tracking-wide text-ork-mist">
+                <tr>
+                  <th className="py-2 font-semibold">Periodo</th>
+                  <th className="py-2 font-semibold">Oportunidades</th>
+                  <th className="py-2 font-semibold">Ponderado</th>
+                  <th className="py-2 font-semibold">Comprometido</th>
+                  <th className="py-2 font-semibold">Mejor caso</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ork-line">
+                {f.data!.periods.map((p) => (
+                  <tr key={p.key}>
+                    <td className={cx("py-2.5 font-semibold", p.key === "vencidas" ? "text-bad" : "text-ork-ink")}>{periodLabel(p.key)}</td>
+                    <td className="py-2.5">{Object.values(p.totals).reduce((s, v) => s + v.deals, 0)}</td>
+                    <td className="py-2.5 font-semibold text-ork-ink">{money(sumBy(p.totals, "weighted"))}</td>
+                    <td className="py-2.5">{money(sumBy(p.totals, "commit"))}</td>
+                    <td className="py-2.5 text-ork-mist">{money(sumBy(p.totals, "best"))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-3 text-[12.5px] text-ork-mist">Ganado en los últimos 90 días: {money(f.data?.won_last_90 ?? {})}</p>
+        {learned.length > 0 && (
+          <p className="mt-1 text-[12.5px] text-ork-mist">
+            Probabilidad aprendida de tus ventas:{" "}
+            {learned.map((s) => `${s.name} ${f.data!.stages[s.id].learned} % (de ${f.data!.stages[s.id].sample})`).join(" · ")}
+          </p>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="Oportunidades en riesgo" description="Frías: sin actividad reciente, con tareas vencidas o la fecha de cierre pasada." />
+        {risky.length === 0 ? (
+          <p className="text-[13.5px] text-ork-mist">Ninguna en riesgo. ¡Buen trabajo!</p>
+        ) : (
+          <ul className="divide-y divide-ork-line">
+            {risky.slice(0, 15).map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <button type="button" className="text-left" onClick={() => onOpen(d.id)}>
+                  <p className="text-[13.5px] font-semibold text-ork-blue hover:underline">{d.title}</p>
+                  <p className="text-[12px] text-ork-mist">{d.health!.reasons.join(" · ")}</p>
+                </button>
+                <span className="text-[13px] font-semibold text-ork-graphite">{money(d.value, d.currency)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="Atribución por campaña" description="Oportunidades, ventas e ingresos que nacieron de una respuesta a cada campaña." />
+        {(a.data?.campaigns.length ?? 0) === 0 ? (
+          <p className="text-[13.5px] text-ork-mist">Cuando alguien responda a una campaña y se cree su oportunidad, verás aquí cuánto genera cada campaña.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-[13.5px]">
+              <thead className="border-b border-ork-line text-[11.5px] uppercase tracking-wide text-ork-mist">
+                <tr>
+                  <th className="py-2 font-semibold">Campaña</th>
+                  <th className="py-2 font-semibold">Oportunidades</th>
+                  <th className="py-2 font-semibold">Ganadas</th>
+                  <th className="py-2 font-semibold">Ingresos</th>
+                  <th className="py-2 font-semibold">En pipeline</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ork-line">
+                {a.data!.campaigns.map((c) => (
+                  <tr key={c.campaign_id}>
+                    <td className="py-2.5">
+                      <Link to={`/campanas/${c.campaign_id}`} className="font-semibold text-ork-blue hover:underline">
+                        {c.campaign}
+                      </Link>
+                    </td>
+                    <td className="py-2.5">{c.deals}</td>
+                    <td className="py-2.5">{c.won}</td>
+                    <td className="py-2.5 font-semibold text-ok">{money(c.won_value)}</td>
+                    <td className="py-2.5">{money(c.pipeline)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export function money(values: Record<string, number> | number, currency = "USD"): string {
   const entries = typeof values === "number" ? [[currency, values] as const] : Object.entries(values);
   if (!entries.length) return "0";
@@ -89,7 +241,8 @@ export function CrmPage() {
   const isManager = session?.workspace?.role !== "vendedor";
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const view = params.get("vista") === "tabla" ? "tabla" : params.get("vista") === "tareas" ? "tareas" : "tablero";
+  const raw = params.get("vista");
+  const view = raw === "tabla" || raw === "tareas" || raw === "pronostico" ? raw : "tablero";
   const openId = params.get("oportunidad");
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
@@ -174,6 +327,7 @@ export function CrmPage() {
               ["tablero", "Tablero", <KanbanSquare key="k" className="size-4" aria-hidden />],
               ["tabla", "Tabla", <Table2 key="t" className="size-4" aria-hidden />],
               ["tareas", "Tareas", <ListChecks key="l" className="size-4" aria-hidden />],
+              ["pronostico", "Pronóstico", <LineChart key="p" className="size-4" aria-hidden />],
             ] as const
           ).map(([value, label, icon]) => (
             <button
@@ -188,7 +342,7 @@ export function CrmPage() {
             </button>
           ))}
         </div>
-        {view !== "tareas" && (
+        {view !== "tareas" && view !== "pronostico" && (
           <label className="relative ml-auto">
             <span className="sr-only">Buscar oportunidades</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ork-mist" aria-hidden />
@@ -203,7 +357,9 @@ export function CrmPage() {
       </div>
 
       {move.error && <div className="mb-3"><Alert>{move.error.message}</Alert></div>}
-      {(stages.isLoading || deals.isLoading) && view !== "tareas" ? (
+      {view === "pronostico" ? (
+        <ForecastView stages={stages.data?.stages ?? []} onOpen={openDeal} deals={deals.data?.deals ?? []} />
+      ) : (stages.isLoading || deals.isLoading) && view !== "tareas" ? (
         <Card><Spinner /></Card>
       ) : view === "tablero" ? (
         <Board stages={stages.data?.stages ?? []} deals={deals.data?.deals ?? []} onOpen={openDeal} onMove={requestMove} />
@@ -213,7 +369,7 @@ export function CrmPage() {
         <TasksView onOpenDeal={openDeal} isManager={isManager} />
       )}
 
-      {!deals.isLoading && view !== "tareas" && (deals.data?.deals.length ?? 0) === 0 && !q && (
+      {!deals.isLoading && view !== "tareas" && view !== "pronostico" && (deals.data?.deals.length ?? 0) === 0 && !q && (
         <Card className="mt-4 text-center">
           <p className="text-[14px] text-ork-graphite">Aún no hay oportunidades. Crea la primera desde aquí o desde la ficha de un contacto.</p>
         </Card>
@@ -306,6 +462,7 @@ function Board({ stages, deals, onOpen, onMove }: { stages: Stage[]; deals: Deal
                   className="ork-focus cursor-grab rounded-xl border border-ork-line bg-ork-card p-3 text-left shadow-[0_1px_2px_rgb(8_11_18/0.04)] transition hover:border-ork-blue/40 active:cursor-grabbing"
                 >
                   <p className="text-[13.5px] font-semibold leading-snug text-ork-ink">{d.title}</p>
+                  {d.health && <HealthChip health={d.health} />}
                   {(d.contact || d.company) && (
                     <p className="mt-1 truncate text-[12px] text-ork-mist">{[d.contact?.full_name, d.company].filter(Boolean).join(" · ")}</p>
                   )}

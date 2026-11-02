@@ -136,6 +136,23 @@ def deals(
     }  # fmt: skip
 
 
+@router.get("/forecast")
+def forecast(principal: Member, db: Db) -> dict[str, Any]:
+    """Pronóstico de cierre por mes con probabilidades aprendidas."""
+    from orkesta.crm.intelligence import forecast as build
+
+    svc.ensure_stages(db, principal.tenant_id)
+    return build(db, principal.tenant_id)
+
+
+@router.get("/attribution")
+def attribution(principal: Member, db: Db) -> dict[str, Any]:
+    """Qué campañas generaron oportunidades, ventas e ingresos."""
+    from orkesta.crm.intelligence import attribution as build
+
+    return {"campaigns": build(db, principal.tenant_id)}
+
+
 @router.post("/deals", status_code=201)
 def create_deal(body: DealIn, request: Request, principal: Member, db: Db) -> dict[str, Any]:
     try:
