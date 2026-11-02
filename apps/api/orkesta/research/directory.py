@@ -478,6 +478,12 @@ def maybe_refresh(factory: sessionmaker[Session]) -> None:
         start(lambda p=preset_id: run_preset(factory, p), preset_id)  # type: ignore[misc]
 
 
+def people_stats(session: Session) -> dict[str, int]:
+    from orkesta.research import people
+
+    return people.stats(session)
+
+
 def crawler_overview(session: Session) -> dict[str, Any]:
     from orkesta.research import crawler
 
@@ -510,6 +516,7 @@ def overview(session: Session) -> dict[str, Any]:
             for k, v in PRESETS.items()
         ],
         "crawler": crawler_overview(session),
+        "people": people_stats(session),
         "uploads": [
             {"id": k, "last": v, "live": live.get(k)}
             for k, v in history.items()

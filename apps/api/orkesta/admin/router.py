@@ -349,6 +349,20 @@ def directory_crawl(request: Request, principal: Directory, db: Db) -> dict[str,
     return {"started": True}
 
 
+class RemovePersonIn(BaseModel):
+    value: str = Field(min_length=5, max_length=320)
+
+
+@router.post("/people/remove")
+def remove_person(body: RemovePersonIn, principal: Directory, db: Db) -> dict[str, Any]:
+    """Saca a una persona del índice para siempre (derecho a no figurar)."""
+    from orkesta.research import people
+
+    removed = people.remove(db, body.value)
+    svc.log(db, principal.user, "people.removed", "", removed=removed)
+    return {"removed": removed}
+
+
 MAX_UPLOAD = 60 * 1024 * 1024
 
 

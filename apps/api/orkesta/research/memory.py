@@ -225,6 +225,9 @@ def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
     la dirección no se vuelve a proponer."""
     if "@" not in email or outcome not in ("replied", "bounced"):
         return
+    from orkesta.research import people
+
+    people.feedback(session, email, outcome)
     domain = email.rsplit("@", 1)[1].lower()
     if pattern:
         column = "confirmed" if outcome == "replied" else "bounced"
