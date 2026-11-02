@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -75,6 +75,10 @@ class DecisionIn(BaseModel):
     accept: bool
     name: str = Field(default="", max_length=160)
     note: str = Field(default="", max_length=500)
+    email: str = Field(default="", max_length=320)
+    document: str = Field(default="", max_length=40)
+    signature: str = Field(default="", max_length=300_000)
+    consent: bool = False
 
 
 # --- Catálogo -------------------------------------------------------------------------------
@@ -264,12 +268,40 @@ def public_view(
     return svc.public_view(db, proposal, record=not vista_previa)
 
 
+@router.get("/api/public/proposals/{public_id}/constancia.pdf")
+def public_certificate(public_id: str, request: Request, db: Db) -> Response:
+    public_limiter.check(f"view:{client_ip(request)}")
+    try:
+        proposal = svc.public_load(db, public_id)
+        pdf = svc.certificate_pdf(db, proposal)
+    except svc.ProposalError as exc:
+        raise _fail(exc) from exc
+    name = f"constancia-propuesta-{proposal.number}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{name}"'})  # fmt: skip
+
+
+@router.get("/api/proposals/{proposal_id}/constancia.pdf")
+def certificate(proposal_id: uuid.UUID, principal: Member, db: Db) -> Response:
+    proposal = _load(db, principal, proposal_id)
+    try:
+        pdf = svc.certificate_pdf(db, proposal)
+    except svc.ProposalError as exc:
+        raise _fail(exc) from exc
+    name = f"constancia-propuesta-{proposal.number}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{name}"'})  # fmt: skip
+
+
 @router.post("/api/public/proposals/{public_id}/decision")
 def public_decision(public_id: str, body: DecisionIn, request: Request, db: Db) -> dict[str, Any]:
     public_limiter.check(f"decision:{client_ip(request)}")
     try:
         proposal = svc.public_load(db, public_id)
-        svc.decide(db, proposal, accept=body.accept, name=body.name, note=body.note)
+        svc.decide(db, proposal, accept=body.accept, name=body.name, note=body.note,
+                   email=body.email, document=body.document, signature=body.signature,
+                   consent=body.consent, ip=client_ip(request) or "",
+                   user_agent=request.headers.get("user-agent", ""))  # fmt: skip
     except svc.ProposalError as exc:
         db.rollback()
         raise _fail(exc) from exc

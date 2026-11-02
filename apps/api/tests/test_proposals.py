@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import register
 
+SIGNATURE = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAUADwDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD06isy/wBf0+xne1Ly3N4iFza2sTTS4AHVVB253DBbA561XA8Q6iWJaDR7csNq7RPcEBjkk58tCVA4w+MmgDR1HUbLS7VrrULmK3hX+J2xk4JwB1JwDwOTWcdU1a8K/wBlaMyR7jmbUX8gMFYDCoAz5YbsFlXHB56VY07QNN0+RZ0g868HLXlwfNnY7Qud7cjgdBge1adAGJB4ltEYQayjaRdbclLtgqNgKTsl+44BYDg59QK26bLHHNE8UyLJG6lXRhkMD1BHcViPoVxp+6Tw3efZOp+xzAyWzH5jwucx5Zs/IQOPumgDdorEPiBrIquu6fPp6liv2jIlt87goy68qDkHLqo6+lbMUkc0SSwuskbqGR1OQwPQg9xQAJHGjOyIqtI25yBgscAZPqcAD6AU6iigAooooAKKKKACqthp1lpqSpYW0Vukr+YyRLtXdgLkDoOFHSiigD//2Q=="
+
 
 def _setup(client: TestClient) -> tuple[str, str]:
     register(client, "ana@lacteos.co")
@@ -64,9 +66,21 @@ def test_catalog_draft_totals_and_public_acceptance(client: TestClient) -> None:
     view = client.get(f"/api/public/proposals/{public_id}").json()
     assert view["issuer"] == "Lácteos Inventados" and view["totals"]["total"] == 16422.0
     assert "public_id" not in view and "id" not in view
-    accepted = client.post(f"/api/public/proposals/{public_id}/decision",
-                           json={"accept": True, "name": "Laura Gómez", "note": "Adelante"}).json()  # fmt: skip
+    # Firma electrónica: sin firma, correo o consentimiento no se acepta.
+    unsigned = client.post(f"/api/public/proposals/{public_id}/decision",
+                           json={"accept": True, "name": "Laura Gómez"})  # fmt: skip
+    assert unsigned.status_code == 400
+    accepted = client.post(f"/api/public/proposals/{public_id}/decision", json={
+        "accept": True, "name": "Laura Gómez", "note": "Adelante", "email": "laura@banco.co",
+        "document": "CC 1.020.304", "signature": SIGNATURE, "consent": True,
+    }, headers={"user-agent": "Navegador de prueba"}).json()  # fmt: skip
     assert accepted["status"] == "accepted" and accepted["decided_by"] == "Laura Gómez"
+    assert accepted["signature"]["email"] == "laura@banco.co"
+    assert len(accepted["signature"]["doc_hash"]) == 64
+    pdf = client.get(f"/api/public/proposals/{public_id}/constancia.pdf")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF-1.4") and b"/DCTDecode" in pdf.content
+    assert pdf.content.rstrip().endswith(b"%%EOF")
     assert client.post(f"/api/public/proposals/{public_id}/decision",
                        json={"accept": False}).status_code == 409  # fmt: skip
 
