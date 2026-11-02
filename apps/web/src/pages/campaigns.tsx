@@ -28,7 +28,14 @@ type Stats = {
   block_rate?: number | null;
   replies?: Record<string, number>;
 };
-type Step = { subject: string; body: string; delay_days: number };
+type Step = { subject: string; body: string; delay_days: number; variant_b?: { subject: string; body: string }; winner?: "A" | "B" };
+type AbSide = { sent: number; opened: number; replied: number; reply_rate: number | null; open_rate: number | null };
+type AbResult = { step: number; winner: "A" | "B" | null; A: AbSide; B: AbSide };
+type Insights = {
+  emails_sent: number;
+  lessons: { key: string; text: string; good: boolean }[];
+  top: { campaign: string; subject: string; body: string; sent: number; replied: number; reply_rate: number }[];
+};
 type Settings = {
   timezone: string;
   days: number[];
@@ -51,6 +58,7 @@ type Campaign = {
   steps_count: number;
   stats: Stats;
   learning?: { confirmed: number; reproposed: number; domains_learned: number };
+  ab?: AbResult[];
   steps?: Step[];
   settings?: Settings;
   audience?: Audience;
@@ -419,6 +427,7 @@ export function CampaignDetail() {
         </div>
       )}
       {!draft && <CampaignStats c={c} />}
+      {!draft && (c.ab?.length ?? 0) > 0 && <AbResults results={c.ab!} />}
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-5">
           <StepsEditor c={c} />
@@ -591,6 +600,7 @@ function StepsEditor({ c }: { c: Campaign }) {
           · Valor alterno si falta: <code className="rounded bg-ork-ink/5 px-1">{"{{nombre|Hola}}"}</code>
         </span>
       </div>
+      {!locked && <WhatWorks onUse={(subject, body) => update(0, { subject, body })} />}
       <ol className="flex flex-col gap-4">
         {steps.map((step, i) => (
           <li key={i} className="rounded-xl border border-ork-line p-4">
@@ -646,6 +656,39 @@ function StepsEditor({ c }: { c: Campaign }) {
               onChange={(html) => update(i, { body: html })}
               onFocus={(editor) => (focused.current = { index: i, editor })}
             />
+            {step.variant_b ? (
+              <div className="mt-3 rounded-xl border border-ork-violet/30 bg-ork-violet/[0.04] p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[13px] font-semibold text-ork-ink">
+                    Versión B · la recibe la mitad de los contactos
+                    {step.winner && <Badge tone="ok">Ganó la versión {step.winner}</Badge>}
+                  </p>
+                  {!locked && (
+                    <button type="button" className="text-[12.5px] font-semibold text-ork-mist hover:text-bad" onClick={() => update(i, { variant_b: undefined, winner: undefined })}>
+                      Quitar prueba A/B
+                    </button>
+                  )}
+                </div>
+                <input
+                  value={step.variant_b.subject}
+                  placeholder={i === 0 ? "Asunto de la versión B (vacío = mismo asunto)" : "Asunto B (vacío = respuesta en el hilo)"}
+                  onChange={(e) => update(i, { variant_b: { ...step.variant_b!, subject: e.target.value } })}
+                  className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line bg-ork-card px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
+                />
+                <RichEditor key={`${editorKey}-${i}-b`} value={step.variant_b.body} onChange={(html) => update(i, { variant_b: { ...step.variant_b!, body: html } })} />
+                <p className="mt-2 text-[12px] text-ork-mist">
+                  ORKESTA compara las respuestas de ambas versiones y, cuando una gana con claridad, envía solo la ganadora al resto.
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ork-violet hover:underline"
+                onClick={() => update(i, { variant_b: { subject: step.subject, body: step.body } })}
+              >
+                <Plus className="size-3.5" aria-hidden /> Probar otra versión (prueba A/B)
+              </button>
+            )}
           </li>
         ))}
       </ol>
@@ -673,6 +716,73 @@ function StepsEditor({ c }: { c: Campaign }) {
           setEditorKey((k) => k + 1); // el editor toma el texto nuevo
         }}
       />
+    </Card>
+  );
+}
+
+/** Lo que el asistente aprendió de las respuestas a tus campañas. */
+function WhatWorks({ onUse }: { onUse: (subject: string, body: string) => void }) {
+  const q = useQuery({ queryKey: ["copy-insights"], queryFn: () => api<Insights>("/api/copy/insights"), staleTime: 300000 });
+  const d = q.data;
+  if (!d || (d.lessons.length === 0 && d.top.length === 0)) return null;
+  return (
+    <div className="mb-4 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] p-4 text-[13px]">
+      <p className="flex items-center gap-2 font-semibold text-ork-ink">
+        <Sparkles className="size-4 text-ork-violet" aria-hidden /> Lo que funciona en tus campañas
+        <span className="font-normal text-ork-mist">· aprendido de {d.emails_sent.toLocaleString("es")} envíos</span>
+      </p>
+      {d.lessons.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1 text-ork-graphite">
+          {d.lessons.map((l) => (
+            <li key={l.key}>• {l.text}</li>
+          ))}
+        </ul>
+      )}
+      {d.top.length > 0 && (
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {d.top.map((t, i) => (
+            <div key={i} className="rounded-xl border border-ork-line bg-ork-card p-3">
+              <p className="truncate font-semibold text-ork-ink" title={t.subject}>
+                {t.subject || "(sin asunto)"}
+              </p>
+              <p className="text-[12px] text-ork-mist">
+                {t.reply_rate.toLocaleString("es")} % de respuesta · {t.sent} envíos · {t.campaign}
+              </p>
+              <button type="button" className="mt-1.5 text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => onUse(t.subject, t.body)}>
+                Usar en el correo 1
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AbResults({ results }: { results: AbResult[] }) {
+  const pct = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("es")} %`);
+  return (
+    <Card className="mt-4">
+      <CardHeader title="Pruebas A/B" description="Cada versión la recibe la mitad de los contactos. Cuando una gana con claridad (o tras 150 envíos por versión), el resto recibe solo la ganadora." />
+      <div className="flex flex-col gap-3">
+        {results.map((r) => (
+          <div key={r.step} className="rounded-xl border border-ork-line p-3">
+            <p className="mb-2 text-[13px] font-semibold text-ork-ink">
+              Correo {r.step + 1} {r.winner ? <Badge tone="ok">Ganó la versión {r.winner}</Badge> : <Badge tone="blue">En prueba</Badge>}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(["A", "B"] as const).map((v) => (
+                <div key={v} className={cx("rounded-lg p-2.5 text-[13px]", r.winner === v ? "bg-ok/10" : "bg-ork-surface")}>
+                  <p className="font-semibold text-ork-ink">Versión {v}</p>
+                  <p className="text-ork-graphite">
+                    {r[v].sent} enviados · <strong>{pct(r[v].reply_rate)}</strong> respuesta · {pct(r[v].open_rate)} apertura
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

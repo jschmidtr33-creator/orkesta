@@ -187,10 +187,17 @@ class CampaignIn(BaseModel):
     name: str = Field(max_length=160)
 
 
+class VariantIn(BaseModel):
+    subject: str = Field(default="", max_length=250)
+    body: str = Field(default="", max_length=100000)
+
+
 class StepIn(BaseModel):
     subject: str = Field(default="", max_length=250)
     body: str = Field(default="", max_length=100000)
     delay_days: int = Field(default=3, ge=0, le=60)
+    variant_b: VariantIn | None = None
+    winner: str | None = Field(default=None, pattern="^[AB]$")
 
 
 class CampaignPatch(BaseModel):
@@ -208,6 +215,7 @@ class AudienceIn(BaseModel):
 class PreviewIn(BaseModel):
     step: int = Field(default=0, ge=0, lt=svc.MAX_STEPS)
     contact_id: uuid.UUID | None = None
+    variant: str = Field(default="A", pattern="^[AB]$")
 
 
 def _campaign(db: Db, principal: Principal, campaign_id: uuid.UUID) -> Campaign:
@@ -306,11 +314,12 @@ def preview(campaign_id: uuid.UUID, body: PreviewIn, principal: Member, db: Db) 
             "remitente": sender,
         }
     step = campaign.steps[body.step]
-    subject_src = step["subject"].strip() or (
+    step_subject, step_body = svc.step_content(step, body.variant)
+    subject_src = step_subject.strip() or (
         "Re: " + campaign.steps[0]["subject"] if body.step else "(sin asunto)"
     )
     subject, missing_s = templating.render(subject_src, values)
-    body_html, missing_b = templating.render(templating.as_html(step["body"]), values, escape=True)
+    body_html, missing_b = templating.render(templating.as_html(step_body), values, escape=True)
     signature, _ = templating.render(
         templating.as_html(mailbox.signature if mailbox else ""), values, escape=True
     )

@@ -147,8 +147,113 @@ def clean_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if templating.is_html(body):
             body = templating.clean_html(body)
         delay = int(raw.get("delay_days", 0 if i == 0 else 3) or 0)
-        out.append({"subject": subject, "body": body, "delay_days": max(0, min(60, delay))})
+        step: dict[str, Any] = {"subject": subject, "body": body,
+                                "delay_days": max(0, min(60, delay))}  # fmt: skip
+        b = raw.get("variant_b") or {}
+        if isinstance(b, dict) and (
+            str(b.get("body", "")).strip() or str(b.get("subject", "")).strip()
+        ):
+            b_body = str(b.get("body", ""))[:100000]
+            step["variant_b"] = {
+                "subject": " ".join(str(b.get("subject", "")).split())[:250],
+                "body": templating.clean_html(b_body) if templating.is_html(b_body) else b_body,
+            }
+            if raw.get("winner") in ("A", "B"):
+                step["winner"] = raw["winner"]
+        out.append(step)
     return out
+
+
+def pick_variant(step: dict[str, Any], recipient_id: uuid.UUID) -> str:
+    """Mitad y mitad (estable por destinatario); al decidirse una ganadora, solo esa."""
+    if not step.get("variant_b"):
+        return "A"
+    if step.get("winner") in ("A", "B"):
+        return str(step["winner"])
+    return "B" if recipient_id.int % 2 else "A"
+
+
+def step_content(step: dict[str, Any], variant: str) -> tuple[str, str]:
+    if variant == "B" and step.get("variant_b"):
+        b = step["variant_b"]
+        return (b.get("subject") or step["subject"]), (b.get("body") or step["body"])
+    return step["subject"], step["body"]
+
+
+# Una versión gana cuando su tasa de respuesta es claramente mejor (prueba z de dos
+# proporciones, 90 % de confianza) con al menos 40 envíos por versión, o la mejor a los 150.
+AB_MIN = 40
+AB_MAX = 150
+
+
+def ab_results(session: Session, campaign: Campaign) -> list[dict[str, Any]]:
+    rows = session.execute(
+        select(Message.step, Message.variant, func.count(func.distinct(Message.recipient_id)),
+               func.count(func.distinct(Message.recipient_id)).filter(Message.opened_at.is_not(None)),
+               func.count(func.distinct(Message.recipient_id)).filter(
+                   Recipient.replied_at.is_not(None), Recipient.replied_at >= Message.sent_at))
+        .join(Recipient, Recipient.id == Message.recipient_id)
+        .where(Message.campaign_id == campaign.id)
+        .group_by(Message.step, Message.variant)
+    ).all()  # fmt: skip
+    data: dict[int, dict[str, dict[str, Any]]] = {}
+    for step, variant, sent, opened, replied in rows:
+        data.setdefault(int(step), {})[str(variant)] = {
+            "sent": int(sent), "opened": int(opened), "replied": int(replied),
+            "reply_rate": round(100 * replied / sent, 1) if sent else None,
+            "open_rate": round(100 * opened / sent, 1) if sent else None,
+        }  # fmt: skip
+    out = []
+    for i, step in enumerate(campaign.steps):
+        if not step.get("variant_b"):
+            continue
+        empty = {"sent": 0, "opened": 0, "replied": 0, "reply_rate": None, "open_rate": None}
+        got = data.get(i, {})
+        out.append({"step": i, "winner": step.get("winner"),
+                    "A": got.get("A", empty), "B": got.get("B", empty)})  # fmt: skip
+    return out
+
+
+def _z(a: dict[str, Any], b: dict[str, Any]) -> float:
+    import math
+
+    n1, n2 = a["sent"], b["sent"]
+    p1, p2 = a["replied"] / n1, b["replied"] / n2
+    pool = (a["replied"] + b["replied"]) / (n1 + n2)
+    se = math.sqrt(pool * (1 - pool) * (1 / n1 + 1 / n2)) if 0 < pool < 1 else 0.0
+    return (p1 - p2) / se if se else 0.0
+
+
+def decide_winners(session: Session, campaign: Campaign) -> list[int]:
+    """Elige sola la versión ganadora de cada prueba A/B y avisa."""
+    decided: list[int] = []
+    steps = [dict(s) for s in campaign.steps]
+    for result in ab_results(session, campaign):
+        a, b = result["A"], result["B"]
+        if result["winner"] or min(a["sent"], b["sent"]) < AB_MIN:
+            continue
+        z = _z(a, b)
+        if abs(z) >= 1.645 or min(a["sent"], b["sent"]) >= AB_MAX:
+            if a["replied"] == b["replied"] == 0:
+                key = "opened"
+                if a["opened"] == b["opened"]:
+                    continue
+            else:
+                key = "replied"
+            winner = "A" if a[key] / a["sent"] >= b[key] / b["sent"] else "B"
+            steps[result["step"]]["winner"] = winner
+            decided.append(result["step"])
+            w, lose = (a, b) if winner == "A" else (b, a)
+            notify(
+                session, tenant_id=campaign.tenant_id, user_id=campaign.created_by, kind="system",
+                title=f"Prueba A/B de «{campaign.name}»: ganó la versión {winner}",
+                body=(f"Correo {result['step'] + 1}: {w['reply_rate']}% de respuesta frente a "
+                      f"{lose['reply_rate']}%. Desde ahora todos reciben la versión {winner}."),
+                link=f"/app/campanas/{campaign.id}",
+            )  # fmt: skip
+    if decided:
+        campaign.steps = steps
+    return decided
 
 
 def clean_settings(data: dict[str, Any]) -> dict[str, Any]:
@@ -375,6 +480,7 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
     if full:
         data.update(steps=c.steps, settings=c.settings, audience=c.audience)
         data["learning"] = learning(session, c)
+        data["ab"] = ab_results(session, c)
     return data
 
 
@@ -742,17 +848,19 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         recipient.next_send_at = None
         return True
     step = campaign.steps[recipient.step]
+    variant = pick_variant(step, recipient.id)
+    step_subject, step_body = step_content(step, variant)
     owner = session.get(User, mailbox.user_id) if mailbox.user_id else None
     sender = mailbox.display_name or (owner.full_name if owner else "") or mailbox.email
     country = COUNTRIES.get(contact.country_code or "", ("",))[0]
     values = templating.context(contact, sender, country)
-    body, _ = templating.render(templating.as_html(step["body"]), values, escape=True)
+    body, _ = templating.render(templating.as_html(step_body), values, escape=True)
     signature, _ = templating.render(templating.as_html(mailbox.signature), values, escape=True)
     if recipient.step == 0 or not recipient.first_subject:
-        subject, _ = templating.render(step["subject"], values)
+        subject, _ = templating.render(step_subject, values)
         thread_ref = None
     else:
-        custom = step["subject"].strip()
+        custom = step_subject.strip()
         subject = (
             templating.render(custom, values)[0] if custom else f"Re: {recipient.first_subject}"
         )
@@ -804,6 +912,7 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         recipient_id=recipient.id,
         mailbox_id=mailbox.id,
         step=recipient.step,
+        variant=variant,
         subject=built.subject[:300],
         gmail_id=str(sent.get("id", ""))[:100],
         thread_id=str(sent.get("threadId", ""))[:100],
@@ -1109,6 +1218,8 @@ def tick(factory: sessionmaker[Session]) -> int:
                 if mailbox.status == "active":
                     check_replies(session, campaign, mailbox)
                     _guard(session, campaign, mailbox)
+                    if any(s.get("variant_b") and not s.get("winner") for s in campaign.steps):
+                        decide_winners(session, campaign)
                 _finish_if_done(session, campaign)
     return sent
 

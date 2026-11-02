@@ -154,6 +154,7 @@ class Message(IdMixin, Base):
         UUID(as_uuid=True), ForeignKey("mailboxes.id", ondelete="SET NULL")
     )
     step: Mapped[int] = mapped_column(Integer, nullable=False)
+    variant: Mapped[str] = mapped_column(String(1), nullable=False, default="A")
     subject: Mapped[str] = mapped_column(String(300), nullable=False)
     gmail_id: Mapped[str | None] = mapped_column(String(100))
     thread_id: Mapped[str | None] = mapped_column(String(100))

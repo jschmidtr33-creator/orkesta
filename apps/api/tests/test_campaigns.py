@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from collections.abc import Iterator
 from datetime import timedelta
 from email import message_from_bytes
@@ -673,3 +674,85 @@ def test_reply_classifier(text: str, expected: str) -> None:
     from orkesta.campaigns.replies import classify
 
     assert classify(text)[0] == expected
+
+
+def test_ab_test_sends_both_versions_and_picks_winner(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch, database: tuple[str, str],
+) -> None:  # fmt: skip
+    """Prueba A/B: cada destinatario recibe una versión estable; con datos claros gana una."""
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "AB"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Versión A {{nombre}}", "body": "Hola {{nombre}}, texto A largo",
+                   "delay_days": 0,
+                   "variant_b": {"subject": "Versión B {{nombre}}", "body": "Hola, texto B"}}],
+        "audience": {"contact_ids": ids},
+    })  # fmt: skip
+    steps = client.get(f"/api/campaigns/{campaign['id']}").json()["steps"]
+    assert steps[0]["variant_b"]["subject"] == "Versión B {{nombre}}"
+    preview = client.post(f"/api/campaigns/{campaign['id']}/preview",
+                          json={"step": 0, "variant": "B"}).json()  # fmt: skip
+    assert preview["subject"].startswith("Versión B")
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
+    _flush(session_factory, 3)
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        rows = conn.execute(
+            "SELECT m.variant, m.subject, r.id FROM orkesta.campaign_messages m "
+            "JOIN orkesta.campaign_recipients r ON r.id = m.recipient_id"
+        ).fetchall()
+    assert len(rows) == 3
+    for variant, subject, rid in rows:
+        assert variant == ("B" if rid.int % 2 else "A") and subject.startswith(f"Versión {variant}")
+    data = client.get(f"/api/campaigns/{campaign['id']}").json()
+    assert data["ab"][0]["A"]["sent"] + data["ab"][0]["B"]["sent"] == 3
+
+    # Con suficiente evidencia, gana la versión con más respuestas y se avisa.
+    def results(_session: Session, _campaign: Any) -> list[dict[str, Any]]:
+        a = {"sent": 60, "opened": 30, "replied": 1, "reply_rate": 1.7, "open_rate": 50.0}
+        b = {"sent": 60, "opened": 31, "replied": 9, "reply_rate": 15.0, "open_rate": 51.7}
+        return [{"step": 0, "winner": None, "A": a, "B": b}]
+
+    monkeypatch.setattr(svc, "ab_results", results)
+    with session_factory.begin() as session:
+        from orkesta.campaigns.models import Campaign
+        from orkesta.core.db import set_context
+
+        with psycopg.connect(database[0], autocommit=True) as conn:
+            tenant = conn.execute("SELECT tenant_id FROM orkesta.campaigns WHERE id = %s",
+                                  (campaign["id"],)).fetchone()  # fmt: skip
+        assert tenant is not None
+        set_context(session, tenant_id=tenant[0])
+        row = session.get(Campaign, uuid.UUID(campaign["id"]))
+        assert row is not None
+        assert svc.decide_winners(session, row) == [0]
+        assert row.steps[0]["winner"] == "B"
+    assert svc.pick_variant({"variant_b": {"body": "x"}, "winner": "B"}, uuid.uuid4()) == "B"
+
+
+def test_copy_insights_lessons() -> None:
+    from orkesta.copywriter import insights
+
+    def item(subject: str, body: str, sent: int, replied: int) -> dict[str, Any]:
+        return {"sent": sent, "replied": replied, "features": insights._features(subject, body)}
+
+    items = [
+        item("Idea para {{empresa}}", "Hola {{nombre}}, ¿hablamos?", 50, 6),
+        item("Pregunta rápida", "Hola {{nombre}}, ¿te sirve?", 40, 5),
+        item(
+            "Propuesta de valor completa para mejorar todos tus procesos",
+            "Hola. Te escribo.",
+            60,
+            1,
+        ),
+        item("Nuestra solución líder del mercado para tu empresa hoy", "Hola. Saludos.", 50, 1),
+    ]
+    lessons = {lesson["key"]: lesson for lesson in insights.lessons(items)}
+    assert lessons["subject_short"]["good"] and "asuntos cortos" in lessons["subject_short"]["text"]
+    assert lessons["question"]["good"]
+    checks = insights.learned_checks({"lessons": list(lessons.values())},
+                                     "Una propuesta muy larga para todo tu equipo comercial", "Hola.")  # fmt: skip
+    assert any(c["status"] == "warn" for c in checks)

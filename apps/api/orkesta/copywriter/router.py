@@ -123,8 +123,28 @@ def compose(body: ComposeIn, principal: Member, db: Db) -> dict[str, Any]:
 
 
 @router.post("/analyze")
-def analyze(body: AnalyzeIn, _: Member) -> dict[str, Any]:
-    return analyzer.analyze(body.subject, body.body, step=body.step, language=body.language)
+def analyze(body: AnalyzeIn, principal: Member, db: Db) -> dict[str, Any]:
+    from orkesta.copywriter import insights
+
+    result = analyzer.analyze(body.subject, body.body, step=body.step, language=body.language)
+    if body.step == 0:
+        learned = insights.learned_checks(insights.insights(db, principal.tenant_id),
+                                          body.subject, body.body)  # fmt: skip
+        if learned:
+            result["checks"] += learned
+            total = sum(c["weight"] for c in result["checks"])
+            earned = sum(c["weight"] * {"ok": 1.0, "warn": 0.5, "bad": 0.0}[c["status"]]
+                         for c in result["checks"])  # fmt: skip
+            result["score"] = round(100 * earned / total) if total else 0
+    return result
+
+
+@router.get("/insights")
+def copy_insights(principal: Member, db: Db) -> dict[str, Any]:
+    """Lo que funciona en las campañas de la empresa (respuestas reales)."""
+    from orkesta.copywriter import insights
+
+    return insights.insights(db, principal.tenant_id)
 
 
 @router.post("/personas", status_code=201)
