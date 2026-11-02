@@ -6,6 +6,7 @@ import random
 import time
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -117,8 +118,8 @@ def test_brain_panel(client: TestClient, database: tuple[str, str],
     assert (
         cargos["method"] == "Reglas fijas" and cargos["status"][0]["label"] == "Cargos en el índice"
     )
-    blocked = client.post("/api/admin/brain/respuestas/train")
-    assert blocked.status_code == 409 and "paso 3" in blocked.json()["detail"]
+    blocked = client.post("/api/admin/brain/formato_correo/train")
+    assert blocked.status_code == 409 and "paso 4" in blocked.json()["detail"]
 
     registry.TASKS["prueba"] = _task(_titles(400), baseline=0.4)
     try:
@@ -206,3 +207,78 @@ def test_titles_model_learns_relabels_and_teaches(
     cargos = next(t for t in panel if t["name"] == "cargos")
     assert cargos["method"] == "Modelo propio v1" and cargos["feedback"] == 2
     assert cargos["active"]["extra"]["coverage_model"] > 0
+
+
+def test_replies_model_decides_asks_and_learns_privately(
+    client: TestClient, session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch, database: tuple[str, str],
+) -> None:  # fmt: skip
+    import imaplib
+    import smtplib
+    from datetime import timedelta
+    from email import message_from_bytes
+
+    import orkesta.brain.capabilities  # noqa: F401
+    from orkesta.brain import replies
+    from orkesta.campaigns import service as svc
+    from tests.test_campaigns import _contacts, _flush, _rewind
+    from tests.test_mail_providers import STEPS, FakeIMAP, FakeSMTP
+
+    # Sin modelo activo, todo sigue como antes (solo listas de frases).
+    assert replies.decide_with(None, "Lo pensaré y te aviso.").sure
+    with session_factory.begin() as session:
+        row = registry.train(session, "respuestas")
+        assert row.active and row.algorithm == "ensemble"
+        extra = row.metrics["extra"]
+        assert extra["eval_model"] > extra["eval_rules"] and extra["eval_decides"] > 0.5
+    with session_factory() as session:
+        assert replies.decide(session, "Por favor sácame de tu lista").category == "baja"
+        sure = replies.decide(session, "Agendemos una reunión el martes a las 10")
+        assert sure.category == "reunion" and sure.sure
+        assert not replies.decide(session, "Lo pensaré y te aviso.").sure
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAP)
+    monkeypatch.setattr(svc, "_in_window", lambda _s: True)
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    FakeSMTP.sent, FakeIMAP.inbox, FakeSMTP.fail = [], [], False
+    register(client, "ana@lacteos.co")
+    client.post("/api/mailboxes/smtp", json={"email": "ana@lacteos.co", "password": "clave-app",
+                                             "smtp_host": "smtp.lacteos.co"})  # fmt: skip
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Dudas"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}",
+                 json={"steps": STEPS, "audience": {"contact_ids": [ids[0]]}})  # fmt: skip
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    _flush(session_factory)
+    rfc = message_from_bytes(FakeSMTP.sent[0])["Message-ID"]
+    FakeIMAP.inbox.append(f"From: Laura <laura@bancoandino.co>\r\nSubject: Re: Hola\r\n"
+                          f"In-Reply-To: {rfc}\r\n\r\nLo pensaré y te aviso.".encode())  # fmt: skip
+    _rewind(database)
+    _flush(session_factory)
+    item = client.get(f"/api/campaigns/{campaign['id']}/recipients").json()["items"][0]
+    # La IA dudó: guarda su apuesta, no crea oportunidad y pregunta.
+    assert item["status"] == "replied" and item["reply_review"] and item["deal_id"] is None
+    titles = [n["title"] for n in client.get("/api/notifications").json()["items"]]
+    assert any(t.startswith("¿Qué quiso decir") for t in titles)
+    timeline = client.get("/api/crm/timeline", params={"contacto": item["contact_id"]}).json()
+    assert any("Confirmar qué quiso decir" in a["body"] for a in timeline)
+    fixed = client.post(f"/api/campaigns/{campaign['id']}/recipients/{item['id']}/category",
+                        json={"category": "no_ahora"})  # fmt: skip
+    assert fixed.status_code == 200
+    item = client.get(f"/api/campaigns/{campaign['id']}/recipients").json()["items"][0]
+    assert item["reply_category"] == "no_ahora" and not item["reply_review"]
+
+    # Privacidad: una palabra propia de una sola empresa nunca entra al modelo.
+    with session_factory.begin() as session:
+        registry.record_feedback(session, "respuestas", "interesado",
+                                 text="Zorbatronix nos encanta, sigamos")  # fmt: skip
+        examples = replies.build(session)
+    learned = [ex for ex in examples if ex.key.startswith("f:")]
+    assert {ex.y for ex in learned} == {"no_ahora", "interesado"}
+    assert not any("zorbatronix" in k for ex in learned for k in ex.x)
+    # Con una sola empresa, de sus correcciones solo entra el vocabulario común del curado.
+    from orkesta.brain.data import replies_seed
+
+    common = {k for text, _ in replies_seed.examples() for k in replies.features(text)}
+    assert learned and all(k in common for ex in learned for k in ex.x)

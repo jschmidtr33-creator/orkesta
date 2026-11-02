@@ -78,7 +78,9 @@ def _replies_status(session: Session) -> list[dict[str, Any]]:
     return [
         {"label": "Respuestas recibidas", "value": _num(t.get("replied", 0))},
         {"label": "Clasificadas", "value": _num(t.get("classified", 0))},
-    ]
+        {"label": "Esperando confirmación", "value": _num(t.get("review", 0)),
+         "hint": "La IA dudó y preguntó"},
+    ]  # fmt: skip
 
 
 def _patterns_status(session: Session) -> list[dict[str, Any]]:
@@ -172,12 +174,23 @@ register(_title_task(
     "«Profesional», «Gestor»).",
     _level_status,
 ))  # fmt: skip
-register(Task(
-    name="respuestas", label="Clasificador de respuestas",
-    description="Lee cada respuesta a una campaña y decide qué quiso decir la persona; aprende de "
-                "cada corrección y pregunta cuando duda.",
-    step=3, status=_replies_status, method="Listas de frases",
-))  # fmt: skip
+
+
+def _replies_task() -> Task:
+    from orkesta.brain import replies
+
+    return Task(
+        name="respuestas", label="Clasificador de respuestas",
+        description="Lee cada respuesta a una campaña y decide qué quiso decir la persona. Dos "
+                    "modelos propios deben coincidir para decidir solos; si discrepan, ORKESTA "
+                    "te pregunta. Aprende de cada corrección.",
+        step=3, status=_replies_status, method="Listas de frases",
+        build=replies.build, make=replies.make, baseline=replies.baseline,
+        predictor=replies.predictor, extras=replies.extras, threshold=0.5, min_examples=100,
+    )  # fmt: skip
+
+
+register(_replies_task())
 register(Task(
     name="formato_correo", label="Formato de correo de empresas nuevas",
     description="Predice cómo arma los correos una empresa que ORKESTA nunca vio, por país, "

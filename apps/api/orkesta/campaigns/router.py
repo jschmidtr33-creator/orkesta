@@ -562,6 +562,7 @@ def recipients(
                 "error": r.error,
                 "reply_category": r.reply_category,
                 "reply_snippet": r.reply_snippet,
+                "reply_review": r.reply_review,
                 "deal_id": str(r.deal_id) if r.deal_id else None,
             }
             for r, c in rows
@@ -606,7 +607,7 @@ def set_reply_category(
         raise HTTPException(404, "Ese destinatario no existe.")
     if data.category not in CATEGORIES:
         raise HTTPException(422, "Categoría desconocida.")
-    if data.category != recipient.reply_category:
+    if data.category != recipient.reply_category or recipient.reply_review:
         from orkesta.brain.registry import record_feedback
 
         # La corrección enseña al clasificador de respuestas (paso 3 de la IA propia).

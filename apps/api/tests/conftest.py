@@ -111,9 +111,11 @@ def _offline_mx() -> Iterator[None]:
     from orkesta.notifications import push
 
     push.ENABLED = False  # sin hilos ni red en las pruebas; push se prueba aparte
+    from orkesta.brain import registry as brain_registry
     from orkesta.brain.titles import LIVE
 
     LIVE.reset()
+    brain_registry._CACHE.clear()
     yield
     memory.MX_RESOLVER = None
 

@@ -1027,9 +1027,9 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             else:
                 recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
             continue
-        category, text = "", ""
+        category, text, sure = "", "", True
         if outcome == "replied":
-            category, text = _read_replies(texts)
+            category, text, sure = _read_replies(session, texts)
             if category == "fuera_oficina":
                 # Fuera de oficina sin el encabezado automático: la secuencia sigue.
                 recipient.error = f"Fuera de oficina: {text[:200]}" if text else None
@@ -1039,7 +1039,8 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
         if outcome == "replied" and recipient.status != "replied":
             recipient.status, recipient.replied_at, recipient.next_send_at = "replied", now(), None
             recipient.error = None
-            handle_reply(session, campaign, recipient, category, text, mailbox.user_id)
+            handle_reply(session, campaign, recipient, category, text, mailbox.user_id,
+                         review=not sure)  # fmt: skip
             found += 1
         elif outcome == "blocked":
             # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
@@ -1060,18 +1061,22 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
     return found
 
 
-def _read_replies(texts: list[str]) -> tuple[str, str]:
-    """Categoría de la respuesta más reciente que no sea un «fuera de oficina»."""
+def _read_replies(session: Session, texts: list[str]) -> tuple[str, str, bool]:
+    """(categoría, texto, segura) de la respuesta más reciente que no sea «fuera de oficina».
+
+    Decide la IA propia (modelo activo + reglas de seguridad); si duda, se pregunta."""
     import html
+
+    from orkesta.brain.replies import decide
 
     last_ooo = ""
     for raw in reversed(texts):
         text = " ".join(html.unescape(raw).split())
-        category, _confidence = replies.classify(text)
-        if category != "fuera_oficina":
-            return category, text
+        decision = decide(session, text)
+        if decision.category != "fuera_oficina":
+            return decision.category, text, decision.sure
         last_ooo = last_ooo or text
-    return ("fuera_oficina", last_ooo) if texts else ("otro", "")
+    return ("fuera_oficina", last_ooo, True) if texts else ("otro", "", True)
 
 
 def handle_reply(
@@ -1083,14 +1088,21 @@ def handle_reply(
     owner_id: uuid.UUID | None = None,
     *,
     automatic: bool = True,
+    review: bool = False,
 ) -> None:
-    """Actúa según lo que respondió la persona: oportunidad en el CRM, seguimiento o baja."""
+    """Actúa según lo que respondió la persona: oportunidad en el CRM, seguimiento o baja.
+
+    Con `review` (la IA duda) se guarda su mejor apuesta, pero no se actúa como si fuera
+    segura: se pide a la persona que confirme qué quiso decir la respuesta."""
     from orkesta.crm.service import DealInput, create_deal
 
     category = category if category in replies.CATEGORIES else "otro"
+    recipient.reply_category = category
+    recipient.reply_review = review
+    if review:
+        category = "otro"  # sin oportunidad ni baja hasta que alguien confirme
     label = replies.CATEGORIES[category]["label"]
     owner = owner_id or campaign.created_by
-    recipient.reply_category = category
     if text:
         recipient.reply_snippet = text[:500]
     tenant = campaign.tenant_id
@@ -1124,7 +1136,8 @@ def handle_reply(
     if automatic:
         notify(
             session, tenant_id=tenant, user_id=owner, kind="reply",
-            title=f"{name} respondió a «{campaign.name}» · {label}",
+            title=f"¿Qué quiso decir {name}? Confirma su respuesta a «{campaign.name}»" if review
+            else f"{name} respondió a «{campaign.name}» · {label}",
             body=text[:200] or "Revisa tu Gmail para contestar.",
             link=f"/app/crm?oportunidad={recipient.deal_id}" if recipient.deal_id
             else f"/app/campanas/{campaign.id}",
@@ -1139,6 +1152,8 @@ def handle_reply(
         "no_ahora": (timedelta(days=60), f"Retomar contacto con {name} (pidió más adelante)"),
         "otro": (timedelta(hours=4), f"Responder a {name}"),
     }.get(category)
+    if review:
+        task = (timedelta(hours=4), f"Confirmar qué quiso decir {name} (la IA no estaba segura)")
     if task is not None:
         crm_log(session, tenant_id=tenant, kind="task", user_id=owner,
                 contact_id=recipient.contact_id, deal_id=recipient.deal_id,

@@ -347,6 +347,48 @@ class Lexicon:
         return model
 
 
+# --- Ensamble: dos modelos distintos que deben coincidir --------------------------------------
+
+
+class Ensemble:
+    """Promedia varios modelos y sabe cuándo discrepan (señal honesta de duda)."""
+
+    kind = "ensemble"
+
+    def __init__(self, members: list[Any] | None = None) -> None:
+        self.members: list[Any] = members or []
+        self.labels: list[str] = []
+
+    def fit(self, xs: Sequence[Features], ys: Sequence[str]) -> Ensemble:
+        for member in self.members:
+            member.fit(xs, ys)
+        self.labels = sorted(set(ys))
+        return self
+
+    def votes(self, x: Features) -> list[tuple[str, float]]:
+        return [predict(m, x) for m in self.members]
+
+    def agree(self, x: Features) -> bool:
+        return len({label for label, _ in self.votes(x)}) == 1
+
+    def predict_proba(self, x: Features) -> dict[str, float]:
+        total: dict[str, float] = defaultdict(float)
+        for member in self.members:
+            for label, p in member.predict_proba(x).items():
+                total[label] += p / len(self.members)
+        return dict(total)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "labels": self.labels,
+                "members": [m.to_dict() for m in self.members]}  # fmt: skip
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Ensemble:
+        model = cls([KINDS[m["kind"]](m) for m in data["members"]])
+        model.labels = data["labels"]
+        return model
+
+
 def _softmax(scores: dict[str, float]) -> dict[str, float]:
     top = max(scores.values())
     exps = {k: math.exp(v - top) for k, v in scores.items()}
@@ -358,6 +400,7 @@ KINDS: dict[str, Callable[[dict[str, Any]], Model]] = {
     NaiveBayes.kind: NaiveBayes.from_dict,
     LogisticRegression.kind: LogisticRegression.from_dict,
     Lexicon.kind: Lexicon.from_dict,
+    Ensemble.kind: Ensemble.from_dict,
 }
 
 
