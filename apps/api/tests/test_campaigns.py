@@ -508,3 +508,22 @@ def test_delete_draft_and_sent_campaigns(
     assert r.status_code == 200, r.text
     assert client.get("/api/campaigns").json()["items"] == []
     assert client.get(f"/api/contacts/{ids[0]}").status_code == 200  # el contacto se conserva
+
+
+def test_sending_domain_health(client: TestClient, google: FakeGoogle) -> None:
+    from orkesta.campaigns import deliverability
+
+    records = {
+        "lacteos.co": ["v=spf1 include:_spf.google.com ~all", "google-site-verification=x"],
+        "google._domainkey.lacteos.co": [],
+        "_dmarc.lacteos.co": ["v=DMARC1; p=quarantine; rua=mailto:d@lacteos.co"],
+    }
+    deliverability.RESOLVER = lambda name: records.get(name, [])
+    try:
+        register(client, "ana@lacteos.co")
+        box = _connect(client)
+        health = client.get(f"/api/mailboxes/{box['id']}/health").json()
+    finally:
+        deliverability.RESOLVER = None
+    status = {i["id"]: i["status"] for i in health["items"]}
+    assert status == {"spf": "ok", "dkim": "bad", "dmarc": "ok"} and health["overall"] == "bad"

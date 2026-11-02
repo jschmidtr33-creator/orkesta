@@ -123,6 +123,20 @@ def mailboxes(principal: Member, db: Db) -> dict[str, Any]:
     }
 
 
+@router.get("/api/mailboxes/{mailbox_id}/health")
+def mailbox_health(mailbox_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
+    """Salud del dominio que envía (SPF, DKIM, DMARC)."""
+    from orkesta.campaigns import deliverability
+
+    mailbox = _mailbox(db, principal, mailbox_id)
+    domain = mailbox.email.rsplit("@", 1)[1].lower()
+    if domain in ("gmail.com", "googlemail.com"):
+        item = {"id": "gmail", "status": "ok", "label": "Cuenta de Gmail personal",
+                "tip": "Google gestiona la autenticación."}  # fmt: skip
+        return {"domain": domain, "overall": "ok", "items": [item]}
+    return deliverability.check(domain)
+
+
 @router.patch("/api/mailboxes/{mailbox_id}")
 def update_mailbox(
     mailbox_id: uuid.UUID, body: MailboxPatch, principal: Member, db: Db
