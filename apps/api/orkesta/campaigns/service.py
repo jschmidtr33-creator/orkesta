@@ -69,7 +69,12 @@ def now() -> datetime:
 
 
 def save_mailbox(
-    session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID, connected: gmail.Connected
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    connected: gmail.Connected,
+    provider: str = "gmail",
 ) -> Mailbox:
     mailbox = session.scalar(
         select(Mailbox).where(Mailbox.tenant_id == tenant_id, Mailbox.email == connected.email)
@@ -78,6 +83,7 @@ def save_mailbox(
         mailbox = Mailbox(tenant_id=tenant_id, email=connected.email, refresh_token="")
         session.add(mailbox)
     mailbox.user_id = user_id
+    mailbox.provider = provider
     mailbox.display_name = connected.name or mailbox.display_name
     mailbox.refresh_token = gmail.encrypt(connected.refresh_token)
     mailbox.access_token = gmail.encrypt(connected.access_token)
@@ -94,6 +100,8 @@ def mailbox_dict(m: Mailbox, sent_today: int = 0, session: Session | None = None
         "warmup_day": day,
         "id": str(m.id),
         "email": m.email,
+        "provider": m.provider,
+        "provider_label": PROVIDER_LABELS.get(m.provider, m.provider),
         "display_name": m.display_name,
         "status": m.status,
         "error": m.error,
@@ -105,12 +113,49 @@ def mailbox_dict(m: Mailbox, sent_today: int = 0, session: Session | None = None
     }
 
 
+PROVIDER_LABELS = {"gmail": "Gmail · Google Workspace", "microsoft": "Microsoft 365 · Outlook",
+                   "smtp": "Correo corporativo (SMTP)"}  # fmt: skip
+
+
 def access_token(session: Session, mailbox: Mailbox) -> str:
     if mailbox.access_token and mailbox.token_expires_at and mailbox.token_expires_at > now():
         return gmail.decrypt(mailbox.access_token)
-    token, expires = gmail.refresh_access_token(gmail.decrypt(mailbox.refresh_token))
+    from orkesta.campaigns import microsoft
+
+    refresh = (microsoft.refresh_access_token if mailbox.provider == "microsoft"
+               else gmail.refresh_access_token)  # fmt: skip
+    token, expires = refresh(gmail.decrypt(mailbox.refresh_token))
     mailbox.access_token, mailbox.token_expires_at = gmail.encrypt(token), expires
     return token
+
+
+def deliver(session: Session, mailbox: Mailbox, raw: bytes, thread_ref: str | None, to: str,
+            rfc_id: str) -> dict[str, Any]:  # fmt: skip
+    """Envía por el proveedor del buzón (Gmail, Microsoft 365 o SMTP)."""
+    from orkesta.campaigns import microsoft, smtp_mail
+
+    if mailbox.provider == "smtp":
+        config = smtp_mail.SmtpConfig.loads(mailbox.refresh_token)
+        return smtp_mail.send(config, raw, mailbox.email, to, rfc_id)
+    token = access_token(session, mailbox)
+    if mailbox.provider == "microsoft":
+        return microsoft.send(token, raw)
+    sent = gmail.send(token, raw, thread_ref)
+    sent["rfc_id"] = gmail.message_rfc_id(token, str(sent.get("id", "")))
+    return sent
+
+
+def inspect_thread(session: Session, mailbox: Mailbox, thread_id: str) -> tuple[str, list[str]]:
+    """Respuestas, rebotes y bloqueos del hilo, según el proveedor del buzón."""
+    from orkesta.campaigns import microsoft, smtp_mail
+
+    if mailbox.provider == "smtp":
+        return smtp_mail.thread_check(smtp_mail.SmtpConfig.loads(mailbox.refresh_token),
+                                      thread_id, mailbox.email)  # fmt: skip
+    token = access_token(session, mailbox)
+    if mailbox.provider == "microsoft":
+        return microsoft.thread_check(token, thread_id, mailbox.email)
+    return gmail.thread_check(token, thread_id, mailbox.email)
 
 
 def _day_start(tz: ZoneInfo) -> datetime:
@@ -889,8 +934,8 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         else None,
     )
     try:
-        token_value = access_token(session, mailbox)
-        sent = gmail.send(token_value, built.message.as_bytes(), thread_ref)
+        sent = deliver(session, mailbox, built.message.as_bytes(), thread_ref,
+                       recipient.email, built.rfc_id)  # fmt: skip
     except gmail.GmailError as exc:
         if exc.auth:
             mailbox.status, mailbox.error = "error", str(exc)[:300]
@@ -905,7 +950,7 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
             recipient.error = str(exc)[:300]
         logger.warning("campaign_send_failed %s %s", campaign.id, exc)
         return False
-    rfc_id = gmail.message_rfc_id(token_value, str(sent.get("id", ""))) or built.rfc_id
+    rfc_id = str(sent.get("rfc_id") or "") or built.rfc_id
     message = Message(
         tenant_id=campaign.tenant_id,
         campaign_id=campaign.id,
@@ -970,9 +1015,7 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
     for recipient in due:
         recipient.checked_at = now()
         try:
-            outcome, texts = gmail.thread_check(
-                access_token(session, mailbox), recipient.thread_id or "", mailbox.email
-            )
+            outcome, texts = inspect_thread(session, mailbox, recipient.thread_id or "")
         except gmail.GmailError as exc:
             if exc.auth:
                 mailbox.status, mailbox.error = "error", str(exc)[:300]

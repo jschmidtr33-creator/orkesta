@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Inicio de sesión con Google (opcional: sin estas variables se muestra «pendiente»).
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Microsoft 365 / Outlook (registro de aplicación gratuito en Microsoft Entra ID).
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
 
     # Primer administrador de la plataforma, creado en el despliegue.
     orkesta_bootstrap_admin_email: str = ""
