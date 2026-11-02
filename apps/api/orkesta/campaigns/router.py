@@ -96,6 +96,105 @@ def mail_callback(
     return back("conectado")
 
 
+# --- Microsoft 365 / Outlook -----------------------------------------------------------------
+
+
+@router.get("/api/mail/microsoft/start")
+def microsoft_start(principal: Member) -> Response:
+    from orkesta.campaigns import microsoft
+
+    if not microsoft.enabled():
+        return RedirectResponse(f"{INTEGRATIONS}?microsoft=pendiente", status_code=303)
+    nonce = secrets.token_urlsafe(16)
+    state = sign_state({"uid": str(principal.user.id), "tid": str(principal.tenant_id), "n": nonce})
+    response = RedirectResponse(microsoft.authorization_url(state, principal.user.email),
+                                status_code=303)  # fmt: skip
+    response.set_cookie(STATE_COOKIE, nonce, httponly=True, secure=get_settings().is_deployed,
+                        samesite="lax", max_age=600, path="/api/mail/microsoft")  # fmt: skip
+    return response
+
+
+@router.get("/api/mail/microsoft/callback")
+def microsoft_callback(
+    request: Request, db: Db, code: str = "", state: str = "", error: str = ""
+) -> Response:
+    from orkesta.campaigns import microsoft
+
+    def back(result: str) -> Response:
+        response = RedirectResponse(f"{INTEGRATIONS}?microsoft={result}", status_code=303)
+        response.delete_cookie(STATE_COOKIE, path="/api/mail/microsoft")
+        return response
+
+    if error or not code:
+        return back("cancelado")
+    data = read_state(state)
+    if not data or not data.get("n") or data.get("n") != request.cookies.get(STATE_COOKIE):
+        return back("error")
+    try:
+        connected = microsoft.exchange_code(code)
+    except gmail.GmailError:
+        return back("error")
+    tenant_id, user_id = uuid.UUID(data["tid"]), uuid.UUID(data["uid"])
+    set_context(db, tenant_id=tenant_id)
+    mailbox = svc.save_mailbox(db, tenant_id=tenant_id, user_id=user_id, connected=connected,
+                               provider="microsoft")  # fmt: skip
+    audit(db, tenant_id=tenant_id, actor_id=user_id, action="mailbox.connected",
+          entity_type="mailbox", entity_id=mailbox.id, ip=client_ip(request),
+          email=mailbox.email)  # fmt: skip
+    return back("conectado")
+
+
+# --- Correo corporativo (SMTP + IMAP) --------------------------------------------------------
+
+
+class SmtpIn(BaseModel):
+    email: str = Field(max_length=320)
+    display_name: str = Field(default="", max_length=160)
+    username: str = Field(default="", max_length=320)
+    password: str = Field(min_length=1, max_length=300)
+    smtp_host: str = Field(min_length=3, max_length=200)
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    imap_host: str = Field(default="", max_length=200)
+    imap_port: int = Field(default=993, ge=1, le=65535)
+
+
+smtp_limiter = RateLimiter(10, 600)
+
+
+@router.post("/api/mailboxes/smtp", status_code=201)
+def connect_smtp(body: SmtpIn, request: Request, principal: Member, db: Db) -> dict[str, Any]:
+    """Conecta un correo corporativo: prueba SMTP e IMAP antes de guardarlo (cifrado)."""
+    from orkesta.campaigns import smtp_mail
+
+    smtp_limiter.check(f"smtp:{principal.user.id}")
+    address = body.email.strip().lower()
+    if "@" not in address:
+        raise HTTPException(422, "Escribe el correo que va a enviar.")
+    config = smtp_mail.SmtpConfig(
+        username=body.username.strip() or address, password=body.password,
+        smtp_host=body.smtp_host.strip().lower(), smtp_port=body.smtp_port,
+        imap_host=body.imap_host.strip().lower(), imap_port=body.imap_port,
+    )  # fmt: skip
+    try:
+        smtp_mail.test(config)
+    except gmail.GmailError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    mailbox = db.scalar(select(Mailbox).where(Mailbox.tenant_id == principal.tenant_id,
+                                              Mailbox.email == address))  # fmt: skip
+    if mailbox is None:
+        mailbox = Mailbox(tenant_id=principal.tenant_id, email=address, refresh_token="")
+        db.add(mailbox)
+    mailbox.user_id, mailbox.provider = principal.user.id, "smtp"
+    mailbox.display_name = body.display_name.strip() or principal.user.full_name
+    mailbox.refresh_token, mailbox.access_token = config.dumps(), None
+    mailbox.status, mailbox.error = "active", None
+    db.flush()
+    audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
+          action="mailbox.connected", entity_type="mailbox", entity_id=mailbox.id,
+          ip=client_ip(request), email=address)  # fmt: skip
+    return svc.mailbox_dict(mailbox, 0, db)
+
+
 class MailboxPatch(BaseModel):
     daily_limit: int | None = Field(default=None, ge=1, le=2000)  # tope de Gmail Workspace
     signature: str | None = Field(default=None, max_length=50000)
@@ -118,8 +217,11 @@ def mailboxes(principal: Member, db: Db) -> dict[str, Any]:
         select(Mailbox).where(Mailbox.tenant_id == principal.tenant_id).order_by(Mailbox.created_at)
     ).all()
     tz = svc._tz("America/Bogota")
+    from orkesta.campaigns import microsoft
+
     return {
         "enabled": gmail.enabled(),
+        "providers": {"gmail": gmail.enabled(), "microsoft": microsoft.enabled(), "smtp": True},
         "items": [svc.mailbox_dict(m, svc.sent_today(db, m.id, tz), db) for m in rows],
     }
 

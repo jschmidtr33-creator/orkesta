@@ -75,6 +75,8 @@ type Mailbox = {
   warmup?: boolean;
   effective_limit?: number;
   warmup_day?: number | null;
+  provider?: string;
+  provider_label?: string;
 };
 type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; no_mail_domain?: number; trusted?: number; common?: number; excluded_common?: number; too_many: boolean };
 type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; html: string; missing: string[]; threaded: boolean };
@@ -152,7 +154,7 @@ function useCampaigns() {
 }
 
 export function useMailboxes() {
-  return useQuery({ queryKey: ["mailboxes"], queryFn: () => api<{ enabled: boolean; items: Mailbox[] }>("/api/mailboxes") });
+  return useQuery({ queryKey: ["mailboxes"], queryFn: () => api<{ enabled: boolean; providers?: { gmail: boolean; microsoft: boolean; smtp: boolean }; items: Mailbox[] }>("/api/mailboxes") });
 }
 
 export function CampaignsPage() {
@@ -1262,11 +1264,72 @@ function DomainHealth({ mailboxId }: { mailboxId: string }) {
   );
 }
 
+const SMTP_PRESETS: Record<string, { smtp_host: string; smtp_port: number; imap_host: string }> = {
+  "Microsoft 365 (SMTP)": { smtp_host: "smtp.office365.com", smtp_port: 587, imap_host: "outlook.office365.com" },
+  Zoho: { smtp_host: "smtp.zoho.com", smtp_port: 465, imap_host: "imap.zoho.com" },
+  "Hostinger": { smtp_host: "smtp.hostinger.com", smtp_port: 465, imap_host: "imap.hostinger.com" },
+  GoDaddy: { smtp_host: "smtpout.secureserver.net", smtp_port: 465, imap_host: "imap.secureserver.net" },
+  "Otro": { smtp_host: "", smtp_port: 587, imap_host: "" },
+};
+
+/** Correo corporativo por SMTP (envío) e IMAP (respuestas). Se prueba antes de guardar. */
+function SmtpModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const client = useQueryClient();
+  const empty = { email: "", display_name: "", username: "", password: "", smtp_host: "", smtp_port: 587, imap_host: "", imap_port: 993 };
+  const [form, setForm] = useState(empty);
+  const set = (patch: Partial<typeof empty>) => setForm((f) => ({ ...f, ...patch }));
+  const save = useMutation({
+    mutationFn: () => api("/api/mailboxes/smtp", { method: "POST", json: form }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["mailboxes"] });
+      setForm(empty);
+      onOpenChange(false);
+    },
+  });
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title="Conectar correo corporativo" description="Usa los datos SMTP e IMAP de tu proveedor. Si tu correo tiene verificación en dos pasos, crea una contraseña de aplicación.">
+      <form
+        className="grid gap-3 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        {save.error && <div className="sm:col-span-2"><Alert>{save.error.message}</Alert></div>}
+        <SelectField label="Proveedor" defaultValue="Otro" onChange={(e) => set(SMTP_PRESETS[e.target.value] ?? {})} className="sm:col-span-2">
+          {Object.keys(SMTP_PRESETS).map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </SelectField>
+        <TextField label="Correo que envía" type="email" required value={form.email} onChange={(e) => set({ email: e.target.value })} />
+        <TextField label="Nombre del remitente" value={form.display_name} onChange={(e) => set({ display_name: e.target.value })} />
+        <TextField label="Usuario (si es distinto del correo)" value={form.username} onChange={(e) => set({ username: e.target.value })} />
+        <TextField label="Contraseña o contraseña de aplicación" type="password" autoComplete="new-password" required value={form.password} onChange={(e) => set({ password: e.target.value })} />
+        <TextField label="Servidor SMTP" placeholder="smtp.tuempresa.com" required value={form.smtp_host} onChange={(e) => set({ smtp_host: e.target.value })} />
+        <TextField label="Puerto SMTP" type="number" value={form.smtp_port} onChange={(e) => set({ smtp_port: Number(e.target.value) || 587 })} hint="587 (STARTTLS) o 465 (SSL)" />
+        <TextField label="Servidor IMAP (respuestas)" placeholder="imap.tuempresa.com" value={form.imap_host} onChange={(e) => set({ imap_host: e.target.value })} />
+        <TextField label="Puerto IMAP" type="number" value={form.imap_port} onChange={(e) => set({ imap_port: Number(e.target.value) || 993 })} />
+        <p className="text-[12px] text-ork-mist sm:col-span-2">La contraseña se guarda cifrada. ORKESTA prueba el envío y la lectura antes de guardar el buzón.</p>
+        <div className="sm:col-span-2">
+          <Button type="submit" loading={save.isPending} disabled={!form.email || !form.password || !form.smtp_host}>
+            Probar y conectar
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export function GmailCard() {
   const boxes = useMailboxes();
   const client = useQueryClient();
   const params = new URLSearchParams(window.location.search);
-  const result = params.get("gmail");
+  const result = params.get("gmail") ?? params.get("microsoft");
+  const via = params.get("microsoft") ? "Microsoft" : "Google";
+  const [smtpOpen, setSmtpOpen] = useState(false);
+  const providers = boxes.data?.providers;
   const patch = useMutation({
     mutationFn: ({ id, ...json }: { id: string; daily_limit?: number; signature?: string; warmup?: boolean }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["mailboxes"] }),
@@ -1279,23 +1342,37 @@ export function GmailCard() {
   return (
     <Card>
       <CardHeader
-        title="Gmail para campañas"
-        description="Cada vendedor conecta su propio buzón. ORKESTA envía en su nombre y lee solo los hilos de las campañas para detectar respuestas y rebotes."
-        action={
-          enabled ? (
-            <a href="/api/mail/google/start">
-              <Button size="sm" icon={<Mail className="size-4" aria-hidden />}>
-                {boxes.data?.items.length ? "Conectar otro" : "Conectar Gmail"}
-              </Button>
-            </a>
-          ) : (
-            <Badge tone="warn">Pendiente de configuración</Badge>
-          )
-        }
+        title="Buzones para campañas"
+        description="Cada vendedor conecta su propio correo: Gmail, Microsoft 365 / Outlook o cualquier correo corporativo. ORKESTA envía en su nombre y lee solo los hilos de las campañas para detectar respuestas y rebotes."
       />
-      {result === "conectado" && <Alert tone="ok">Gmail conectado. Ya puedes lanzar campañas.</Alert>}
-      {result === "error" && <Alert>Google no completó la conexión. Inténtalo de nuevo y acepta los permisos de envío y lectura.</Alert>}
-      {result === "cancelado" && <Alert tone="blue">Cancelaste la conexión con Google.</Alert>}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {enabled ? (
+          <a href="/api/mail/google/start">
+            <Button size="sm" icon={<Mail className="size-4" aria-hidden />}>
+              Conectar Gmail
+            </Button>
+          </a>
+        ) : (
+          <Badge tone="warn">Gmail pendiente de configuración</Badge>
+        )}
+        {providers?.microsoft ? (
+          <a href="/api/mail/microsoft/start">
+            <Button size="sm" variant="secondary" icon={<Mail className="size-4" aria-hidden />}>
+              Conectar Microsoft 365 / Outlook
+            </Button>
+          </a>
+        ) : (
+          <Badge tone="warn">Microsoft 365 pendiente de configuración</Badge>
+        )}
+        <Button size="sm" variant="secondary" icon={<Mail className="size-4" aria-hidden />} onClick={() => setSmtpOpen(true)}>
+          Conectar otro correo (SMTP)
+        </Button>
+      </div>
+      {result === "conectado" && <Alert tone="ok">Buzón conectado. Ya puedes lanzar campañas.</Alert>}
+      {result === "error" && <Alert>{via} no completó la conexión. Inténtalo de nuevo y acepta los permisos de envío y lectura.</Alert>}
+      {result === "cancelado" && <Alert tone="blue">Cancelaste la conexión con {via}.</Alert>}
+      {result === "pendiente" && <Alert tone="blue">La conexión con {via} aún no está configurada por la administración de ORKESTA.</Alert>}
+      <SmtpModal open={smtpOpen} onOpenChange={setSmtpOpen} />
       {!enabled && (
         <p className="text-[13px] text-ork-mist">
           En Render agrega GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y PUBLIC_BASE_URL, y en Google Cloud la URI de redirección
@@ -1307,7 +1384,9 @@ export function GmailCard() {
           <li key={m.id} className="rounded-xl border border-ork-line p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-[14px] font-semibold text-ork-ink">{m.email}</p>
+                <p className="text-[14px] font-semibold text-ork-ink">
+                  {m.email} {m.provider_label && <span className="ml-1 text-[12px] font-normal text-ork-mist">· {m.provider_label}</span>}
+                </p>
                 <p className="text-[12.5px] text-ork-mist">
                   {m.sent_today} enviados hoy de {m.effective_limit ?? m.daily_limit}
                   {m.warmup && m.warmup_day ? ` · calentamiento, día ${m.warmup_day}` : ""}

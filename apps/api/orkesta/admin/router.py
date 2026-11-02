@@ -272,6 +272,12 @@ def integrations(
             "detail": "GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET",
         },
         {
+            "key": "microsoft",
+            "name": "Microsoft 365 / Outlook (campañas)",
+            "ok": bool(s.microsoft_client_id and s.microsoft_client_secret),
+            "detail": "MICROSOFT_CLIENT_ID y MICROSOFT_CLIENT_SECRET",
+        },
+        {
             "key": "public_url",
             "name": "URL pública",
             "ok": bool(s.public_base_url),
