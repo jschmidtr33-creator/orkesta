@@ -212,7 +212,14 @@ def test_full_campaign_flow(
 
     # Respuesta del cliente → se detecta en el hilo.
     thread = google.sent[0]["id"].replace("m-", "th-")
-    google.reply(thread, "Laura <laura@bancoandino.co>")
+    google.reply(thread, "Laura <laura@bancoandino.co>",
+                 snippet="Estoy fuera de la oficina hasta el lunes.")  # fmt: skip
+    _rewind(database)
+    _flush(session_factory)
+    # Un «fuera de oficina» escrito a mano no detiene la secuencia.
+    assert client.get(f"/api/campaigns/{campaign['id']}").json()["stats"]["replied"] == 0
+    google.reply(thread, "Laura <laura@bancoandino.co>",
+                 snippet="Hola, me interesa. ¿Agendamos una llamada el jueves?")  # fmt: skip
     _rewind(database)
     _flush(session_factory)
     stats = client.get(f"/api/campaigns/{campaign['id']}").json()["stats"]
@@ -223,6 +230,16 @@ def test_full_campaign_flow(
     timeline = client.get("/api/crm/timeline", params={"contacto": replied["contact_id"]}).json()
     assert any("Respondió a la campaña" in a["body"] for a in timeline)
     assert any(a["type"] == "task" for a in timeline)
+    # Clasificada sola: quiere reunión → oportunidad en el CRM con su tarea.
+    assert replied["reply_category"] == "reunion" and replied["deal_id"]
+    assert stats["replies"]["reunion"] == 1 and stats["replies"]["deals"] == 1
+    deals = client.get("/api/crm/deals", params={"contacto": replied["contact_id"]}).json()
+    assert len(deals["deals"]) == 1
+    assert any(a["type"] == "task" and "reunión" in a["body"] for a in timeline)
+    # Corregir la clasificación no duplica la oportunidad.
+    fix = client.post(f"/api/campaigns/{campaign['id']}/recipients/{replied['id']}/category",
+                      json={"category": "interesado"})  # fmt: skip
+    assert fix.json()["deal_id"] == replied["deal_id"]
 
     # Baja con un clic desde el correo.
     other = next(s for s in google.sent if s["id"] == "m-2")["msg"]
@@ -630,3 +647,29 @@ def test_remote_prober(monkeypatch: pytest.MonkeyPatch) -> None:
     bad = RemoteProber("https://10.0.0.5:8443", "tok", "00" * 32)
     with pytest.raises(SmtpUnavailable):
         bad.probe("mx.x.co", ["a@x.co"])
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Hola Ana, me interesa. ¿Podemos agendar una llamada el martes a las 10?", "reunion"),
+        ("Gracias, envíame más información y precios por favor", "mas_info"),
+        ("No me interesa, gracias.", "no_interesado"),
+        ("Ya trabajamos con otro proveedor.", "no_interesado"),
+        ("Por favor elimíname de tu lista, no me escribas más", "baja"),
+        (
+            "No soy la persona indicada, te paso el contacto de Juan, encargado de compras",
+            "referido",
+        ),
+        ("Ahora no es buen momento, escríbeme el próximo año", "no_ahora"),
+        ("Estoy de vacaciones, regreso el 15 de noviembre", "fuera_oficina"),
+        ("Sounds interesting, I'm interested", "interesado"),
+        ("Unsubscribe", "baja"),
+        ("Recibido", "otro"),
+        ("Me parece interesante.\nEl lun, 2 nov 2026 escribió: no me interesa", "interesado"),
+    ],
+)
+def test_reply_classifier(text: str, expected: str) -> None:
+    from orkesta.campaigns.replies import classify
+
+    assert classify(text)[0] == expected

@@ -449,6 +449,9 @@ def recipients(
                     else None
                 ),
                 "error": r.error,
+                "reply_category": r.reply_category,
+                "reply_snippet": r.reply_snippet,
+                "deal_id": str(r.deal_id) if r.deal_id else None,
             }
             for r, c in rows
         ],
@@ -472,6 +475,31 @@ def stop_recipient(
         if replied:
             recipient.replied_at = svc.now()
     return {"ok": True}
+
+
+class ReplyCategoryIn(BaseModel):
+    category: str = Field(max_length=20)
+
+
+@router.post("/api/campaigns/{campaign_id}/recipients/{recipient_id}/category")
+def set_reply_category(
+    campaign_id: uuid.UUID, recipient_id: uuid.UUID, data: ReplyCategoryIn,
+    principal: Member, db: Db,
+) -> dict[str, Any]:  # fmt: skip
+    """Corrige la clasificación de una respuesta; si pasa a positiva, crea la oportunidad."""
+    from orkesta.campaigns.replies import CATEGORIES
+
+    campaign = _campaign(db, principal, campaign_id)
+    recipient = db.get(Recipient, recipient_id)
+    if recipient is None or recipient.campaign_id != campaign.id:
+        raise HTTPException(404, "Ese destinatario no existe.")
+    if data.category not in CATEGORIES:
+        raise HTTPException(422, "Categoría desconocida.")
+    if recipient.replied_at is None:
+        recipient.status, recipient.replied_at, recipient.next_send_at = "replied", svc.now(), None
+    svc.handle_reply(db, campaign, recipient, data.category, "", principal.user.id,
+                     automatic=False)  # fmt: skip
+    return {"ok": True, "deal_id": str(recipient.deal_id) if recipient.deal_id else None}
 
 
 class SuppressionIn(BaseModel):

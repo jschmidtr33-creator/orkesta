@@ -243,6 +243,11 @@ def classify_bounce(text: str) -> str:
 
 def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str:
     """«replied», «bounced», «blocked» o «» según los mensajes del hilo en Gmail."""
+    return thread_check(access_token, thread_id, mailbox_email)[0]
+
+
+def thread_check(access_token: str, thread_id: str, mailbox_email: str) -> tuple[str, list[str]]:
+    """Resultado del hilo y el texto (resumen de Gmail) de cada respuesta de la persona."""
     with _client() as client:
         response = client.get(
             f"{API}/threads/{thread_id}",
@@ -253,8 +258,8 @@ def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str
     if response.status_code == 401:
         raise GmailError("El permiso del buzón venció; reconéctalo.", auth=True)
     if response.status_code != 200:
-        return ""
-    outcome = ""
+        return "", []
+    outcome, replies = "", []
     for message in response.json().get("messages", []):
         headers = {str(h.get("name", "")).lower(): str(h.get("value", ""))
                    for h in message.get("payload", {}).get("headers", [])}  # fmt: skip
@@ -270,5 +275,5 @@ def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str
             continue
         if headers.get("auto-submitted", "no").lower() not in ("", "no"):
             continue  # respuestas automáticas (fuera de oficina) no detienen la secuencia
-        return "replied"
-    return outcome
+        replies.append(str(message.get("snippet", "")))
+    return ("replied" if replies else outcome), replies
