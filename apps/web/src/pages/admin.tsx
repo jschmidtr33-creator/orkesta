@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ArrowLeft,
+  Brain,
   Building2,
   CheckCircle2,
   Database,
@@ -43,6 +44,7 @@ const NAV: Item[] = [
   { to: "/admin/configuracion", label: "Configuración", icon: Settings2, perm: "configuracion" },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug, perm: "integraciones" },
   { to: "/admin/directorio", label: "Directorio de empresas", icon: Database, perm: "directorio" },
+  { to: "/admin/ia", label: "IA propia · Cerebro", icon: Brain, perm: "ia" },
   { to: "/admin/equipo", label: "Equipo y permisos", icon: UserCog, perm: "" },
   { to: "/admin/bitacora", label: "Bitácora", icon: ScrollText, perm: "bitacora" },
 ];
@@ -107,6 +109,7 @@ export function AdminApp() {
         <Route path="configuracion" element={<Guard me={me.data} perm="configuracion"><SettingsPage /></Guard>} />
         <Route path="integraciones" element={<Guard me={me.data} perm="integraciones"><Integrations /></Guard>} />
         <Route path="directorio" element={<Guard me={me.data} perm="directorio"><DirectoryPage /></Guard>} />
+        <Route path="ia" element={<Guard me={me.data} perm="ia"><BrainPage /></Guard>} />
         <Route path="equipo" element={<Team />} />
         <Route path="bitacora" element={<Guard me={me.data} perm="bitacora"><Audit /></Guard>} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
@@ -959,6 +962,204 @@ type AppSettings = {
   limits: Record<string, { contacts: number; emails_per_day: number; users: number }>;
 };
 
+// --- IA propia · Cerebro ---------------------------------------------------------------------
+
+type BrainVersion = {
+  version: number;
+  algorithm: string;
+  active: boolean;
+  trigger: string;
+  trained_at: string;
+  accuracy: number | null;
+  macro_f1: number | null;
+  baseline: number | null;
+  n_train: number;
+  n_test: number;
+  notes: string;
+  duration_ms: number;
+};
+type BrainTask = {
+  name: string;
+  label: string;
+  description: string;
+  step: number;
+  trainable: boolean;
+  method: string;
+  status: { label: string; value: string; hint?: string }[];
+  feedback: number;
+  active:
+    | (BrainVersion & {
+        threshold: number;
+        confident: { threshold: number; coverage: number; accuracy: number } | null;
+        per_label: Record<string, { precision: number; recall: number; f1: number; support: number }> | null;
+        confusions: [string, string, number][] | null;
+        size_kb: number;
+      })
+    | null;
+  history: BrainVersion[];
+  running: { state: "running" | "done" | "error"; error?: string; version?: number; active?: boolean } | null;
+};
+type BrainData = { tasks: BrainTask[]; nightly: string | null; schedule: string };
+
+const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 1000) / 10} %`);
+const ALGORITHMS: Record<string, string> = { naive_bayes: "Naive Bayes", logistic: "Regresión logística" };
+
+function AccuracyBar({ label, value, tone }: { label: string; value: number | null; tone: "model" | "rules" }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[12.5px]">
+        <span className="font-semibold text-ork-graphite">{label}</span>
+        <span className="font-bold text-ork-ink">{pct(value)}</span>
+      </div>
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-ork-ink/5">
+        <div
+          className={cx("h-full rounded-full", tone === "model" ? "bg-gradient-to-r from-[#2563EB] to-[#8B5CF6]" : "bg-ork-mist/50")}
+          style={{ width: `${Math.max(2, (value ?? 0) * 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }) {
+  const client = useQueryClient();
+  const train = useMutation({ mutationFn: () => api(`/api/admin/brain/${task.name}/train`, { method: "POST" }), onSuccess: onChange });
+  const activate = useMutation({
+    mutationFn: (version: number) => api<BrainData>(`/api/admin/brain/${task.name}/versions/${version}/activate`, { method: "POST" }),
+    onSuccess: (data) => client.setQueryData(["admin-brain"], data),
+  });
+  const a = task.active;
+  const running = task.running?.state === "running";
+  const gain = a?.accuracy != null && a.baseline != null ? a.accuracy - a.baseline : null;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-2xl">
+          <h2 className="text-[16px] font-bold text-ork-ink">{task.label}</h2>
+          <p className="mt-0.5 text-[13px] text-ork-mist">{task.description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone={a ? "violet" : "neutral"}>{task.method}</Badge>
+          {task.trainable ? (
+            <Button size="sm" variant="secondary" loading={running || train.isPending} onClick={() => train.mutate()}>
+              {running ? "Entrenando…" : "Entrenar ahora"}
+            </Button>
+          ) : (
+            <Badge tone="blue">Modelo en el paso {task.step}</Badge>
+          )}
+        </div>
+      </div>
+      {train.error && <div className="mt-3"><Alert>{train.error.message}</Alert></div>}
+      {task.running?.state === "error" && <div className="mt-3"><Alert>{task.running.error}</Alert></div>}
+      {task.running?.state === "done" && task.running.active === false && (
+        <div className="mt-3"><Alert tone="blue">La versión {task.running.version} se entrenó pero no se activó: no superó a la versión activa o a las reglas.</Alert></div>
+      )}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {task.status.map((s) => (
+          <div key={s.label} className="rounded-xl bg-ork-ink/[0.03] px-3 py-2.5">
+            <p className="text-[11.5px] font-semibold text-ork-mist">{s.label}</p>
+            <p className="text-[18px] font-bold text-ork-ink">{s.value}</p>
+            {s.hint && <p className="text-[11.5px] text-ork-mist">{s.hint}</p>}
+          </div>
+        ))}
+        <div className="rounded-xl bg-ork-ink/[0.03] px-3 py-2.5">
+          <p className="text-[11.5px] font-semibold text-ork-mist">Correcciones de personas</p>
+          <p className="text-[18px] font-bold text-ork-ink">{n(task.feedback)}</p>
+          <p className="text-[11.5px] text-ork-mist">Ejemplos para aprender</p>
+        </div>
+      </div>
+      {a && (
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-3">
+            <AccuracyBar label={`Modelo v${a.version}`} value={a.accuracy} tone="model" />
+            <AccuracyBar label="Reglas (método anterior)" value={a.baseline} tone="rules" />
+            <p className="text-[12.5px] text-ork-mist">
+              Medido en {n(a.n_test)} casos que el modelo no vio al entrenar.
+              {gain != null && (
+                <strong className={cx("ml-1", gain >= 0 ? "text-ok" : "text-bad")}>
+                  {gain >= 0 ? "+" : ""}
+                  {Math.round(gain * 1000) / 10} puntos frente a las reglas.
+                </strong>
+              )}
+            </p>
+            {a.confident && (
+              <p className="rounded-xl bg-ork-blue/5 px-3 py-2 text-[12.5px] text-ork-graphite">
+                Decide solo en el <strong>{pct(a.confident.coverage)}</strong> de los casos, con un acierto de <strong>{pct(a.confident.accuracy)}</strong>; en el resto
+                duda y deja la decisión a las reglas o a una persona.
+              </p>
+            )}
+            <p className="text-[12px] text-ork-mist">
+              {ALGORITHMS[a.algorithm] ?? a.algorithm} · {n(a.n_train)} ejemplos de entrenamiento · {a.size_kb} KB · entrenado {formatWhen(a.trained_at)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[12.5px] font-semibold text-ork-graphite">Versiones</p>
+            <ul className="mt-1.5 divide-y divide-ork-line text-[13px]">
+              {task.history.map((v) => (
+                <li key={v.version} className="flex items-center justify-between gap-3 py-2">
+                  <span className="min-w-0">
+                    <span className="font-semibold text-ork-ink">v{v.version}</span>
+                    <span className="ml-2 text-ork-mist">
+                      {pct(v.accuracy)} · {v.trigger === "nocturno" ? "nocturno" : "manual"} · {formatWhen(v.trained_at)}
+                    </span>
+                    {v.notes && <span className="block text-[12px] text-ork-mist">{v.notes}</span>}
+                  </span>
+                  {v.active ? (
+                    <Badge tone="ok">Activa</Badge>
+                  ) : (
+                    <Button size="sm" variant="ghost" loading={activate.isPending && activate.variables === v.version} onClick={() => activate.mutate(v.version)}>
+                      Activar
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {a.confusions && a.confusions.length > 0 && (
+              <>
+                <p className="mt-3 text-[12.5px] font-semibold text-ork-graphite">Confusiones más frecuentes</p>
+                <ul className="mt-1 text-[12.5px] text-ork-mist">
+                  {a.confusions.slice(0, 4).map(([real, pred, count]) => (
+                    <li key={`${real}-${pred}`}>
+                      {real} → {pred}: {count}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function BrainPage() {
+  const q = useQuery({
+    queryKey: ["admin-brain"],
+    queryFn: () => api<BrainData>("/api/admin/brain"),
+    refetchInterval: (query) => (query.state.data?.tasks.some((t) => t.running?.state === "running") ? 2000 : false),
+  });
+  return (
+    <>
+      <Title
+        title="IA propia · Cerebro"
+        description={`Lo que ORKESTA aprende de los datos de la plataforma, sin servicios externos. Un modelo nuevo solo se activa si acierta más que las reglas y que la versión anterior. Reentrenamiento automático: ${q.data?.schedule ?? "todas las noches"}.${q.data?.nightly ? ` Última revisión: ${q.data.nightly}.` : ""}`}
+      />
+      {!q.data ? (
+        <Card>
+          <Spinner />
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {q.data.tasks.map((t) => (
+            <BrainCard key={t.name} task={t} onChange={() => q.refetch()} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function Toggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-ork-line p-4">
@@ -1229,6 +1430,8 @@ const ACTIONS: Record<string, string> = {
   "tenant.suspended": "suspendió la empresa",
   "tenant.active": "reactivó la empresa",
   "tenant.plan": "cambió el plan de",
+  "brain.train": "entrenó el modelo",
+  "brain.activate": "activó la versión",
   "user.suspended": "suspendió a",
   "user.active": "reactivó a",
   "user.logout": "cerró las sesiones de",

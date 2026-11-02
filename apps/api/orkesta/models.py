@@ -4,6 +4,7 @@
 def load_all() -> None:
     import orkesta.admin.models
     import orkesta.automation.models
+    import orkesta.brain.models
     import orkesta.campaigns.models
     import orkesta.copywriter.models
     import orkesta.crm.models

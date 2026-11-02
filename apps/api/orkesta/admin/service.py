@@ -31,6 +31,7 @@ PERMISSIONS = {
     "integraciones": "Ver el estado de las integraciones",
     "bitacora": "Ver la bitácora del equipo",
     "directorio": "Directorio de empresas: cargar registros públicos",
+    "ia": "IA propia: ver y entrenar los modelos",
 }
 DEFAULT_MATRIX = {
     "admin": list(PERMISSIONS),

@@ -336,6 +336,52 @@ def put_app_settings(
 Directory = Annotated[Principal, Depends(require("directorio"))]
 
 
+Brain = Annotated[Principal, Depends(require("ia"))]
+
+
+def _brain() -> None:
+    import orkesta.brain.capabilities  # noqa: F401  (registra las capacidades)
+
+
+@router.get("/brain")
+def brain_overview(principal: Brain, db: Db) -> dict[str, Any]:
+    from orkesta.brain import registry
+
+    _brain()
+    return registry.overview(db)
+
+
+@router.post("/brain/{task}/train", status_code=202)
+def brain_train(task: str, request: Request, principal: Brain, db: Db) -> dict[str, Any]:
+    from orkesta.brain import registry
+
+    _brain()
+    if task not in registry.TASKS:
+        raise HTTPException(404, "Esa capacidad no existe.")
+    if registry.TASKS[task].build is None:
+        raise HTTPException(409, f"El modelo de esta capacidad llega en el paso "
+                                 f"{registry.TASKS[task].step} del plan.")  # fmt: skip
+    try:
+        registry.train_async(request.app.state.session_factory, task)
+    except registry.BrainError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    svc.log(db, principal.user, "brain.train", task)
+    return {"ok": True}
+
+
+@router.post("/brain/{task}/versions/{version}/activate")
+def brain_activate(task: str, version: int, principal: Brain, db: Db) -> dict[str, Any]:
+    from orkesta.brain import registry
+
+    _brain()
+    try:
+        registry.activate(db, task, version)
+    except registry.BrainError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    svc.log(db, principal.user, "brain.activate", f"{task} v{version}")
+    return registry.overview(db)
+
+
 @router.get("/directory")
 def directory_overview(principal: Directory, db: Db) -> dict[str, Any]:
     from orkesta.research import directory
