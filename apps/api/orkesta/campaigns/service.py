@@ -1140,6 +1140,12 @@ class Scheduler(threading.Thread):
                     purge_all_unsaved(self.factory)
                 except Exception:
                     logger.exception("research_purge_failed")
+                try:
+                    from orkesta.research.directory import maybe_refresh
+
+                    maybe_refresh(self.factory)
+                except Exception:
+                    logger.exception("directory_refresh_failed")
 
     def stop(self) -> None:
         self.stop_event.set()
