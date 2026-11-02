@@ -651,6 +651,7 @@ type DirectoryData = {
   countries: { country: string; companies: number; with_domain: number }[];
   presets: { id: string; label: string; country: string; source: string; last: ImportInfo | null; live: ImportInfo | null }[];
   uploads: { id: string; last: ImportInfo | null; live: ImportInfo | null }[];
+  crawler?: { by_status: Record<string, number>; patterns: number; running: boolean; last_run?: string; last_batch?: number };
 };
 const COUNTRY_OPTIONS: [string, string][] = [
   ["CO", "Colombia"], ["MX", "México"], ["PE", "Perú"], ["CL", "Chile"], ["AR", "Argentina"], ["EC", "Ecuador"],
@@ -680,6 +681,35 @@ type TrainResult = {
   evaluation: { evaluated: number; accuracy: number; baseline: number };
   errors: string[];
 };
+
+/** Rastreador propio: lee los sitios oficiales de las empresas del directorio. */
+function CrawlerCard({ crawler, onStart }: { crawler: NonNullable<DirectoryData["crawler"]>; onStart: () => void }) {
+  const crawl = useMutation({ mutationFn: () => api("/api/admin/directory/crawl", { method: "POST" }), onSuccess: onStart });
+  const s = crawler.by_status;
+  const read = s.leido ?? 0;
+  const pending = s.pendiente ?? 0;
+  const failed = (s.sin_acceso ?? 0) + (s.bloqueado ?? 0) + (s.error ?? 0);
+  return (
+    <Card className="mt-4">
+      <CardHeader
+        title="Rastreador de sitios web"
+        description="ORKESTA lee solo, poco a poco y respetando robots.txt, el sitio oficial de cada empresa del directorio: teléfono, correo general, LinkedIn, tamaño, descripción y formato de correo. Unas 1.700 empresas al día."
+        action={
+          <Button size="sm" variant="secondary" loading={crawl.isPending} disabled={crawler.running} onClick={() => crawl.mutate()}>
+            {crawler.running ? "Leyendo sitios…" : "Rastrear ahora"}
+          </Button>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Stat label="Sitios leídos" value={n(read)} />
+        <Stat label="Formatos de correo aprendidos" value={n(crawler.patterns)} />
+        <Stat label="Pendientes" value={n(pending)} />
+        <Stat label="Sin acceso" value={n(failed)} hint="Sitios caídos, bloqueados o solo con JavaScript" />
+      </div>
+      {crawler.last_run && <p className="mt-3 text-[12.5px] text-ork-mist">Última tanda: {formatWhen(crawler.last_run)} · {crawler.last_batch ?? 0} sitios.</p>}
+    </Card>
+  );
+}
 
 /** Entrena la IA con bases reales: solo se guarda lo aprendido de cada empresa. */
 function TrainCard({ onDone }: { onDone: () => void }) {
@@ -792,6 +822,7 @@ function DirectoryPage() {
           ))}
         </ul>
       </Card>
+      {d?.crawler && <CrawlerCard crawler={d.crawler} onStart={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />
       <Card className="mt-4">
         <CardHeader

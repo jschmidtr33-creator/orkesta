@@ -695,6 +695,7 @@ def _site(
                     prospect.email_status = "publicado"
         _publish(run, prospect, filters)
     company.people_found = len(run.people.get(company.key, []))
+    website.learn_patterns(fetcher, result)
     run.save_company(company, filters.country)
 
 
@@ -1239,6 +1240,11 @@ def from_directory(run: Run, filters: Filters) -> list[Candidate]:
             location=", ".join(p for p in (e.city, e.region) if p),
             sources=[{"type": "registro", "label": f"{label}{detail}", "url": ""}],
         ))  # fmt: skip
+        site = e.website or (f"https://{e.domain}" if e.domain else "")
+        if e.phone:
+            out[-1].phones[e.phone] = site
+        if e.company_email:
+            out[-1].emails[e.company_email] = site
     if out:
         run.log(f"{len(out)} empresas del directorio propio de ORKESTA cumplen tus filtros.")
     return out

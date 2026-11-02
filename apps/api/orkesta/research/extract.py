@@ -65,6 +65,8 @@ class Document:
     links: list[tuple[str, str]] = field(default_factory=list)  # (href, texto)
     json_ld: list[Any] = field(default_factory=list)
     site_name: str = ""
+    description: str = ""
+    protected_emails: list[str] = field(default_factory=list)  # protegidos por Cloudflare
 
 
 class _Parser(HTMLParser):
@@ -92,11 +94,22 @@ class _Parser(HTMLParser):
         if tag in SKIP_TAGS:
             self._skip += 1
             return
+        if values.get("data-cfemail"):
+            decoded = decode_cfemail(values["data-cfemail"])
+            if decoded:
+                self.doc.protected_emails.append(decoded)
         if tag == "title":
             self._in_title = True
         elif tag == "meta" and values.get("property") == "og:site_name":
             self.doc.site_name = clean(values.get("content"))[:200]
+        elif tag == "meta" and (values.get("name") == "description"
+                                or values.get("property") == "og:description"):  # fmt: skip
+            self.doc.description = self.doc.description or clean(values.get("content"))[:400]
         elif tag == "a" and values.get("href"):
+            if "/cdn-cgi/l/email-protection#" in values["href"]:
+                decoded = decode_cfemail(values["href"].rsplit("#", 1)[1])
+                if decoded:
+                    self.doc.protected_emails.append(decoded)
             if values["href"].startswith(("mailto:", "tel:")):
                 self.doc.links.append((values["href"], ""))
             else:
@@ -138,6 +151,30 @@ class _Parser(HTMLParser):
     def close(self) -> None:
         super().close()
         self._flush()
+
+
+def decode_cfemail(value: str) -> str:
+    """Correo protegido por Cloudflare (data-cfemail): XOR con el primer byte."""
+    try:
+        data = bytes.fromhex(value.strip())
+    except ValueError:
+        return ""
+    if len(data) < 4:
+        return ""
+    text = bytes(b ^ data[0] for b in data[1:]).decode("utf-8", errors="ignore")
+    return text if "@" in text else ""
+
+
+# «juan [arroba] empresa [punto] com», «juan (at) empresa (dot) com», «juan arroba empresa.com»
+_AT = re.compile(r"\s*(?:[\[\(\{<]\s*(?:at|arroba|@)\s*[\]\)\}>]|\s(?:arroba|\(at\))\s)\s*",
+                 re.IGNORECASE)  # fmt: skip
+_DOT = re.compile(r"\s*[\[\(\{<]\s*(?:dot|punto|\.)\s*[\]\)\}>]\s*", re.IGNORECASE)
+
+
+def deobfuscate(text: str) -> str:
+    if not _AT.search(text):
+        return text
+    return _DOT.sub(".", _AT.sub("@", text))
 
 
 def parse_html(html: str) -> Document:
@@ -446,7 +483,8 @@ def emails_in(doc: Document, domain: str) -> set[str]:
     """Correos del dominio de la empresa publicados en la página."""
     found: set[str] = set()
     texts = [href[7:].split("?")[0] for href, _ in doc.links if href.lower().startswith("mailto:")]
-    texts += [m.group(0) for line in doc.lines for m in EMAIL.finditer(line)]
+    texts += [m.group(0) for line in doc.lines for m in EMAIL.finditer(deobfuscate(line))]
+    texts += doc.protected_emails
     for value in texts:
         email = unescape(value).strip().lower().strip(".")
         if EMAIL.fullmatch(email) and (

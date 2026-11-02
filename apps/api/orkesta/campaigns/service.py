@@ -1146,6 +1146,12 @@ class Scheduler(threading.Thread):
                     maybe_refresh(self.factory)
                 except Exception:
                     logger.exception("directory_refresh_failed")
+                try:
+                    from orkesta.research.crawler import start_batch
+
+                    start_batch(self.factory)
+                except Exception:
+                    logger.exception("crawler_failed")
 
     def stop(self) -> None:
         self.stop_event.set()
