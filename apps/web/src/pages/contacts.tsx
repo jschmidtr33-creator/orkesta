@@ -132,9 +132,10 @@ export function ContactsPage() {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
-    next.delete("pagina");
-    setParams(next, { replace: true });
+    if (key !== "pagina") next.delete("pagina");
+    setParams(next, { replace: key !== "pagina" });
     setSelected(new Set());
+    if (key === "pagina") window.scrollTo({ top: 0, behavior: "smooth" });
   };
   useEffect(() => {
     if ((params.get("q") ?? "") !== query) setFilter("q", query);
