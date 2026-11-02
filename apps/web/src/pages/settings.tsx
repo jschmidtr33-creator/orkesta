@@ -19,6 +19,7 @@ import {
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
 import { GmailCard } from "./campaigns";
+import { DigestCard, PushCard, TwoFactorCard } from "./security-settings";
 import { formatWhen } from "./dashboard";
 
 type Team = {
@@ -88,6 +89,9 @@ type Profile = {
   timezone: string;
   avatar_url: string | null;
   has_password: boolean;
+  mfa_enabled: boolean;
+  recovery_left: number;
+  digest_enabled: boolean;
 };
 
 const TIMEZONES = [
@@ -233,6 +237,9 @@ function ProfileSettings() {
             </div>
           </form>
         </Card>
+        <TwoFactorCard profile={q.data} />
+        <DigestCard profile={q.data} />
+        <PushCard />
       </div>
     </div>
   );

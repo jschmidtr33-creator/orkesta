@@ -1306,6 +1306,12 @@ class Scheduler(threading.Thread):
                     start_batch(self.factory)
                 except Exception:
                     logger.exception("crawler_failed")
+                try:
+                    from orkesta.notifications.digest import send_due
+
+                    send_due(self.factory)
+                except Exception:
+                    logger.exception("digest_failed")
 
     def stop(self) -> None:
         self.stop_event.set()
