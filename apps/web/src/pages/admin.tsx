@@ -994,7 +994,15 @@ type BrainTask = {
         per_label: Record<string, { precision: number; recall: number; f1: number; support: number }> | null;
         confusions: [string, string, number][] | null;
         size_kb: number;
-        extra?: { titles: number; coverage_rules: number; coverage_model: number } | null;
+        extra?: {
+          titles?: number;
+          coverage_rules?: number;
+          coverage_model?: number;
+          eval_n?: number;
+          eval_rules?: number;
+          eval_model?: number;
+          eval_decides?: number;
+        } | null;
       })
     | null;
   history: BrainVersion[];
@@ -1089,7 +1097,14 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
                 duda y deja la decisión a las reglas o a una persona.
               </p>
             )}
-            {a.extra && (
+            {a.extra?.eval_n != null && (
+              <p className="rounded-xl bg-ok/5 px-3 py-2 text-[12.5px] text-ork-graphite">
+                Prueba independiente ({a.extra.eval_n} respuestas que nunca usó para aprender): las listas de frases aciertan{" "}
+                <strong>{pct(a.extra.eval_rules)}</strong>; el modelo decide solo en el <strong>{pct(a.extra.eval_decides)}</strong> y acierta{" "}
+                <strong className="text-ok">{pct(a.extra.eval_model)}</strong>. El resto te lo pregunta.
+              </p>
+            )}
+            {a.extra?.titles != null && (
               <p className="rounded-xl bg-ok/5 px-3 py-2 text-[12.5px] text-ork-graphite">
                 En los {n(a.extra.titles)} cargos del índice: <strong>{pct(a.extra.coverage_rules)}</strong> con solo reglas →{" "}
                 <strong className="text-ok">{pct(a.extra.coverage_model)}</strong> con el modelo.

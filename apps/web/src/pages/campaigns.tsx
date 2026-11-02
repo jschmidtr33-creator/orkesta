@@ -100,6 +100,7 @@ type Recipient = {
   error: string | null;
   reply_category?: string | null;
   reply_snippet?: string | null;
+  reply_review?: boolean;
   deal_id?: string | null;
 };
 
@@ -1172,6 +1173,18 @@ function Recipients({ campaignId }: { campaignId: string }) {
                           </option>
                         ))}
                       </select>
+                      {r.reply_review && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 whitespace-normal rounded-lg bg-warn/10 px-2 py-1 text-[11.5px] font-semibold text-warn">
+                          La IA dudó: confirma qué quiso decir
+                          <button
+                            type="button"
+                            className="rounded-full bg-ork-card px-2 py-0.5 text-ork-ink shadow-sm hover:text-ork-blue"
+                            onClick={() => classify.mutate({ id: r.id, category: r.reply_category ?? "otro" })}
+                          >
+                            Es correcto
+                          </button>
+                        </div>
+                      )}
                       {r.reply_snippet && <p className="mt-1 whitespace-normal text-[11.5px] italic text-ork-graphite">«{r.reply_snippet.slice(0, 160)}{r.reply_snippet.length > 160 ? "…" : ""}»</p>}
                       {r.deal_id && (
                         <Link to={`/crm?oportunidad=${r.deal_id}`} className="mt-0.5 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
