@@ -118,10 +118,12 @@ export function AdminApp() {
 function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token: string) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const unlock = useMutation({
-    mutationFn: () => api<{ token: string }>("/api/admin/unlock", { method: "POST", json: { email, password } }),
+    mutationFn: () => api<{ token: string }>("/api/admin/unlock", { method: "POST", json: { email, password, code: code.trim() || undefined } }),
     onSuccess: (r) => {
       setPassword("");
+      setCode("");
       onUnlock(r.token);
     },
   });
@@ -174,6 +176,19 @@ function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token:
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal text-white"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-white/80">
+            <span>
+              Código de verificación <span className="font-normal text-white/45">(si activaste la doble verificación)</span>
+            </span>
+            <input
+              inputMode="text"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal tracking-[0.2em] text-white placeholder:tracking-normal placeholder:text-white/35"
+              placeholder="123456"
             />
           </label>
           {unlock.error && <p role="alert" className="rounded-xl bg-[#EF4444]/15 px-3 py-2 text-[13px] text-[#FCA5A5]">{unlock.error.message}</p>}

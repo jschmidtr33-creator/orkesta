@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 
 from orkesta.core.config import get_settings
 from orkesta.core.db import set_context
-from orkesta.core.security import PasswordPolicyError
+from orkesta.core.security import PasswordPolicyError, read_state, sign_state
 from orkesta.core.web import (
     REFRESH_COOKIE,
     CurrentPrincipal,
@@ -36,6 +36,7 @@ from orkesta.platform.models import (
     AuditLog,
     DemoRequest,
     Invitation,
+    LoginAttempt,
     Membership,
     Tenant,
     User,
@@ -186,13 +187,49 @@ def register(body: RegisterIn, request: Request, response: Response, db: Db) -> 
 @router.post("/auth/login")
 def login(body: LoginIn, request: Request, response: Response, db: Db) -> Any:
     try:
-        tokens = svc.login(
-            db, email=body.email, password=body.password,
-            user_agent=request.headers.get("user-agent"), ip=client_ip(request),
-        )  # fmt: skip
+        user = svc.authenticate(db, email=body.email, password=body.password,
+                                ip=client_ip(request))  # fmt: skip
     except svc.PlatformError as exc:
         # El intento fallido se guarda igual (límite de intentos).
         db.commit()
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+    if user.mfa_enabled:
+        # Segundo paso: el código de la app de autenticación.
+        return {"mfa_required": True, "mfa_token": sign_state({"uid": str(user.id), "p": "mfa"}, 5)}
+    try:
+        tokens = svc.start_session(db, user, user_agent=request.headers.get("user-agent"),
+                                   ip=client_ip(request))  # fmt: skip
+    except svc.PlatformError as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+    return _issue(db, tokens, response)
+
+
+class MfaIn(BaseModel):
+    token: str = Field(max_length=2000)
+    code: str = Field(max_length=20)
+
+
+mfa_limiter = RateLimiter(8, 300)
+
+
+@router.post("/auth/mfa")
+def login_mfa(body: MfaIn, request: Request, response: Response, db: Db) -> Any:
+    mfa_limiter.check(f"mfa:{client_ip(request)}")
+    data = read_state(body.token)
+    if not data or data.get("p") != "mfa":
+        return JSONResponse({"detail": "El tiempo para el código venció. Inicia sesión de nuevo."},
+                            status_code=401)  # fmt: skip
+    user = db.get(User, uuid.UUID(data["uid"]))
+    if user is None or not user.is_active:
+        return JSONResponse({"detail": "Inicia sesión de nuevo."}, status_code=401)
+    if not svc.check_mfa(user, body.code):
+        db.add(LoginAttempt(email=user.email, ip=client_ip(request), succeeded=False))
+        db.commit()
+        return JSONResponse({"detail": "El código no es correcto."}, status_code=401)
+    try:
+        tokens = svc.start_session(db, user, user_agent=request.headers.get("user-agent"),
+                                   ip=client_ip(request))  # fmt: skip
+    except svc.PlatformError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
     return _issue(db, tokens, response)
 
@@ -300,6 +337,11 @@ def google_callback(
             )
     if not user.is_active:
         return RedirectResponse("/app/ingresar?error=cuenta_inactiva", status_code=303)
+    if user.mfa_enabled:
+        token = sign_state({"uid": str(user.id), "p": "mfa"}, 5)
+        response = RedirectResponse(f"/app/ingresar?mfa={token}", status_code=303)
+        response.delete_cookie(GOOGLE_STATE_COOKIE, path="/api/auth/google")
+        return response
     tokens = svc.start_session(
         db, user, user_agent=request.headers.get("user-agent"), ip=client_ip(request)
     )
@@ -481,6 +523,8 @@ def accept(
 
 
 ACTION_LABELS = {
+    "profile.mfa_on": "activó la doble verificación",
+    "profile.mfa_off": "desactivó la doble verificación",
     "profile.updated": "actualizó su perfil",
     "profile.photo": "cambió su foto de perfil",
     "profile.password": "cambió su contraseña",

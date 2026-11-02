@@ -66,6 +66,7 @@ def _user(u: User) -> dict[str, Any]:
 class UnlockIn(BaseModel):
     email: str = Field(max_length=254)
     password: str = Field(max_length=200)
+    code: str = Field(default="", max_length=20)
 
 
 @router.post("/unlock")
@@ -87,6 +88,16 @@ def unlock(body: UnlockIn, request: Request, principal: CurrentPrincipal, db: Db
                 401, "Tu cuenta no tiene contraseña de ORKESTA, así que no puede abrir el panel."
             )
         raise HTTPException(401, "Correo o contraseña incorrectos.")
+    if user.mfa_enabled:
+        from orkesta.platform.service import check_mfa
+
+        if not body.code:
+            db.rollback()
+            raise HTTPException(401, "Escribe el código de tu app de autenticación.")
+        if not check_mfa(user, body.code):
+            db.add(LoginAttempt(email=user.email, ip=client_ip(request), succeeded=False))
+            db.commit()
+            raise HTTPException(401, "El código de verificación no es correcto.")
     return {"token": issue_admin_token(user.id), "expires_in": ADMIN_UNLOCK_MINUTES * 60}
 
 

@@ -52,6 +52,10 @@ def notify(
     )
     session.add(row)
     session.flush()
+    from orkesta.notifications import push
+
+    push.enqueue(session, user_id, {"title": row.title, "body": row.body[:180],
+                                    "link": row.link or "/app/", "tag": kind})  # fmt: skip
     return row
 
 

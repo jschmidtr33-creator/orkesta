@@ -68,7 +68,7 @@ def session_factory(engine: Engine, database: tuple[str, str]) -> Iterator[sessi
     yield sessionmaker(bind=engine, expire_on_commit=False)
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE orkesta.people_index, orkesta.people_optout, orkesta.company_directory, orkesta.pattern_stats, orkesta.bounced_addresses, orkesta.company_domains, orkesta.domain_patterns, orkesta.buyer_personas, orkesta.admin_audit, orkesta.platform_settings, orkesta.notifications, orkesta.proposal_brands, orkesta.automation_runs, orkesta.automation_rules, orkesta.email_assets, orkesta.tracking_tokens, orkesta.campaign_messages, orkesta.campaign_recipients, orkesta.campaigns, orkesta.mailboxes, orkesta.suppressions, orkesta.proposal_links, orkesta.proposals, orkesta.products, orkesta.enrichment_runs, orkesta.activities, orkesta.deals, orkesta.pipeline_stages, orkesta.jobs, orkesta.data_points, orkesta.list_members, "
+            "TRUNCATE orkesta.push_subscriptions, orkesta.people_index, orkesta.people_optout, orkesta.company_directory, orkesta.pattern_stats, orkesta.bounced_addresses, orkesta.company_domains, orkesta.domain_patterns, orkesta.buyer_personas, orkesta.admin_audit, orkesta.platform_settings, orkesta.notifications, orkesta.proposal_brands, orkesta.automation_runs, orkesta.automation_rules, orkesta.email_assets, orkesta.tracking_tokens, orkesta.campaign_messages, orkesta.campaign_recipients, orkesta.campaigns, orkesta.mailboxes, orkesta.suppressions, orkesta.proposal_links, orkesta.proposals, orkesta.products, orkesta.enrichment_runs, orkesta.activities, orkesta.deals, orkesta.pipeline_stages, orkesta.jobs, orkesta.data_points, orkesta.list_members, "
             "orkesta.contact_lists, orkesta.imports, orkesta.contacts, orkesta.companies, "
             "orkesta.audit_logs, orkesta.invitations, orkesta.memberships, "
             "orkesta.sessions, orkesta.login_attempts, orkesta.demo_requests, orkesta.users, "
@@ -108,6 +108,9 @@ def _offline_mx() -> Iterator[None]:
 
     memory.MX_RESOLVER = lambda d: [] if d.startswith("sin-correo") else ["aspmx.l.google.com"]
     memory._ORDER_CACHE.clear()
+    from orkesta.notifications import push
+
+    push.ENABLED = False  # sin hilos ni red en las pruebas; push se prueba aparte
     yield
     memory.MX_RESOLVER = None
 

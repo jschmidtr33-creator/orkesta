@@ -89,28 +89,76 @@ function GoogleButton({ label }: { label: string }) {
   );
 }
 
+type MfaChallenge = { mfa_required: true; mfa_token: string };
+
 function useAuthSubmit(path: string) {
   const { setSession } = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get("siguiente");
-  return useMutation({
-    mutationFn: (body: unknown) => api<Session>(path, { method: "POST", json: body }),
-    onSuccess: (data) => {
-      setSession(data);
-      // Solo rutas internas de la app (evita redirecciones abiertas).
-      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
-      navigate(safeNext ?? (data.workspace ? "/" : "/bienvenida"), { replace: true });
-    },
+  const [challenge, setChallenge] = useState<string | null>(params.get("mfa"));
+  const done = (data: Session) => {
+    setSession(data);
+    // Solo rutas internas de la app (evita redirecciones abiertas).
+    const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+    navigate(safeNext ?? (data.workspace ? "/" : "/bienvenida"), { replace: true });
+  };
+  const submit = useMutation({
+    mutationFn: (body: unknown) => api<Session | MfaChallenge>(path, { method: "POST", json: body }),
+    onSuccess: (data) => ("mfa_required" in data ? setChallenge(data.mfa_token) : done(data)),
   });
+  const verify = useMutation({
+    mutationFn: (code: string) => api<Session>("/api/auth/mfa", { method: "POST", json: { token: challenge, code } }),
+    onSuccess: done,
+  });
+  return { submit, verify, challenge, reset: () => setChallenge(null) };
+}
+
+function MfaStep({ verify, onBack }: { verify: ReturnType<typeof useAuthSubmit>["verify"]; onBack: () => void }) {
+  const [code, setCode] = useState("");
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        verify.mutate(code.trim());
+      }}
+    >
+      <h2 className="text-[26px] font-bold tracking-tight text-ork-ink">Verificación en dos pasos</h2>
+      <p className="-mt-2 text-[14.5px] text-ork-mist">Escribe el código de 6 dígitos de tu app de autenticación, o uno de tus códigos de respaldo.</p>
+      {verify.error && <Alert>{verify.error.message}</Alert>}
+      <TextField
+        label="Código"
+        inputMode="text"
+        autoComplete="one-time-code"
+        autoFocus
+        required
+        placeholder="123 456"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+      />
+      <Button type="submit" size="lg" loading={verify.isPending} disabled={code.trim().length < 6} className="w-full">
+        Verificar e ingresar
+      </Button>
+      <button type="button" onClick={onBack} className="text-[13.5px] font-semibold text-ork-mist hover:text-ork-ink">
+        Volver al inicio de sesión
+      </button>
+    </form>
+  );
 }
 
 export function LoginPage() {
   const { session } = useSession();
   const [params] = useSearchParams();
-  const submit = useAuthSubmit("/api/auth/login");
+  const { submit, verify, challenge, reset } = useAuthSubmit("/api/auth/login");
   const [form, setForm] = useState({ email: "", password: "" });
   if (session) return <Navigate to="/" replace />;
+  if (challenge)
+    return (
+      <AuthLayout>
+        <MfaStep verify={verify} onBack={reset} />
+      </AuthLayout>
+    );
   const googleError = GOOGLE_ERRORS[params.get("error") ?? ""];
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -142,7 +190,7 @@ export function LoginPage() {
 
 export function RegisterPage() {
   const { session } = useSession();
-  const submit = useAuthSubmit("/api/auth/register");
+  const { submit } = useAuthSubmit("/api/auth/register");
   const [form, setForm] = useState({ company: "", full_name: "", email: "", password: "" });
   if (session) return <Navigate to="/" replace />;
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });

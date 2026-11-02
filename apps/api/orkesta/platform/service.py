@@ -269,6 +269,30 @@ def _too_many_failures(session: Session, email: str) -> bool:
 def login(
     session: Session, *, email: str, password: str, user_agent: str | None, ip: str | None
 ) -> Tokens:
+    user = authenticate(session, email=email, password=password, ip=ip)
+    return start_session(session, user, user_agent=user_agent, ip=ip)
+
+
+def check_mfa(user: User, code: str) -> bool:
+    """Código de la app de autenticación o un código de respaldo (de un solo uso)."""
+    from orkesta.campaigns.gmail import decrypt
+    from orkesta.platform import mfa
+
+    if not user.mfa_enabled or not user.mfa_secret:
+        return True
+    step = mfa.verify(decrypt(user.mfa_secret), code, user.mfa_last_step)
+    if step is not None:
+        user.mfa_last_step = step
+        return True
+    digest = mfa.hash_code(code)
+    if digest in (user.mfa_recovery or []):
+        user.mfa_recovery = [h for h in user.mfa_recovery if h != digest]
+        return True
+    return False
+
+
+def authenticate(session: Session, *, email: str, password: str, ip: str | None) -> User:
+    """Comprueba correo y contraseña (con límite de intentos) sin abrir la sesión todavía."""
     email = normalize_email(email)
     if _too_many_failures(session, email):
         raise PlatformError(
@@ -280,7 +304,7 @@ def login(
     if not ok or user is None or not user.is_active:
         session.flush()
         raise PlatformError("Correo o contraseña incorrectos.", 401)
-    return start_session(session, user, user_agent=user_agent, ip=ip)
+    return user
 
 
 def refresh_session(

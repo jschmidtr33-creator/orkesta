@@ -29,6 +29,7 @@ from orkesta.crm.router import router as crm_router
 from orkesta.data.router import router as data_router
 from orkesta.enrichment.router import router as enrichment_router
 from orkesta.models import load_all
+from orkesta.notifications.router import push_router
 from orkesta.notifications.router import router as notifications_router
 from orkesta.platform.profile import router as profile_router
 from orkesta.platform.router import router as platform_router
@@ -136,6 +137,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(reports_router)
     app.include_router(automation_router)
     app.include_router(notifications_router)
+    app.include_router(push_router)
     app.include_router(admin_router)
     app.include_router(copy_router)
     app.include_router(tracking_router)

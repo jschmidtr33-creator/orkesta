@@ -9,12 +9,14 @@ pertenecer a varias empresas.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -68,6 +70,14 @@ class User(IdMixin, Base):
     avatar: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     avatar_type: Mapped[str | None] = mapped_column(String(30))
     avatar_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Doble verificación (TOTP): secreto cifrado, códigos de respaldo (huellas) y último paso.
+    mfa_secret: Mapped[str | None] = mapped_column(Text)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    mfa_recovery: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    # Resumen diario por correo
+    digest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    digest_last_sent: Mapped[date | None] = mapped_column(Date)
 
     @property
     def avatar_url(self) -> str | None:
@@ -171,3 +181,17 @@ class DemoRequest(IdMixin, Base):
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     consent: Mapped[bool] = mapped_column(Boolean, nullable=False)
     ip: Mapped[str | None] = mapped_column(String(64))
+
+
+class PushSubscription(IdMixin, Base):
+    """Navegador o celular donde la persona activó las notificaciones push (Web Push)."""
+
+    __tablename__ = "push_subscriptions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200), nullable=False)
+    auth: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_agent: Mapped[str] = mapped_column(String(300), nullable=False, default="")
