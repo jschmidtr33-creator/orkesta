@@ -59,6 +59,13 @@ class ContactIn(BaseModel):
     industry: str = Field(default="", max_length=200)
 
 
+class NewContactIn(ContactIn):
+    """Contacto nuevo: además puede entrar de una vez a listas existentes o a una lista nueva."""
+
+    list_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    new_list: str = Field(default="", max_length=120)
+
+
 class IdsIn(BaseModel):
     ids: list[uuid.UUID] = Field(default_factory=list, max_length=5000)
 
@@ -123,14 +130,24 @@ def list_contacts(
 
 
 @router.post("/contacts", status_code=201)
-def create_contact(body: ContactIn, request: Request, principal: Member, db: Db) -> dict[str, Any]:
+def create_contact(
+    body: NewContactIn, request: Request, principal: Member, db: Db
+) -> dict[str, Any]:
     try:
         contact = svc.create_contact(
             db,
             tenant_id=principal.tenant_id,
             user=principal.user,
-            data=svc.ContactInput(**body.model_dump()),
+            data=svc.ContactInput(**body.model_dump(exclude={"list_ids", "new_list"})),
         )
+        targets = list(dict.fromkeys(body.list_ids))
+        if body.new_list.strip():
+            created = svc.create_list(db, tenant_id=principal.tenant_id,
+                                      user_id=principal.user.id, name=body.new_list)  # fmt: skip
+            targets.append(created.id)
+        for list_id in targets:
+            svc.add_to_list(db, tenant_id=principal.tenant_id, list_id=list_id,
+                            contact_ids=[contact.id])  # fmt: skip
     except svc.DataError as exc:
         raise _fail(exc) from exc
     audit(

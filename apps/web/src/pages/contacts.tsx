@@ -367,7 +367,15 @@ export function ContactsPage() {
       </Card>
 
       <ContactDrawer id={openId} onClose={() => setOpenId(null)} onEdit={(c) => setEditing(c)} />
-      {editing && <ContactForm contact={editing === "new" ? null : editing} meta={meta.data} onClose={() => setEditing(null)} onSaved={(id) => setOpenId(id)} />}
+      {editing && (
+        <ContactForm
+          contact={editing === "new" ? null : editing}
+          meta={meta.data}
+          defaultList={filters.lista}
+          onClose={() => setEditing(null)}
+          onSaved={(id) => setOpenId(id)}
+        />
+      )}
       <AddToListModal open={listOpen} onOpenChange={setListOpen} ids={[...selected]} onDone={() => setSelected(new Set())} />
       <EnrichModal open={enrichOpen} onOpenChange={setEnrichOpen} ids={[...selected]} filters={filters} onStarted={() => setSelected(new Set())} />
       <ValidateModal
@@ -552,15 +560,23 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
 function ContactForm({
   contact,
   meta,
+  defaultList,
   onClose,
   onSaved,
 }: {
   contact: ContactDetail | null;
   meta?: Meta;
+  defaultList?: string;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const client = useQueryClient();
+  const lists = useLists();
+  // Contacto nuevo: a qué listas entra (por defecto, la lista que se está viendo).
+  const [listIds, setListIds] = useState<string[]>(defaultList ? [defaultList] : []);
+  const [creatingList, setCreatingList] = useState(false);
+  const [newList, setNewList] = useState("");
+  const toggleList = (id: string) => setListIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   const [form, setForm] = useState({
     first_name: contact?.first_name ?? "",
     last_name: contact?.last_name ?? "",
@@ -576,9 +592,13 @@ function ContactForm({
     mutationFn: () =>
       contact
         ? api<ContactDetail>(`/api/contacts/${contact.id}`, { method: "PATCH", json: form })
-        : api<ContactDetail>("/api/contacts", { method: "POST", json: form }),
+        : api<ContactDetail>("/api/contacts", {
+            method: "POST",
+            json: { ...form, list_ids: listIds, new_list: creatingList ? newList.trim() : "" },
+          }),
     onSuccess: (data) => {
       client.invalidateQueries({ queryKey: ["contacts"] });
+      client.invalidateQueries({ queryKey: ["lists"] });
       client.setQueryData(["contact", data.id], data);
       onClose();
       onSaved(data.id);
@@ -613,6 +633,48 @@ function ContactForm({
           ))}
         </SelectField>
         <TextField label="Industria" value={form.industry} onChange={set("industry")} className="col-span-2" />
+        {!contact && (
+          <fieldset className="col-span-2 mt-1 rounded-xl border border-ork-line p-3">
+            <legend className="px-1 text-[13px] font-semibold text-ork-ink">Agregar a listas</legend>
+            {lists.data && lists.data.length > 0 ? (
+              <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
+                {lists.data.map((l) => {
+                  const on = listIds.includes(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => toggleList(l.id)}
+                      className={cx(
+                        "ork-focus rounded-full border px-3 py-1 text-[12.5px] font-semibold transition",
+                        on ? "border-ork-blue bg-ork-blue/10 text-ork-blue" : "border-ork-line text-ork-graphite hover:border-ork-blue/40",
+                      )}
+                    >
+                      {on ? "✓ " : ""}
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[12.5px] text-ork-mist">Aún no tienes listas.</p>
+            )}
+            {creatingList ? (
+              <div className="mt-3 flex items-end gap-2">
+                <TextField label="Nombre de la lista nueva" autoFocus value={newList} onChange={(e) => setNewList(e.target.value)} className="flex-1" placeholder="Ej.: Feria Andicom 2026" />
+                <Button type="button" variant="ghost" size="sm" onClick={() => (setCreatingList(false), setNewList(""))}>
+                  Quitar
+                </Button>
+              </div>
+            ) : (
+              <button type="button" className="mt-3 text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => setCreatingList(true)}>
+                + Crear una lista nueva
+              </button>
+            )}
+            <p className="mt-2 text-[11.5px] text-ork-mist">Opcional: puedes dejarlo sin lista y agregarlo después.</p>
+          </fieldset>
+        )}
         <div className="col-span-2 mt-2 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
