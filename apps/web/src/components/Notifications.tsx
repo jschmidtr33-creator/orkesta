@@ -56,7 +56,7 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
   return (
     <Menu.Root>
       <Menu.Trigger
-        className={cx("ork-focus relative rounded-xl p-2.5", dark ? "text-ork-mist hover:bg-white/[0.06] hover:text-white" : "bg-white text-ork-graphite shadow-sm ring-1 ring-ork-line hover:text-ork-ink")}
+        className={cx("ork-focus relative rounded-xl p-2.5", dark ? "text-ork-mist hover:bg-white/[0.06] hover:text-white" : "bg-ork-card text-ork-graphite shadow-sm ring-1 ring-ork-line hover:text-ork-ink")}
         aria-label={unread ? `Notificaciones: ${unread} sin leer` : "Notificaciones"}
       >
         <Bell className="size-[18px]" />
@@ -67,7 +67,7 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
         )}
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Content align="end" sideOffset={8} className="z-50 w-[min(92vw,380px)] rounded-2xl border border-ork-line bg-white shadow-[var(--shadow-pop)]">
+        <Menu.Content align="end" sideOffset={8} className="z-50 w-[min(92vw,380px)] rounded-2xl border border-ork-line bg-ork-card shadow-[var(--shadow-pop)]">
           <div className="flex items-center justify-between border-b border-ork-line px-4 py-3">
             <p className="text-[14.5px] font-bold text-ork-ink">Notificaciones</p>
             {unread > 0 && (

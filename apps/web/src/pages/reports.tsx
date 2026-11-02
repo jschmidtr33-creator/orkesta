@@ -119,7 +119,7 @@ export function ReportsPage() {
     <div>
       <PageHeader title="Reportes" description="Cómo avanza tu operación comercial: de los contactos nuevos a los negocios ganados, con comparación contra el período anterior." />
       <div className="mb-5 flex flex-wrap items-end gap-3">
-        <div className="flex max-w-full overflow-x-auto rounded-xl border border-ork-line bg-white p-1" role="group" aria-label="Período">
+        <div className="flex max-w-full overflow-x-auto rounded-xl border border-ork-line bg-ork-card p-1" role="group" aria-label="Período">
           {[...PRESETS, { key: "custom", label: "Personalizado" }].map((p) => (
             <button
               key={p.key}
@@ -140,7 +140,7 @@ export function ReportsPage() {
           </div>
         )}
         {d?.scope.can_filter && (
-          <select value={user} onChange={(e) => setUser(e.target.value)} className="ork-focus h-9 rounded-lg border border-ork-line bg-white px-2 text-[13px]" aria-label="Vendedor">
+          <select value={user} onChange={(e) => setUser(e.target.value)} className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]" aria-label="Vendedor">
             <option value="">Todo el equipo</option>
             {(d?.team ?? []).map((t) => (
               <option key={t.user_id} value={t.user_id}>
@@ -337,7 +337,7 @@ function Columns({ points, field, unit, label }: { points: Point[]; field: keyof
       </svg>
       {hover !== null && (
         <div
-          className="pointer-events-none absolute -top-2 rounded-lg bg-ork-ink px-2.5 py-1.5 text-[12px] text-white shadow"
+          className="pointer-events-none absolute -top-2 rounded-lg bg-ork-sidebar px-2.5 py-1.5 text-[12px] text-white shadow"
           style={{ left: `min(calc(${((hover * (bw + gap)) / W) * 100}% ), calc(100% - 140px))` }}
         >
           <p className="font-semibold">

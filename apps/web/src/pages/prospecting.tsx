@@ -401,7 +401,7 @@ function TextPicker({ placeholder, onAdd, allowExclude, max }: { placeholder: st
           }
         }}
         placeholder={placeholder}
-        className="ork-focus h-9 min-w-0 flex-1 rounded-xl border border-ork-line bg-white px-3 text-[13px] placeholder:text-ork-mist"
+        className="ork-focus h-9 min-w-0 flex-1 rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] placeholder:text-ork-mist"
       />
       <IncludeExclude label={value || placeholder} onInclude={() => add(false)} onExclude={allowExclude ? () => add(true) : undefined} />
     </div>
@@ -410,7 +410,7 @@ function TextPicker({ placeholder, onAdd, allowExclude, max }: { placeholder: st
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-ork-line bg-white px-4 pt-3">
+    <section className="rounded-2xl border border-ork-line bg-ork-card px-4 pt-3">
       <h3 className="text-[12px] font-bold uppercase tracking-[0.12em] text-ork-mist">{title}</h3>
       <div>{children}</div>
     </section>
@@ -510,7 +510,7 @@ function FilterPanel({
         onSubmit();
       }}
     >
-      <div className="inline-flex self-start rounded-xl border border-ork-line bg-white p-1" role="tablist" aria-label="Tipo de búsqueda">
+      <div className="inline-flex self-start rounded-xl border border-ork-line bg-ork-card p-1" role="tablist" aria-label="Tipo de búsqueda">
         {(
           [
             ["leads", "Posible cliente"],
@@ -537,14 +537,14 @@ function FilterPanel({
             value={filters.keywords}
             onChange={(e) => set({ keywords: e.target.value.slice(0, 80) })}
             placeholder="Buscar por palabras clave"
-            className="ork-focus h-11 w-full rounded-xl border border-ork-line bg-white pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
+            className="ork-focus h-11 w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
           />
         </label>
         <select
           aria-label="País"
           value={filters.country}
           onChange={(e) => set({ country: e.target.value })}
-          className="ork-focus h-11 rounded-xl border border-ork-line bg-white px-3 text-[14px] text-ork-ink sm:w-48"
+          className="ork-focus h-11 rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] text-ork-ink sm:w-48"
         >
           {options.countries.map((c) => (
             <option key={c.value} value={c.value}>
@@ -701,7 +701,7 @@ function FilterPanel({
                 value={filters.first_name}
                 onChange={(e) => set({ first_name: e.target.value.slice(0, 60) })}
                 placeholder="Nombre"
-                className="ork-focus h-9 w-full rounded-xl border border-ork-line bg-white px-3 text-[13px] placeholder:text-ork-mist"
+                className="ork-focus h-9 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] placeholder:text-ork-mist"
               />
             </FilterRow>
             <FilterRow
@@ -713,7 +713,7 @@ function FilterPanel({
                 value={filters.last_name}
                 onChange={(e) => set({ last_name: e.target.value.slice(0, 60) })}
                 placeholder="Apellido"
-                className="ork-focus h-9 w-full rounded-xl border border-ork-line bg-white px-3 text-[13px] placeholder:text-ork-mist"
+                className="ork-focus h-9 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] placeholder:text-ork-mist"
               />
             </FilterRow>
           </Section>
@@ -819,7 +819,7 @@ function PersonDetail({ item }: { item: Item<PersonData> }) {
         <div className="space-y-2">
           <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ork-mist">Noticias recientes</p>
           {news.map((src) => (
-            <a key={src.url} href={src.url} target="_blank" rel="noreferrer noopener" className="block rounded-lg border border-ork-line bg-white p-2.5 hover:border-ork-blue/40">
+            <a key={src.url} href={src.url} target="_blank" rel="noreferrer noopener" className="block rounded-lg border border-ork-line bg-ork-card p-2.5 hover:border-ork-blue/40">
               <span className="text-[12.5px] font-semibold text-ork-ink">{src.headline}</span>
               <span className="mt-0.5 block text-[11.5px] text-ork-mist">{src.label}</span>
             </a>
@@ -927,7 +927,7 @@ function RunHeader({
             value={name}
             maxLength={120}
             onChange={(e) => setName(e.target.value)}
-            className="ork-focus h-9 min-w-[220px] flex-1 rounded-xl border border-ork-line bg-white px-3 text-[13.5px]"
+            className="ork-focus h-9 min-w-[220px] flex-1 rounded-xl border border-ork-line bg-ork-card px-3 text-[13.5px]"
           />
           <Button size="sm" type="submit" loading={save.isPending} disabled={name.trim().length < 2}>
             Guardar
@@ -1093,7 +1093,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
           aria-label="Lista donde guardar"
           value={listId}
           onChange={(e) => setListId(e.target.value)}
-          className="ork-focus h-8 min-w-[190px] rounded-xl border border-ork-line bg-white px-3 text-[13px] text-ork-ink"
+          className="ork-focus h-8 min-w-[190px] rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] text-ork-ink"
         >
           <option value="">Solo en Contactos (sin lista)</option>
           {lists.data?.map((l) => (
@@ -1109,7 +1109,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
             placeholder="Nombre de la lista"
             value={newList}
             onChange={(e) => setNewList(e.target.value)}
-            className="ork-focus h-8 rounded-xl border border-ork-line bg-white px-3 text-[13px]"
+            className="ork-focus h-8 rounded-xl border border-ork-line bg-ork-card px-3 text-[13px]"
           />
         )}
         <Button size="sm" disabled={!selected.size || newListMissing} loading={save.isPending && selected.size > 0} icon={<Save className="size-3.5" aria-hidden />} onClick={() => save.mutate([...selected])}>
@@ -1129,10 +1129,10 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
                 setPage(1);
               }}
               placeholder="Buscar en los resultados"
-              className="ork-focus h-8 w-[200px] rounded-xl border border-ork-line bg-white pl-8 pr-3 text-[13px]"
+              className="ork-focus h-8 w-[200px] rounded-xl border border-ork-line bg-ork-card pl-8 pr-3 text-[13px]"
             />
           </label>
-          <select aria-label="Ordenar" value={sort} onChange={(e) => setSort(e.target.value as SortKey | "")} className="ork-focus h-8 rounded-xl border border-ork-line bg-white px-2 text-[13px]">
+          <select aria-label="Ordenar" value={sort} onChange={(e) => setSort(e.target.value as SortKey | "")} className="ork-focus h-8 rounded-xl border border-ork-line bg-ork-card px-2 text-[13px]">
             <option value="">Más relevantes</option>
             <option value="full_name">Nombre</option>
             <option value="company">Empresa</option>
@@ -1276,7 +1276,7 @@ function CompanyLogo({ name, domain }: { name: string; domain: string }) {
         src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`}
         alt=""
         onError={() => setFailed(true)}
-        className="size-14 shrink-0 rounded-xl border border-ork-line bg-white object-contain p-1.5"
+        className="size-14 shrink-0 rounded-xl border border-ork-line bg-ork-card object-contain p-1.5"
       />
     );
   }

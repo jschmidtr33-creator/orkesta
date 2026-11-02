@@ -9,15 +9,19 @@ import {
   Home,
   LogOut,
   Mail,
+  Monitor,
+  Moon,
   Menu as MenuIcon,
   Plus,
   Radar,
   Settings,
   ShieldCheck,
+  Sun,
   Users,
   Workflow,
   X,
 } from "lucide-react";
+import { useTheme, type Theme } from "../lib/theme";
 import { useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session } from "../lib/api";
@@ -65,7 +69,7 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
         <Menu.Content
           align="start"
           sideOffset={6}
-          className="z-50 min-w-[240px] rounded-xl border border-ork-line bg-white p-1.5 shadow-[var(--shadow-pop)]"
+          className="z-50 min-w-[240px] rounded-xl border border-ork-line bg-ork-card p-1.5 shadow-[var(--shadow-pop)]"
         >
           <Menu.Label className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ork-mist">
             Espacios de trabajo
@@ -90,6 +94,38 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+const THEMES: { value: Theme; label: string; icon: ComponentType<{ className?: string }> }[] = [
+  { value: "light", label: "Claro", icon: Sun },
+  { value: "dark", label: "Oscuro", icon: Moon },
+  { value: "system", label: "Sistema", icon: Monitor },
+];
+
+/** Versión clara (predeterminada), oscura o la del sistema. Va en la barra lateral oscura. */
+export function ThemeSwitch() {
+  const [theme, setTheme] = useTheme();
+  return (
+    <div role="radiogroup" aria-label="Tema de la app" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1">
+      {THEMES.map(({ value, label, icon: Icon }) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-checked={theme === value}
+          title={`Tema ${label.toLowerCase()}`}
+          onClick={() => setTheme(value)}
+          className={cx(
+            "ork-focus flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[12px] font-semibold transition",
+            theme === value ? "bg-white/[0.12] text-white" : "text-ork-mist hover:text-white",
+          )}
+        >
+          <Icon className="size-3.5" aria-hidden />
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -126,6 +162,7 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
           </NavLink>
         )}
       </nav>
+      <ThemeSwitch />
       <div className="flex items-center gap-3 rounded-xl px-2 py-2">
         <Avatar name={session.user.full_name} email={session.user.email} size={34} />
         <div className="min-w-0 flex-1">
@@ -157,7 +194,7 @@ export function AppLayout() {
   if (!session.workspace) return <Navigate to="/bienvenida" replace />;
   return (
     <div className="min-h-dvh lg:pl-[272px]">
-      <aside className="fixed inset-y-0 left-0 hidden w-[272px] bg-ork-ink lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-[272px] bg-ork-sidebar lg:block">
         <Sidebar session={session} />
       </aside>
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-ork-line bg-white/90 px-4 backdrop-blur lg:hidden">
@@ -171,8 +208,8 @@ export function AppLayout() {
       </header>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
-          <div className="absolute inset-0 bg-ork-ink/60" onClick={() => setOpen(false)} aria-hidden />
-          <aside className="absolute inset-y-0 left-0 w-[280px] bg-ork-ink">
+          <div className="absolute inset-0 bg-ork-sidebar/60" onClick={() => setOpen(false)} aria-hidden />
+          <aside className="absolute inset-y-0 left-0 w-[280px] bg-ork-sidebar">
             <button
               type="button"
               className="ork-focus absolute right-3 top-4 rounded-lg p-2 text-ork-mist"

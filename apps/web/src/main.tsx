@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import { ApiError } from "./lib/api";
+import { applyTheme } from "./lib/theme";
 import { SessionProvider } from "./lib/session";
 import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
@@ -28,6 +29,8 @@ const client = new QueryClient({
     },
   },
 });
+
+applyTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

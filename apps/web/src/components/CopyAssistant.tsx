@@ -85,7 +85,7 @@ export function StepReview({ subject, body, step }: { subject: string; body: str
         {pending > 0 && <span className="font-normal">· {pending} sugerencia(s)</span>}
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Content align="end" sideOffset={6} className="z-50 w-[min(92vw,360px)] rounded-2xl border border-ork-line bg-white p-4 shadow-[var(--shadow-pop)]">
+        <Menu.Content align="end" sideOffset={6} className="z-50 w-[min(92vw,360px)] rounded-2xl border border-ork-line bg-ork-card p-4 shadow-[var(--shadow-pop)]">
           <p className="mb-3 text-[13px] font-bold text-ork-ink">
             Revisión del correo · {q.data.words} palabras
           </p>
@@ -348,7 +348,7 @@ export function CopyAssistant({ open, onOpenChange, onUse }: { open: boolean; on
                 </Alert>
               )}
               {result.steps.map((s, i) => (
-                <article key={i} className="rounded-xl border border-ork-line bg-white p-4">
+                <article key={i} className="rounded-xl border border-ork-line bg-ork-card p-4">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-[13px] font-bold text-ork-ink">
                       {i === 0 ? "Correo 1 · al lanzar" : `Correo ${i + 1} · ${s.delay_days} días sin respuesta · en el mismo hilo`}

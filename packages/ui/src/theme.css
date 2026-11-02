@@ -16,6 +16,8 @@
   --color-ork-mist: #94a3b8;
   --color-ork-surface: #f5f7fb;
   --color-ork-line: #e5e9f2;
+  --color-ork-card: #ffffff;
+  --color-ork-sidebar: #080b12;
 
   --color-ok: #16a34a;
   --color-warn: #d97706;
@@ -25,6 +27,46 @@
   --shadow-card: 0 1px 2px rgb(8 11 18 / 0.04), 0 4px 16px rgb(8 11 18 / 0.04);
   --shadow-pop: 0 12px 40px rgb(8 11 18 / 0.18);
 }
+
+/* Versión oscura de la app (la clara es la predeterminada). Se activa con la clase «dark» en
+   <html>; los documentos (propuestas) se ven siempre en claro, como se imprimen. */
+html.dark {
+  color-scheme: dark;
+  --color-ork-blue: #3b82f6;
+  --color-ork-blue-600: #2563eb;
+  --color-ork-violet: #a78bfa;
+  --color-ork-ink: #eef2fa;
+  --color-ork-graphite: #c5cede;
+  --color-ork-mist: #8592a8;
+  --color-ork-surface: #0a0e18;
+  --color-ork-line: #242d42;
+  --color-ork-card: #121828;
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-bad: #f87171;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 4px 16px rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 12px 40px rgb(0 0 0 / 0.55);
+}
+html.dark .ork-doc {
+  color-scheme: light;
+  --color-ork-blue: #2563eb;
+  --color-ork-violet: #8b5cf6;
+  --color-ork-ink: #080b12;
+  --color-ork-graphite: #1f2937;
+  --color-ork-mist: #94a3b8;
+  --color-ork-surface: #f5f7fb;
+  --color-ork-line: #e5e9f2;
+  --color-ork-card: #ffffff;
+  --color-ok: #16a34a;
+  --color-warn: #d97706;
+  --color-bad: #dc2626;
+}
+html.dark .ork-prose { color: var(--color-ork-graphite); }
+html.dark .ork-prose a { color: #93b4ff; }
+html.dark .ork-prose blockquote { border-left-color: var(--color-ork-line); color: var(--color-ork-mist); }
+html.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+html.dark ::-webkit-scrollbar-thumb { background: #2a3448; border-radius: 8px; }
+html.dark ::-webkit-scrollbar-track { background: transparent; }
 
 @layer base {
   html {
@@ -57,7 +99,7 @@
 }
 
 @utility ork-card {
-  background: #fff;
+  background: var(--color-ork-card);
   border: 1px solid var(--color-ork-line);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);

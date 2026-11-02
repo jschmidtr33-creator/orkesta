@@ -7,6 +7,14 @@
     <link rel="icon" type="image/svg+xml" href="/app/favicon.svg" />
     <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />
     <title>ORKESTA</title>
+    <script>
+      // Tema antes de pintar, para que la versión oscura no parpadee en claro.
+      try {
+        var t = localStorage.getItem("ork-theme");
+        var d = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        if (d && location.pathname.indexOf("/app/p/") !== 0) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

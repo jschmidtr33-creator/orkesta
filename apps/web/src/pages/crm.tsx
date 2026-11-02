@@ -168,7 +168,7 @@ export function CrmPage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-xl border border-ork-line bg-white p-0.5" role="tablist">
+        <div className="inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5" role="tablist">
           {(
             [
               ["tablero", "Tablero", <KanbanSquare key="k" className="size-4" aria-hidden />],
@@ -196,7 +196,7 @@ export function CrmPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar por oportunidad, contacto o empresa"
-              className="ork-focus h-10 w-[300px] max-w-full rounded-xl border border-ork-line bg-white pl-9 pr-3 text-[14px]"
+              className="ork-focus h-10 w-[300px] max-w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px]"
             />
           </label>
         )}
@@ -303,7 +303,7 @@ function Board({ stages, deals, onOpen, onMove }: { stages: Stage[]; deals: Deal
                     e.dataTransfer.effectAllowed = "move";
                   }}
                   onClick={() => onOpen(d.id)}
-                  className="ork-focus cursor-grab rounded-xl border border-ork-line bg-white p-3 text-left shadow-[0_1px_2px_rgb(8_11_18/0.04)] transition hover:border-ork-blue/40 active:cursor-grabbing"
+                  className="ork-focus cursor-grab rounded-xl border border-ork-line bg-ork-card p-3 text-left shadow-[0_1px_2px_rgb(8_11_18/0.04)] transition hover:border-ork-blue/40 active:cursor-grabbing"
                 >
                   <p className="text-[13.5px] font-semibold leading-snug text-ork-ink">{d.title}</p>
                   {(d.contact || d.company) && (
@@ -357,7 +357,7 @@ function DealsTable({ stages, deals, onOpen, onMove }: { stages: Stage[]; deals:
                     aria-label={`Etapa de ${d.title}`}
                     value={d.stage_id}
                     onChange={(e) => onMove(d, e.target.value)}
-                    className="ork-focus h-8 rounded-lg border border-ork-line bg-white px-2 text-[13px]"
+                    className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
                   >
                     {stages.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -608,8 +608,8 @@ function DealDrawer({ id, onClose, stages, currencies, onMove }: { id: string | 
   return (
     <Dialog.Root open={Boolean(id)} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-ink/40" />
-        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw,560px)] flex-col bg-white shadow-[var(--shadow-pop)]">
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-sidebar/40" />
+        <Dialog.Content className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw,560px)] flex-col bg-ork-card shadow-[var(--shadow-pop)]">
           <div className="flex items-start justify-between gap-3 border-b border-ork-line p-5">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-[18px] font-bold text-ork-ink">{d?.title ?? "Oportunidad"}</Dialog.Title>
@@ -630,7 +630,7 @@ function DealDrawer({ id, onClose, stages, currencies, onMove }: { id: string | 
                     aria-label="Etapa"
                     value={d.stage_id}
                     onChange={(e) => onMove(d, e.target.value)}
-                    className="ork-focus h-9 rounded-lg border border-ork-line bg-white px-2 text-[13.5px]"
+                    className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13.5px]"
                   >
                     {stages.map((s) => (
                       <option key={s.id} value={s.id}>

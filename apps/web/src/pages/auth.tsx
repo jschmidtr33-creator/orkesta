@@ -16,7 +16,7 @@ const GOOGLE_ERRORS: Record<string, string> = {
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
-      <aside className="relative hidden overflow-hidden bg-ork-ink text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
+      <aside className="relative hidden overflow-hidden bg-ork-sidebar text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div className="ork-glow pointer-events-none absolute inset-0" aria-hidden />
         <div className="relative">
           <Wordmark dark size={34} />
@@ -67,7 +67,7 @@ function GoogleButton({ label }: { label: string }) {
         href={enabled ? "/api/auth/google/start?next=/app" : undefined}
         aria-disabled={!enabled}
         className={
-          "ork-focus flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-ork-line bg-white text-[14.5px] font-semibold text-ork-ink transition " +
+          "ork-focus flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-ork-line bg-ork-card text-[14.5px] font-semibold text-ork-ink transition " +
           (enabled ? "hover:border-ork-mist hover:bg-ork-surface" : "cursor-not-allowed opacity-55")
         }
       >

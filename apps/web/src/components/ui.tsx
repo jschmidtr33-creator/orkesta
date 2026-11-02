@@ -58,9 +58,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         variant === "primary" &&
           "ork-gradient text-white shadow-[0_6px_20px_rgb(79_70_229/0.35)] hover:brightness-110",
         variant === "secondary" &&
-          "border border-ork-line bg-white text-ork-ink hover:border-ork-blue/40 hover:bg-ork-blue/5",
+          "border border-ork-line bg-ork-card text-ork-ink hover:border-ork-blue/40 hover:bg-ork-blue/5",
         variant === "ghost" && "text-ork-graphite hover:bg-ork-ink/5",
-        variant === "danger" && "border border-bad/30 bg-white text-bad hover:bg-bad/5",
+        variant === "danger" && "border border-bad/30 bg-ork-card text-bad hover:bg-bad/5",
         className,
       )}
       {...rest}
@@ -91,7 +91,7 @@ export function TextField({
         aria-invalid={Boolean(error)}
         aria-describedby={hint || error ? `${id}-hint` : undefined}
         className={cx(
-          "ork-focus h-11 rounded-xl border bg-white px-3.5 text-[15px] text-ork-ink placeholder:text-ork-mist",
+          "ork-focus h-11 rounded-xl border bg-ork-card px-3.5 text-[15px] text-ork-ink placeholder:text-ork-mist",
           error ? "border-bad" : "border-ork-line hover:border-ork-mist",
         )}
         {...input}
@@ -119,7 +119,7 @@ export function SelectField({
       </label>
       <select
         id={id}
-        className="ork-focus h-11 rounded-xl border border-ork-line bg-white px-3 text-[15px] text-ork-ink hover:border-ork-mist"
+        className="ork-focus h-11 rounded-xl border border-ork-line bg-ork-card px-3 text-[15px] text-ork-ink hover:border-ork-mist"
         {...select}
       >
         {children}
@@ -195,8 +195,8 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-ink/50 backdrop-blur-[2px]" />
-        <Dialog.Content className={cx("fixed left-1/2 top-1/2 z-50 max-h-[92dvh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl bg-white p-6 shadow-[var(--shadow-pop)]", wide === "xl" ? "w-[min(96vw,1180px)]" : wide ? "w-[min(94vw,760px)]" : "w-[min(92vw,480px)]")}>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-ork-sidebar/50 backdrop-blur-[2px]" />
+        <Dialog.Content className={cx("fixed left-1/2 top-1/2 z-50 max-h-[92dvh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl bg-ork-card p-6 shadow-[var(--shadow-pop)]", wide === "xl" ? "w-[min(96vw,1180px)]" : wide ? "w-[min(94vw,760px)]" : "w-[min(92vw,480px)]")}>
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-lg font-bold text-ork-ink">{title}</Dialog.Title>
@@ -258,7 +258,7 @@ export function Tip({ label, children, className }: { label: string; children: R
       {children}
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-max max-w-[280px] -translate-x-1/2 whitespace-normal rounded-lg bg-ork-ink text-center px-2.5 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus:opacity-100"
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 w-max max-w-[280px] -translate-x-1/2 whitespace-normal rounded-lg bg-ork-sidebar text-center px-2.5 py-1.5 text-[12px] font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus:opacity-100"
       >
         {label}
       </span>

@@ -174,7 +174,7 @@ function ColorField({ label, value, onChange, placeholder }: { label: string; va
   return (
     <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-ork-ink">
       {label}
-      <span className="flex h-11 items-center gap-2 rounded-xl border border-ork-line bg-white px-2">
+      <span className="flex h-11 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-2">
         <input type="color" value={value || placeholder || "#000000"} onChange={(e) => onChange(e.target.value.toUpperCase())} className="size-8 cursor-pointer rounded-md border-0 bg-transparent p-0" aria-label={label} />
         <input
           value={value}
