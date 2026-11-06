@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # Microsoft 365 / Outlook (registro de aplicación gratuito en Microsoft Entra ID).
     microsoft_client_id: str = ""
     microsoft_client_secret: str = ""
+    # Mudanza a otro servidor: "mantenimiento" muestra un aviso (nadie escribe datos mientras se
+    # hace la copia final); una URL (https://nuevo-dominio) redirige todo, conservando la ruta.
+    moved_to: str = ""
 
     # Primer administrador de la plataforma, creado en el despliegue.
     orkesta_bootstrap_admin_email: str = ""

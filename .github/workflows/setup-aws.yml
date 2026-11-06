@@ -16,13 +16,21 @@ on:
         default: "3-130-137-39.sslip.io"
         required: true
       copiar_datos:
-        description: "Copiar la base de datos desde Render (solo la primera vez)"
+        description: "Copiar la base de datos desde Render (reemplaza lo que haya en AWS)"
         type: boolean
         default: true
+      activar_trabajos:
+        description: "Encender campañas y tareas programadas (solo cuando Render ya esté apagado)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   packages: read
+
+concurrency:
+  group: deploy-aws  # nunca al mismo tiempo que un despliegue
+  cancel-in-progress: false
 
 jobs:
   setup:
@@ -58,6 +66,7 @@ jobs:
           umask 077
           : > updates.env
           echo "DOMAIN=$DOMAIN" >> updates.env
+          echo "RUN_WORKER=${{ inputs.activar_trabajos }}" >> updates.env
           echo "PUBLIC_BASE_URL=https://$DOMAIN" >> updates.env
           for name in SECRET_KEY SERPER_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
                       MICROSOFT_CLIENT_ID MICROSOFT_CLIENT_SECRET; do
@@ -92,6 +101,9 @@ jobs:
             echo "::warning::Sin RENDER_DATABASE_URL: ORKESTA arranca con una base nueva."
             exit 0
           fi
+          # La app se detiene mientras se copia (nadie escribe datos que la copia reemplace) y se
+          # limpian copias anteriores que hayan quedado colgadas.
+          $SSH 'cd /opt/orkesta && sudo docker compose stop app || true; sudo docker ps -q --filter label=com.docker.compose.oneoff=True | xargs -r sudo docker rm -f'
           printf '%s\n' "$RENDER_DATABASE_URL" | $SSH 'sudo /opt/orkesta/migrate-from-render.sh'
 
       - name: 4. Arrancar ORKESTA

@@ -75,6 +75,7 @@ def copy_database(source: str, target: str, log: Any = print) -> dict[str, int]:
                             cout.write(chunk)
             total = int(dst.execute(sql.SQL("SELECT count(*) FROM {}").format(name)).fetchone()[0])  # type: ignore[index]
             copied[table] = total
+            log(f"  {table}: {total}")
         # Secuencias (números correlativos) al valor más alto copiado.
         for seq, table, column in dst.execute(
             "SELECT s.relname, t.relname, a.attname FROM pg_class s "
