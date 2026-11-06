@@ -42,7 +42,10 @@ if [ ! -f .env ]; then
 fi
 
 echo "==> Respaldo diario a las 3:30 a. m. (hora del servidor, UTC)"
-( crontab -l 2>/dev/null | grep -v orkesta-backup; echo "30 8 * * * /opt/orkesta/backup.sh >> /var/log/orkesta-backup.log 2>&1 # orkesta-backup" ) | crontab -
+# En un servidor nuevo no hay tareas programadas: «crontab -l» falla y no debe detener todo.
+{ crontab -l 2>/dev/null | grep -v orkesta-backup || true
+  echo "30 8 * * * /opt/orkesta/backup.sh >> /var/log/orkesta-backup.log 2>&1 # orkesta-backup"
+} | crontab -
 
 usermod -aG docker ubuntu 2>/dev/null || true
 echo
