@@ -319,6 +319,9 @@ class PreviewIn(BaseModel):
     step: int = Field(default=0, ge=0, lt=svc.MAX_STEPS)
     contact_id: uuid.UUID | None = None
     variant: str = Field(default="A", pattern="^[AB]$")
+    # Vista previa en vivo: el borrador que se está escribiendo, aunque no esté guardado.
+    draft: StepIn | None = None
+    first_subject: str | None = Field(default=None, max_length=250)
 
 
 def _campaign(db: Db, principal: Principal, campaign_id: uuid.UUID) -> Campaign:
@@ -399,7 +402,7 @@ def audience(body: AudienceIn, principal: Member, db: Db) -> dict[str, Any]:
 @router.post("/api/campaigns/{campaign_id}/preview")
 def preview(campaign_id: uuid.UUID, body: PreviewIn, principal: Member, db: Db) -> dict[str, Any]:
     campaign = _campaign(db, principal, campaign_id)
-    if body.step >= len(campaign.steps):
+    if body.draft is None and body.step >= len(campaign.steps):
         raise HTTPException(400, "Ese paso no existe.")
     contact = db.get(Contact, body.contact_id) if body.contact_id else None
     if contact is None or contact.tenant_id != principal.tenant_id:
@@ -424,11 +427,12 @@ def preview(campaign_id: uuid.UUID, body: PreviewIn, principal: Member, db: Db) 
             "pais": "Colombia",
             "remitente": sender,
         }
-    step = campaign.steps[body.step]
+    step = body.draft.model_dump() if body.draft else campaign.steps[body.step]
     step_subject, step_body = svc.step_content(step, body.variant)
-    subject_src = step_subject.strip() or (
-        "Re: " + campaign.steps[0]["subject"] if body.step else "(sin asunto)"
-    )
+    first = body.first_subject if body.first_subject is not None else (
+        campaign.steps[0]["subject"] if campaign.steps else ""
+    )  # fmt: skip
+    subject_src = step_subject.strip() or ("Re: " + first if body.step else "(sin asunto)")
     subject, missing_s = templating.render(subject_src, values)
     body_html, missing_b = templating.render(templating.as_html(step_body), values, escape=True)
     signature, _ = templating.render(
@@ -444,7 +448,7 @@ def preview(campaign_id: uuid.UUID, body: PreviewIn, principal: Member, db: Db) 
         "html": content,
         "body": templating.html_to_text(content),
         "missing": sorted(set(missing_s + missing_b)),
-        "threaded": body.step > 0 and not step["subject"].strip(),
+        "threaded": body.step > 0 and not (step.get("subject") or "").strip(),
     }
 
 

@@ -165,6 +165,13 @@ def test_full_campaign_flow(
     })  # fmt: skip
     preview = client.post(f"/api/campaigns/{campaign['id']}/preview", json={"step": 1}).json()
     assert preview["subject"].startswith("Re: ") and preview["threaded"]
+    # Vista previa en vivo: lo que se está escribiendo, sin guardar (incluso un paso nuevo).
+    live = client.post(f"/api/campaigns/{campaign['id']}/preview", json={
+        "step": 2, "first_subject": "Propuesta para {{empresa}}",
+        "draft": {"subject": "", "body": "<p>Último intento, {{nombre}}</p>", "delay_days": 3},
+    }).json()  # fmt: skip
+    assert live["subject"].startswith("Re: Propuesta para ") and "Último intento" in live["html"]
+    assert "{{" not in live["html"]
 
     launched = client.post(f"/api/campaigns/{campaign['id']}/launch")
     assert launched.status_code == 200, launched.text

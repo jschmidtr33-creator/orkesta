@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowLeft, Eye, EyeOff, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
 import type { Editor } from "@tiptap/react";
@@ -528,7 +528,9 @@ function useSaveCampaign(id: string) {
 function StepsEditor({ c }: { c: Campaign }) {
   const [steps, setSteps] = useState<Step[]>(c.steps ?? []);
   const [dirty, setDirty] = useState(false);
-  const [previewing, setPreviewing] = useState<number | null>(null);
+  const [live, setLive] = useLivePreview();
+  const [selected, setSelected] = useState(0);
+  const [area, wide] = useWide(960);
   const [assistant, setAssistant] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
   const save = useSaveCampaign(c.id);
@@ -572,6 +574,15 @@ function StepsEditor({ c }: { c: Campaign }) {
         description="Los seguimientos sin asunto salen como respuesta en el mismo hilo («Re: …»). Si la persona responde, no recibe los siguientes."
         action={
           <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant={live ? "primary" : "secondary"}
+              aria-pressed={live}
+              icon={live ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              onClick={() => setLive(!live)}
+            >
+              {live ? "Ocultar vista previa" : "Vista previa en vivo"}
+            </Button>
             {!locked && (
               <Button size="sm" variant="secondary" icon={<Sparkles className="size-4 text-ork-violet" aria-hidden />} onClick={() => setAssistant(true)}>
                 Redactar con IA
@@ -608,6 +619,8 @@ function StepsEditor({ c }: { c: Campaign }) {
         </span>
       </div>
       {!locked && <WhatWorks onUse={(subject, body) => update(0, { subject, body })} />}
+      <div ref={area} className={cx(live && wide && "grid gap-5 grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
+      <div className="min-w-0">
       <ol className="flex flex-col gap-4">
         {steps.map((step, i) => (
           <li key={i} className="rounded-xl border border-ork-line p-4">
@@ -633,8 +646,16 @@ function StepsEditor({ c }: { c: Campaign }) {
               </div>
               <div className="flex items-center gap-1">
                 <StepReview subject={step.subject} body={step.body} step={i} />
-                <Button size="sm" variant="ghost" icon={<Eye className="size-4" aria-hidden />} onClick={() => setPreviewing(i)} disabled={dirty}>
-                  Vista previa
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Eye className="size-4" aria-hidden />}
+                  onClick={() => {
+                    setSelected(i);
+                    setLive(true);
+                  }}
+                >
+                  Ver
                 </Button>
                 {!locked && steps.length > 1 && (
                   <Button
@@ -653,7 +674,10 @@ function StepsEditor({ c }: { c: Campaign }) {
             <input
               value={step.subject}
               placeholder={i === 0 ? "Asunto" : "Sin asunto = respuesta en el mismo hilo"}
-              onFocus={(e) => (focused.current = { index: i, el: e.currentTarget })}
+              onFocus={(e) => {
+                focused.current = { index: i, el: e.currentTarget };
+                setSelected(i);
+              }}
               onChange={(e) => update(i, { subject: e.target.value })}
               className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
             />
@@ -661,7 +685,10 @@ function StepsEditor({ c }: { c: Campaign }) {
               key={`${editorKey}-${i}`}
               value={step.body}
               onChange={(html) => update(i, { body: html })}
-              onFocus={(editor) => (focused.current = { index: i, editor })}
+              onFocus={(editor) => {
+                focused.current = { index: i, editor };
+                setSelected(i);
+              }}
             />
             {step.variant_b ? (
               <div className="mt-3 rounded-xl border border-ork-violet/30 bg-ork-violet/[0.04] p-3">
@@ -696,6 +723,11 @@ function StepsEditor({ c }: { c: Campaign }) {
                 <Plus className="size-3.5" aria-hidden /> Probar otra versión (prueba A/B)
               </button>
             )}
+            {live && !wide && i === Math.min(selected, steps.length - 1) && (
+              <div className="mt-4">
+                <LivePreview campaignId={c.id} steps={steps} selected={i} onSelect={setSelected} />
+              </div>
+            )}
           </li>
         ))}
       </ol>
@@ -713,7 +745,11 @@ function StepsEditor({ c }: { c: Campaign }) {
           Agregar seguimiento
         </Button>
       )}
-      <PreviewModal campaignId={c.id} step={previewing} onClose={() => setPreviewing(null)} />
+      </div>
+      {live && wide && steps.length > 0 && (
+        <LivePreview campaignId={c.id} steps={steps} selected={Math.min(selected, steps.length - 1)} onSelect={setSelected} />
+      )}
+      </div>
       <CopyAssistant
         open={assistant}
         onOpenChange={setAssistant}
@@ -794,40 +830,134 @@ function AbResults({ results }: { results: AbResult[] }) {
   );
 }
 
-function PreviewModal({ campaignId, step, onClose }: { campaignId: string; step: number | null; onClose: () => void }) {
+const LIVE_KEY = "ork-campaign-live-preview";
+
+/** Vista previa en vivo, recordada en este navegador (activada por defecto en pantallas grandes). */
+function useLivePreview(): [boolean, (v: boolean) => void] {
+  const [live, setLive] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(LIVE_KEY);
+      if (saved !== null) return saved === "1";
+    } catch {
+      /* sin almacenamiento: se usa el valor por defecto */
+    }
+    return typeof window !== "undefined" && window.innerWidth >= 1280;
+  });
+  const set = (v: boolean) => {
+    setLive(v);
+    try {
+      localStorage.setItem(LIVE_KEY, v ? "1" : "0");
+    } catch {
+      /* no pasa nada si no se puede guardar */
+    }
+  };
+  return [live, set];
+}
+
+/** ¿Hay espacio para mostrar la vista previa al lado? (mide el contenedor, no la pantalla) */
+function useWide(min: number): [(el: HTMLDivElement | null) => void, boolean] {
+  const [wide, setWide] = useState(false);
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      observer.current?.disconnect();
+      if (!el) return;
+      observer.current = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= min));
+      observer.current.observe(el);
+    },
+    [min],
+  );
+  return [ref, wide];
+}
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+/** Cómo va quedando cada correo mientras se escribe, con los datos de un contacto real. */
+function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: string; steps: Step[]; selected: number; onSelect: (i: number) => void }) {
+  const [variant, setVariant] = useState<"A" | "B">("A");
+  const step = steps[selected];
+  const hasB = Boolean(step?.variant_b);
+  const shown = hasB ? variant : "A";
+  const input = useDebounced(
+    { step: selected, variant: shown, first_subject: steps[0]?.subject ?? "", draft: { subject: step?.subject ?? "", body: step?.body ?? "", delay_days: step?.delay_days ?? 0, variant_b: step?.variant_b ?? null } },
+    500,
+  );
   const q = useQuery({
-    queryKey: ["campaign-preview", campaignId, step],
-    queryFn: () => api<Preview>(`/api/campaigns/${campaignId}/preview`, { method: "POST", json: { step } }),
-    enabled: step !== null,
+    queryKey: ["campaign-live-preview", campaignId, input],
+    queryFn: () => api<Preview>(`/api/campaigns/${campaignId}/preview`, { method: "POST", json: input }),
+    placeholderData: (prev) => prev,
   });
   const p = q.data;
   return (
-    <Modal open={step !== null} onOpenChange={(v) => !v && onClose()} title={`Vista previa · correo ${(step ?? 0) + 1}`} description={p?.contact ? `Como lo verá ${p.contact.full_name}` : "Con datos de ejemplo"}>
-      {q.isLoading ? (
-        <Spinner />
-      ) : q.error ? (
-        <Alert>{q.error.message}</Alert>
-      ) : p ? (
-        <div className="flex flex-col gap-3 text-[13.5px]">
-          {p.missing.length > 0 && (
-            <Alert tone="blue">
-              A este contacto le falta: {p.missing.join(", ")}. Usa un valor alterno, p. ej. {"{{" + p.missing[0] + "|…}}"}.
-            </Alert>
-          )}
-          <div className="rounded-xl border border-ork-line">
-            <div className="border-b border-ork-line px-4 py-2.5 text-[12.5px] text-ork-mist">
-              <p>De: {p.from ?? "tu buzón"}</p>
-              <p>Para: {p.contact?.email ?? "contacto@empresa.com"}</p>
-              <p className="mt-1 text-[14px] font-semibold text-ork-ink">{p.subject}</p>
-              {p.threaded && <p className="text-[12px]">Se envía como respuesta en el hilo del primer correo.</p>}
+    <aside className="min-w-0 self-start lg:sticky lg:top-4" aria-label="Vista previa del correo">
+      <div className="rounded-2xl border border-ork-line bg-ork-surface/60 p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex max-w-full overflow-x-auto rounded-lg border border-ork-line bg-ork-card p-0.5" role="tablist" aria-label="Correo">
+            {steps.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                role="tab"
+                aria-selected={i === selected}
+                onClick={() => onSelect(i)}
+                className={cx("shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-semibold", i === selected ? "bg-ork-blue text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+              >
+                Correo {i + 1}
+              </button>
+            ))}
+          </div>
+          {hasB && (
+            <div className="flex rounded-lg border border-ork-line bg-ork-card p-0.5" role="group" aria-label="Versión">
+              {(["A", "B"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={shown === v}
+                  onClick={() => setVariant(v)}
+                  className={cx("rounded-md px-2.5 py-1 text-[12.5px] font-semibold", shown === v ? "bg-ork-violet text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+                >
+                  Versión {v}
+                </button>
+              ))}
             </div>
-            <div className="max-h-[60vh] overflow-y-auto">
+          )}
+        </div>
+        {q.error ? (
+          <Alert>{q.error.message}</Alert>
+        ) : !p ? (
+          <Spinner label="Preparando vista previa" />
+        ) : (
+          <div className={cx("overflow-hidden rounded-xl border border-ork-line bg-white transition-opacity", q.isFetching && "opacity-70")}>
+            <div className="border-b border-ork-line px-4 py-3 text-[12.5px] text-gray-500">
+              <p className="truncate">
+                <span className="font-semibold text-gray-700">De:</span> {p.from ?? "tu buzón conectado"}
+              </p>
+              <p className="truncate">
+                <span className="font-semibold text-gray-700">Para:</span> {p.contact ? `${p.contact.full_name} <${p.contact.email}>` : "Laura Gómez (ejemplo)"}
+              </p>
+              <p className="mt-1.5 text-[14.5px] font-semibold text-gray-900">{p.subject}</p>
+              {p.threaded && <p className="mt-0.5 text-[12px]">Llega como respuesta en el mismo hilo del primer correo.</p>}
+            </div>
+            <div className="max-h-[65vh] overflow-y-auto">
               <HtmlFrame html={p.html} />
             </div>
           </div>
-        </div>
-      ) : null}
-    </Modal>
+        )}
+        {p && p.missing.length > 0 && (
+          <p className="mt-2 text-[12px] text-ork-mist">
+            A este contacto le falta: {p.missing.join(", ")}. Usa un valor alterno, p. ej. {"{{" + p.missing[0] + "|…}}"}.
+          </p>
+        )}
+        <p className="mt-2 text-[12px] text-ork-mist">{p?.contact ? `Con los datos de ${p.contact.full_name}, de tu audiencia.` : "Con datos de ejemplo: elige la audiencia para verlo con un contacto real."}</p>
+      </div>
+    </aside>
   );
 }
 
