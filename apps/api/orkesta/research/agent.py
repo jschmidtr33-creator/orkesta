@@ -481,7 +481,7 @@ def discover(run: Run, fetcher: Fetcher, filters: Filters) -> list[Candidate]:
     found: dict[str, Candidate] = {}
     if filters.companies:
         run.log(f"Buscando {len(filters.companies)} empresas indicadas en Wikidata…")
-        for entry in filters.companies[:25]:
+        for entry in filters.companies:
             if _looks_like_domain(entry):
                 domain = entry.lower().removeprefix("https://").removeprefix("http://")
                 domain = domain.removeprefix("www.").split("/")[0]

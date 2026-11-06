@@ -23,25 +23,30 @@ def _fail(exc: DataError) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
+# Sin tope práctico para lo que se escribe a mano (cargos, empresas, ciudades): solo un techo
+# alto contra abusos. Lo demás son listas cerradas del catálogo.
+MANY = 1000
+
+
 class FiltersIn(BaseModel):
     """Filtros de leads con la estructura de Sales Navigator."""
 
     mode: str = Field(default="leads", max_length=10)
     country: str = Field(max_length=2)
-    cities: list[str] = Field(default_factory=list, max_length=5)
+    cities: list[str] = Field(default_factory=list, max_length=MANY)
     sectors: list[str] = Field(default_factory=list, max_length=60)
     exclude_sectors: list[str] = Field(default_factory=list, max_length=60)
     sizes: list[str] = Field(default_factory=list, max_length=10)
     seniority: list[str] = Field(default_factory=list, max_length=10)
     functions: list[str] = Field(default_factory=list, max_length=30)
     exclude_functions: list[str] = Field(default_factory=list, max_length=30)
-    titles: list[str] = Field(default_factory=list, max_length=10)
-    exclude_titles: list[str] = Field(default_factory=list, max_length=10)
-    companies: list[str] = Field(default_factory=list, max_length=25)
-    exclude_companies: list[str] = Field(default_factory=list, max_length=25)
+    titles: list[str] = Field(default_factory=list, max_length=MANY)
+    exclude_titles: list[str] = Field(default_factory=list, max_length=MANY)
+    companies: list[str] = Field(default_factory=list, max_length=MANY)
+    exclude_companies: list[str] = Field(default_factory=list, max_length=MANY)
     first_name: str = Field(default="", max_length=60)
     last_name: str = Field(default="", max_length=60)
-    keywords: str = Field(default="", max_length=80)
+    keywords: str = Field(default="", max_length=300)
     include_base: bool = True
     limit: int = 25
     # Compatibilidad con la versión anterior de los filtros.

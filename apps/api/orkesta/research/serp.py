@@ -686,8 +686,9 @@ def people_queries(
     from orkesta.engine.taxonomy import linkedin as li
 
     spec = spec or LeadSpec()
-    if spec.titles:
-        role_groups = [[_quoted(t) for t in spec.titles[:6]]]
+    if spec.titles:  # todos los cargos escritos, de a 6 por consulta
+        quoted = [_quoted(t) for t in dict.fromkeys(spec.titles)]
+        role_groups = [quoted[i : i + 6] for i in range(0, len(quoted), 6)]
     elif spec.seniority:
         role_groups = [li.seniority_terms(code)[:6] for code in spec.seniority]
     else:
@@ -706,7 +707,9 @@ def people_queries(
     cities = list(spec.cities) or ([city] if city else [])
     # Una consulta por ciudad: el buscador entrega hasta 100 resultados por consulta.
     places = [_quoted(c) for c in cities] or [_quoted(country_name)]
-    common = [_any(industry), _any(area), _any([_quoted(c) for c in spec.companies[:5]])]
+    common = [_any(industry), _any(area)]
+    firms = [_quoted(c) for c in dict.fromkeys(spec.companies)]
+    firm_groups = [_any(firms[i : i + 5]) for i in range(0, len(firms), 5)] or [""]
     name = " ".join(p for p in (spec.first_name, spec.last_name) if p)
     if name:
         common.append(_quoted(name))
@@ -716,10 +719,11 @@ def people_queries(
     excluded += [li.SECTORS[c][2][0] for c in spec.exclude_sectors if c in li.SECTORS]
     common += [f"-{_quoted(t.strip(chr(34)))}" for t in excluded[:6]]
     queries = []
-    for place in places:
-        for roles in role_groups:
-            q = f"site:linkedin.com/in {_any(roles)} {' '.join(common)} {place}"
-            queries.append(" ".join(q.split()))
+    for roles in role_groups:
+        for firm in firm_groups:
+            for place in places:
+                q = f"site:linkedin.com/in {_any(roles)} {firm} {' '.join(common)} {place}"
+                queries.append(" ".join(q.split()))
     return list(dict.fromkeys(queries))
 
 

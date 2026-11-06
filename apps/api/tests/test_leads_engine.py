@@ -174,3 +174,25 @@ def test_mail_servers_and_provider(session_factory: sessionmaker[Session]) -> No
     assert memory.mail_provider(hosts or []) == ("google", "Google Workspace")
     assert memory.mail_provider(["alpina-com.mail.protection.outlook.com"])[0] == "microsoft"
     assert memory.mail_provider(["mx1.alpina.com"]) == ("propio", "servidor propio")
+
+
+def test_every_written_title_and_company_is_searched() -> None:
+    """Sin tope: todos los cargos y empresas escritos entran en alguna consulta."""
+    from orkesta.research import leads, serp
+    from orkesta.research.router import FiltersIn
+
+    titles = [f"Gerente de Área {i}" for i in range(30)]
+    companies = [f"Empresa {i}" for i in range(12)]
+    assert len(FiltersIn(country="CO", titles=titles, companies=companies).titles) == 30
+    plan = leads.plan_people(
+        country="CO", country_name="Colombia", cities=["Bogotá"], phrases=titles,
+        sector_terms=[], keywords="", companies=companies, exclude=[],
+    )  # fmt: skip
+    joined = " ".join(plan.queries)
+    assert all(f'"{t}"' in joined for t in titles) and all(f'"{c}"' in joined for c in companies)
+    queries = serp.people_queries(
+        levels=[], areas=[], industries=[], keywords="", country_name="Colombia", city="",
+        spec=serp.LeadSpec(titles=tuple(titles), companies=tuple(companies)),
+    )  # fmt: skip
+    joined = " ".join(queries)
+    assert all(f'"{t}"' in joined for t in titles) and all(f'"{c}"' in joined for c in companies)

@@ -169,8 +169,6 @@ def plan_people(
         common.append(
             "(" + " OR ".join(sector_terms[:6]) + ")" if len(sector_terms) > 1 else sector_terms[0]
         )
-    if companies:
-        common.append("(" + " OR ".join(_quoted(c) for c in companies[:5]) + ")")
     if first_last:
         common.append(_quoted(first_last))
     if keywords:
@@ -178,19 +176,24 @@ def plan_people(
     common += [f"-{_quoted(t)}" for t in exclude[:6]]
     places = [_quoted(c) for c in cities] or [_quoted(country_name)]
     plan = Plan(queries=[])
+    # Todas las empresas escritas se buscan, de a 5 por consulta (el buscador no admite más).
+    groups = [
+        "(" + " OR ".join(_quoted(c) for c in g) + ")" if len(g) > 1 else _quoted(g[0])
+        for g in _group(list(dict.fromkeys(companies)), 5)
+    ] or [""]
     for chunk in _group(phrases, 3) or [[]]:
         roles = " OR ".join(_quoted(t) for t in chunk)
         roles = f"({roles})" if len(chunk) > 1 else roles
-        for place in places:
-            q = " ".join(f"site:linkedin.com/in {roles} {' '.join(common)} {place}".split())
-            plan.queries.append(q)
-            if not cities:
-                plan.splits[q] = [
-                    " ".join(
-                        f"site:linkedin.com/in {roles} {' '.join(common)} {_quoted(city)}".split()
-                    )
-                    for city in CITIES.get(country, ())
-                ]
+        for firms in groups:
+            base = " ".join([firms, *common])
+            for place in places:
+                q = " ".join(f"site:linkedin.com/in {roles} {base} {place}".split())
+                plan.queries.append(q)
+                if not cities:
+                    plan.splits[q] = [
+                        " ".join(f"site:linkedin.com/in {roles} {base} {_quoted(city)}".split())
+                        for city in CITIES.get(country, ())
+                    ]
     plan.queries = list(dict.fromkeys(plan.queries))
     return plan
 
