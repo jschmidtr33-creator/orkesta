@@ -37,11 +37,11 @@ jobs:
             SELECT 'admin_audit', count(*) FROM orkesta.admin_audit UNION ALL
             SELECT 'users', count(*) FROM orkesta.users UNION ALL
             SELECT 'tenants', count(*) FROM orkesta.tenants UNION ALL
-            SELECT 'contacts', count(*) FROM orkesta.contacts;"
+            SELECT 'contacts', count(*) FROM orkesta.contacts;" </dev/null
           echo "==> Permisos del usuario de la app"
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
             SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
-            SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';"
+            SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';" </dev/null
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"
