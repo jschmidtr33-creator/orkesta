@@ -290,15 +290,25 @@ function TeamSettings() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [form, setForm] = useState({ email: "", role: "vendedor" });
   const [link, setLink] = useState<string | null>(null);
+  const [note, setNote] = useState<{ emailed: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const refresh = () => client.invalidateQueries({ queryKey: ["team"] });
   const invite = useMutation({
-    mutationFn: () => api<{ link: string }>("/api/team/invitations", { method: "POST", json: form }),
+    mutationFn: () => api<{ link: string; emailed: boolean; email_note: string }>("/api/team/invitations", { method: "POST", json: form }),
     onSuccess: (data) => {
       setLink(data.link);
+      setNote({ emailed: data.emailed, text: data.email_note });
       refresh();
     },
   });
+  const resend = useMutation({
+    mutationFn: (id: string) => api<{ link: string; emailed: boolean; email_note: string }>(`/api/team/invitations/${id}/resend`, { method: "POST" }),
+    onSuccess: (data) => {
+      setResent({ emailed: data.emailed, text: data.email_note, link: data.link });
+      refresh();
+    },
+  });
+  const [resent, setResent] = useState<{ emailed: boolean; text: string; link: string } | null>(null);
   const update = useMutation({
     mutationFn: ({ id, ...body }: { id: string; role?: string; active?: boolean }) =>
       api(`/api/team/members/${id}`, { method: "PATCH", json: body }),
@@ -326,6 +336,7 @@ function TeamSettings() {
                 icon={<MailPlus className="size-4" aria-hidden />}
                 onClick={() => {
                   setLink(null);
+                  setNote(null);
                   setCopied(false);
                   setForm({ email: "", role: "vendedor" });
                   setInviteOpen(true);
@@ -407,7 +418,18 @@ function TeamSettings() {
       </Card>
 
       <Card>
-        <CardHeader title="Invitaciones pendientes" description="Cada enlace sirve una sola vez y vence en 7 días." />
+        <CardHeader title="Invitaciones pendientes" description="Cada enlace sirve una sola vez y vence en 7 días. Al reenviar se genera uno nuevo." />
+        {resent && (
+          <div className="mb-3 flex flex-col gap-2">
+            <Alert tone={resent.emailed ? "ok" : "blue"}>{resent.text}</Alert>
+            {!resent.emailed && <input readOnly value={resent.link} aria-label="Enlace de invitación" className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-surface px-3 text-[13px]" onFocus={(e) => e.target.select()} />}
+          </div>
+        )}
+        {resend.error && (
+          <div className="mb-3">
+            <Alert>{resend.error.message}</Alert>
+          </div>
+        )}
         {data.invitations.length === 0 ? (
           <p className="text-[13.5px] text-ork-mist">No hay invitaciones pendientes.</p>
         ) : (
@@ -421,9 +443,14 @@ function TeamSettings() {
                   </p>
                 </div>
                 {isAdmin && (
-                  <Button size="sm" variant="ghost" onClick={() => revoke.mutate(i.id)}>
-                    Anular
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" loading={resend.isPending && resend.variables === i.id} onClick={() => resend.mutate(i.id)}>
+                      Reenviar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => revoke.mutate(i.id)}>
+                      Anular
+                    </Button>
+                  </div>
                 )}
               </li>
             ))}
@@ -435,11 +462,12 @@ function TeamSettings() {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         title="Invitar al equipo"
-        description="ORKESTA genera un enlace personal para que lo compartas por tu correo o chat."
+        description="Le enviamos un correo desde tu buzón conectado con su enlace personal para aceptar."
       >
         {link ? (
           <div className="flex flex-col gap-4">
-            <Alert tone="ok">Invitación creada para {form.email}.</Alert>
+            <Alert tone={note?.emailed ? "ok" : "blue"}>{note?.text ?? `Invitación creada para ${form.email}.`}</Alert>
+            <p className="text-[12.5px] text-ork-mist">{note?.emailed ? "Si no le llega, revisa su carpeta de spam o comparte este enlace:" : "Enlace personal de la invitación:"}</p>
             <div className="flex items-center gap-2 rounded-xl border border-ork-line bg-ork-surface p-2 pl-3">
               <Link2 className="size-4 shrink-0 text-ork-mist" aria-hidden />
               <input readOnly value={link} aria-label="Enlace de invitación" className="min-w-0 flex-1 bg-transparent text-[13px] text-ork-ink outline-none" />
@@ -455,7 +483,6 @@ function TeamSettings() {
                 {copied ? "Copiado" : "Copiar"}
               </Button>
             </div>
-            <p className="text-[12.5px] text-ork-mist">El envío automático por correo llega cuando conectes tu correo (Etapa 5).</p>
             <Button variant="secondary" onClick={() => setInviteOpen(false)}>
               Listo
             </Button>

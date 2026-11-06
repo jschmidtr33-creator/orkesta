@@ -321,9 +321,16 @@ export function InvitationPage() {
             </div>
           )}
           {session ? (
-            <Button size="lg" className="w-full" loading={accept.isPending} onClick={() => accept.mutate()}>
-              Aceptar invitación como {session.user.email}
-            </Button>
+            <>
+              {session.workspace && session.workspace.name !== info.data.workspace && (
+                <p className="mb-4 rounded-xl border border-ork-line bg-ork-card px-4 py-3 text-[13.5px] text-ork-graphite">
+                  Hoy trabajas en <strong className="text-ork-ink">{session.workspace.name}</strong>. Al aceptar, todo tu trabajo (contactos, listas, campañas, propuestas y pipeline) pasa a {info.data.workspace}. No se pierde nada.
+                </p>
+              )}
+              <Button size="lg" className="w-full" loading={accept.isPending} onClick={() => accept.mutate()}>
+                Aceptar invitación como {session.user.email}
+              </Button>
+            </>
           ) : info.data.account_exists === "yes" ? (
             <Alert tone="blue">
               Ya tienes cuenta con ese correo.{" "}

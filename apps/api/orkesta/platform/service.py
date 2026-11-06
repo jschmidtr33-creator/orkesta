@@ -452,6 +452,7 @@ def accept_invitation(
         raise PlatformError(
             f"La invitación es para {invitation.email}. Inicia sesión con ese correo.", 403
         )
+    moved = bring_own_workspace(session, user, tenant, invitation.role)
     ensure_single_workspace(session, user, joining=tenant.id)
     set_context(session, tenant_id=tenant.id, user_id=user.id)
     member = session.scalar(
@@ -465,10 +466,44 @@ def accept_invitation(
     user.last_tenant_id = tenant.id
     audit(
         session, tenant_id=tenant.id, actor_id=user.id, action="invitation.accepted",
-        entity_type="invitation", entity_id=invitation.id, ip=ip,
+        entity_type="invitation", entity_id=invitation.id, ip=ip, brought=moved,
     )  # fmt: skip
     session.flush()
     return user
+
+
+def bring_own_workspace(session: Session, user: User, tenant: Tenant, role: str) -> list[str]:
+    """Quien acepta una invitación y ya trabajaba sola en su propio espacio se lleva todo su
+    trabajo a la empresa que la invita (contactos, listas, campañas, propuestas, pipeline).
+    Si en su espacio hay más personas, no se mueve nada: eso lo decide su administración."""
+    if many_workspaces(user):
+        return []
+    moved: list[str] = []
+    for _, own in active_memberships(session, user.id):
+        if own.id == tenant.id:
+            continue
+        set_context(session, tenant_id=own.id, user_id=user.id)  # el equipo se ve por empresa
+        others = session.scalar(
+            select(func.count())
+            .select_from(Membership)
+            .where(
+                Membership.tenant_id == own.id,
+                Membership.user_id != user.id,
+                Membership.status == "active",
+            )
+        )
+        if others:
+            raise PlatformError(
+                f"Tu cuenta trabaja en «{own.name}» con más personas. Pide a quien la administra "
+                "que te quite de ese equipo, o escríbenos para unir las dos empresas.",
+                409,
+            )
+        from orkesta.platform.merge import merge_tenants
+
+        name = own.name
+        merge_tenants(session, source_id=own.id, target_id=tenant.id, role=role)
+        moved.append(name)
+    return moved
 
 
 def revoke_invitation(
