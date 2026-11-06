@@ -6,8 +6,8 @@ from __future__ import annotations
 import uuid
 
 import psycopg
-from psycopg import sql
 from fastapi.testclient import TestClient
+from psycopg import sql
 
 from orkesta.cli import alembic_config
 from orkesta.transfer import copy_database
