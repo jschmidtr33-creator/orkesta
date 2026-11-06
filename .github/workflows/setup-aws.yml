@@ -80,6 +80,9 @@ jobs:
           REMOTE
           rm -f updates.env
 
+      - name: Acceso del servidor a la imagen de ORKESTA
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | $SSH 'sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin'
+
       - name: 3. Copiar los datos desde Render
         if: inputs.copiar_datos
         env:
@@ -93,7 +96,6 @@ jobs:
 
       - name: 4. Arrancar ORKESTA
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | $SSH 'sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin'
           $SSH 'sudo /opt/orkesta/deploy.sh'
           for i in $(seq 1 30); do
             if curl -fsS --max-time 10 "https://${{ inputs.domain }}/api/health"; then
