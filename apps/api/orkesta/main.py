@@ -76,7 +76,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         workers: list[Any] = []
-        if settings.run_worker:
+        # Un servidor en mudanza no envía campañas ni corre trabajos: los hace el nuevo.
+        if settings.run_worker and not settings.moved_to.strip():
             from orkesta.core.jobs import Worker
 
             workers = [Worker(factory, i) for i in range(settings.worker_threads)]
