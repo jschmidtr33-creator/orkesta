@@ -31,7 +31,11 @@ cd /opt/orkesta
 base=https://raw.githubusercontent.com/jschmidtr33-creator/orkesta/main/deploy/aws
 mkdir -p initdb
 for f in docker-compose.yml Caddyfile deploy.sh backup.sh migrate-from-render.sh initdb/01-orkesta.sh; do
-  curl -fsSL "$base/$f" -o "$f"
+  if [ -f "/tmp/orkesta-deploy/$f" ]; then
+    cp "/tmp/orkesta-deploy/$f" "$f"  # enviado por GitHub Actions (sin caché)
+  else
+    curl -fsSL "$base/$f" -o "$f"
+  fi
 done
 chmod +x deploy.sh backup.sh migrate-from-render.sh initdb/01-orkesta.sh
 if [ ! -f .env ]; then
