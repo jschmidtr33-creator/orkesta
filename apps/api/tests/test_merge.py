@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import psycopg
 from fastapi.testclient import TestClient
 
@@ -99,3 +101,54 @@ def test_signed_proposal_keeps_its_fingerprint_after_a_merge() -> None:
     assert document_hash(session, proposal) != signed
     proposal.signature = {"doc_hash": signed, "frozen": {"number": 1, "issuer": "Cuenta de Luis"}}
     assert document_hash(session, proposal) == signed
+
+
+def test_accepting_an_invitation_brings_your_own_workspace(client: TestClient) -> None:
+    """Caso real: cada persona creó su cuenta; al aceptar la invitación de su empresa se lleva todo."""
+    register(client, "jennifer@americadigital.co", company="Jenn Prospección")
+    own = _workspace(client)
+    client.post("/api/contacts", json=SOFIA)
+    client.post("/api/crm/deals", json={"title": "Venta Jenn"})
+    client.post("/api/lists", json={"name": "Mis decisores"})
+    client.post("/api/auth/logout")
+
+    register(client, "gerente@americadigital.co", company="America Digital")
+    target = _workspace(client)
+    link = client.post("/api/team/invitations", json={
+        "email": "jennifer@americadigital.co", "role": "vendedor"}).json()["link"]  # fmt: skip
+    client.post("/api/auth/logout")
+
+    _login(client, "jennifer@americadigital.co", panel=False)
+    token = link.rsplit("/", 1)[1]
+    accepted = client.post(f"/api/invitations/{token}/accept", json={})
+    assert accepted.status_code == 200, accepted.text
+    me = _workspace(client)
+    assert me["id"] == target["id"] and me["role"] == "vendedor"
+    assert client.get("/api/contacts").json()["total"] == 1
+    assert {d["title"] for d in client.get("/api/crm/deals").json()["deals"]} == {"Venta Jenn"}
+    assert [x["name"] for x in client.get("/api/lists").json()] == ["Mis decisores"]
+    assert own["id"] not in {w["id"] for w in client.get("/api/auth/session").json()["workspaces"]}
+
+
+def test_a_shared_workspace_is_not_moved_on_accept(
+    client: TestClient, session_factory: Any
+) -> None:
+    register(client, "jennifer@americadigital.co", company="Jenn Prospección")
+    client.post(
+        "/api/team/invitations", json={"email": "socio@americadigital.co", "role": "vendedor"}
+    )
+    invite = client.post(
+        "/api/team/invitations", json={"email": "socio@americadigital.co", "role": "vendedor"}
+    ).json()["link"]
+    partner = TestClient(client.app)
+    joined = partner.post(f"/api/invitations/{invite.rsplit('/', 1)[1]}/accept",
+                 json={"full_name": "Socio", "password": "ClaveSegura2026"})  # fmt: skip
+    assert joined.status_code == 200, joined.text
+    client.post("/api/auth/logout")
+    register(client, "gerente@americadigital.co", company="America Digital")
+    link = client.post("/api/team/invitations", json={
+        "email": "jennifer@americadigital.co", "role": "vendedor"}).json()["link"]  # fmt: skip
+    client.post("/api/auth/logout")
+    _login(client, "jennifer@americadigital.co", panel=False)
+    refused = client.post(f"/api/invitations/{link.rsplit('/', 1)[1]}/accept", json={})
+    assert refused.status_code == 409 and "más personas" in refused.json()["detail"]

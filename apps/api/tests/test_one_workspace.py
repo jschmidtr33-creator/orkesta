@@ -14,13 +14,14 @@ def test_single_workspace_except_owner(client: TestClient, database: tuple[str, 
     r = client.post("/api/workspaces", json={"name": "Segundo espacio"})
     assert r.status_code == 403 and "solo uno" in r.json()["detail"]
 
-    # Invitada a otra empresa: no puede sumarse mientras pertenezca a la suya.
+    # Invitada a otra empresa: al aceptar se lleva su espacio (sigue teniendo uno solo).
     boss = TestClient(client.app)
     register(boss, "jefe@otra.co", company="Otra")
     link = boss.post("/api/team/invitations", json={"email": "ana@lacteos.co",
                                                    "role": "vendedor"}).json()["link"]  # fmt: skip
     token = link.rsplit("/", 1)[1]
-    assert client.post(f"/api/invitations/{token}/accept", json={}).status_code == 403
+    assert client.post(f"/api/invitations/{token}/accept", json={}).status_code == 200
+    assert [w["name"] for w in client.get("/api/auth/me").json()["workspaces"]] == ["Otra"]
 
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute(

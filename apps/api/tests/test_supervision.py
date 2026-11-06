@@ -160,3 +160,34 @@ def test_team_panel_shows_only_assigned_people(
     # El reporte general de la jefatura no muestra a la administradora ni a Sara.
     names = {t["name"] for t in jefa.get("/api/reports/overview").json()["team"]}
     assert names == {"Jefa Comercial", "Luis"}
+
+
+def test_invitation_is_emailed_from_the_inviters_mailbox(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import imaplib
+    import smtplib
+    from email import message_from_bytes, policy
+
+    from tests.test_mail_providers import FakeIMAP, FakeSMTP
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAP)
+    FakeSMTP.sent, FakeSMTP.fail = [], False
+    register(client, "ana@lacteos.co")
+    # Sin buzón: se crea igual y se avisa que hay que compartir el enlace.
+    first = client.post(
+        "/api/team/invitations", json={"email": "luis@lacteos.co", "role": "vendedor"}
+    ).json()
+    assert first["emailed"] is False and "/app/invitacion/" in first["link"]
+
+    client.post("/api/mailboxes/smtp", json={"email": "ana@lacteos.co", "password": "clave-app",
+                                             "smtp_host": "smtp.lacteos.co"})  # fmt: skip
+    again = client.post(f"/api/team/invitations/{first['id']}/resend").json()
+    assert again["emailed"] is True and again["link"] != first["link"]
+    msg = message_from_bytes(FakeSMTP.sent[-1], policy=policy.default)
+    assert msg["To"] == "luis@lacteos.co" and "te invitó a Lácteos Inventados" in msg["Subject"]
+    html = next(p for p in msg.walk() if p.get_content_type() == "text/html").get_content()
+    assert again["link"] in html and "Vendedor" in html
+    # El enlace anterior ya no sirve; el nuevo sí.
+    old_token, new_token = first["link"].rsplit("/", 1)[1], again["link"].rsplit("/", 1)[1]
+    assert client.get(f"/api/invitations/{old_token}").status_code != 200
+    assert client.get(f"/api/invitations/{new_token}").status_code == 200

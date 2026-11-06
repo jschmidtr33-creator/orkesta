@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -14,7 +14,13 @@ from sqlalchemy import func, select
 
 from orkesta.core.config import get_settings
 from orkesta.core.db import set_context
-from orkesta.core.security import PasswordPolicyError, read_state, sign_state
+from orkesta.core.security import (
+    PasswordPolicyError,
+    new_token,
+    read_state,
+    sign_state,
+    token_hash,
+)
 from orkesta.core.web import (
     REFRESH_COOKIE,
     CurrentPrincipal,
@@ -450,7 +456,7 @@ def team(principal: Member, db: Db) -> dict[str, Any]:
 
 
 @router.post("/team/invitations")
-def invite(body: InviteIn, request: Request, principal: Admin, db: Db) -> dict[str, str]:
+def invite(body: InviteIn, request: Request, principal: Admin, db: Db) -> dict[str, Any]:
     try:
         invitation, token = svc.invite(
             db, tenant_id=principal.tenant_id, inviter_id=principal.user.id,
@@ -458,9 +464,34 @@ def invite(body: InviteIn, request: Request, principal: Admin, db: Db) -> dict[s
         )  # fmt: skip
     except svc.PlatformError as exc:
         raise _fail(exc) from exc
+    return _deliver_invitation(db, request, principal, invitation, token)
+
+
+def _deliver_invitation(
+    db: Db, request: Request, principal: Principal, invitation: Invitation, token: str
+) -> dict[str, Any]:
+    from orkesta.platform import invite_mail
+
     base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
-    # Sin servicio de correo en esta etapa: el administrador copia y comparte el enlace.
-    return {"id": str(invitation.id), "link": f"{base}/app/invitacion/{token}"}
+    link = f"{base}/app/invitacion/{token}"
+    db.flush()
+    problem = invite_mail.send(db, tenant_id=principal.tenant_id, inviter=principal.user,
+                               invitation=invitation, link=link)  # fmt: skip
+    return {"id": str(invitation.id), "link": link, "emailed": problem is None,
+            "email_note": problem or f"Enviamos la invitación a {invitation.email}."}  # fmt: skip
+
+
+@router.post("/team/invitations/{invitation_id}/resend")
+def resend(invitation_id: uuid.UUID, request: Request, principal: Admin, db: Db) -> dict[str, Any]:
+    """Vuelve a enviar la invitación con un enlace nuevo (el anterior deja de servir)."""
+    invitation = db.get(Invitation, invitation_id)
+    if (invitation is None or invitation.tenant_id != principal.tenant_id
+            or invitation.accepted_at or invitation.revoked_at):  # fmt: skip
+        raise HTTPException(404, "Esa invitación ya no está vigente.")
+    token = new_token()
+    invitation.token_hash = token_hash(token)
+    invitation.expires_at = datetime.now(UTC) + timedelta(days=get_settings().invitation_days)
+    return _deliver_invitation(db, request, principal, invitation, token)
 
 
 @router.delete("/team/invitations/{invitation_id}")
