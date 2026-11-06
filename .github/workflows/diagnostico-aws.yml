@@ -38,6 +38,11 @@ jobs:
             SELECT 'users', count(*) FROM orkesta.users UNION ALL
             SELECT 'tenants', count(*) FROM orkesta.tenants UNION ALL
             SELECT 'contacts', count(*) FROM orkesta.contacts;" </dev/null
+          echo "==> Miembros por empresa (solo cifras)"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT left(m.tenant_id::text,8), string_agg(m.role||':'||m.status, ' ' ORDER BY m.role),
+                   (SELECT count(*) FROM orkesta.contacts c WHERE c.tenant_id=m.tenant_id)
+            FROM orkesta.memberships m GROUP BY m.tenant_id ORDER BY 3 DESC;" </dev/null
           echo "==> Permisos del usuario de la app"
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
             SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
