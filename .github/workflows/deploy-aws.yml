@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: write  # publicar la imagen; el servidor la descarga con el token del flujo
 
 concurrency:
   group: deploy-aws
@@ -58,5 +58,7 @@ jobs:
             exit 0
           fi
           install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
-          ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@"$HOST" 'sudo /opt/orkesta/deploy.sh'
+          SSH="ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@$HOST"
+          echo "${{ secrets.GITHUB_TOKEN }}" | $SSH 'sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin'
+          $SSH 'sudo /opt/orkesta/deploy.sh'
           rm -f key.pem
