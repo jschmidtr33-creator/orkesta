@@ -108,8 +108,9 @@ export function PublicProposalPage() {
   const [consent, setConsent] = useState(false);
   const [note, setNote] = useState("");
   const [rejecting, setRejecting] = useState(false);
+  const [choice, setChoice] = useState<number | null>(null);
   const decide = useMutation({
-    mutationFn: (accept: boolean) => api<PublicProposal>(`/api/public/proposals/${publicId}/decision`, { method: "POST", json: { accept, name, note, email, document, signature, consent } }),
+    mutationFn: (accept: boolean) => api<PublicProposal>(`/api/public/proposals/${publicId}/decision`, { method: "POST", json: { accept, name, note, email, document, signature, consent, choice } }),
     onSuccess: (data) => client.setQueryData(key, data),
   });
   const p = q.data;
@@ -139,7 +140,11 @@ export function PublicProposalPage() {
           </button>
         </div>
 
-        <ProposalDocument data={p} />
+        <ProposalDocument
+          data={p}
+          choice={p.chosen_item ?? choice}
+          onChoose={open && p.pricing_mode === "opciones" && !preview ? setChoice : undefined}
+        />
 
         <div className="mt-6 print:hidden">
           {p.decided_at ? (
@@ -197,12 +202,24 @@ export function PublicProposalPage() {
                   </label>
                 </div>
               )}
+              {!rejecting && p.pricing_mode === "opciones" && (
+                <p className="mt-3 rounded-lg px-3 py-2 text-[13px] font-semibold" style={{ background: `${p.look.primary}14`, color: p.look.primary }}>
+                  {choice === null ? t.pickFirst : `${t.chosen}: ${t.option} ${choice + 1} · ${p.items[choice]?.name ?? ""}`}
+                </p>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 {!rejecting ? (
                   <>
                     <button
                       type="button"
-                      disabled={name.trim().length < 3 || !email.includes("@") || !signature || !consent || decide.isPending}
+                      disabled={
+                        name.trim().length < 3 ||
+                        !email.includes("@") ||
+                        !signature ||
+                        !consent ||
+                        decide.isPending ||
+                        (p.pricing_mode === "opciones" && choice === null)
+                      }
                       onClick={() => decide.mutate(true)}
                       className="inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[14.5px] font-semibold shadow-sm disabled:opacity-50"
                       style={btn}

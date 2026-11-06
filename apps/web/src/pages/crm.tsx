@@ -1099,7 +1099,7 @@ function DealProposals({ dealId }: { dealId: string }) {
   const [creating, setCreating] = useState(false);
   const list = useQuery({
     queryKey: ["proposals", "deal", dealId],
-    queryFn: () => api<{ id: string; number: number; title: string; status_label: string; totals: { total: number }; currency: string }[]>(`/api/proposals?oportunidad=${dealId}`),
+    queryFn: () => api<{ id: string; number: number; title: string; status_label: string; totals: { total: number | null; from?: number; mode?: string }; currency: string }[]>(`/api/proposals?oportunidad=${dealId}`),
   });
   return (
     <div>
@@ -1118,7 +1118,7 @@ function DealProposals({ dealId }: { dealId: string }) {
                   #{p.number} · {p.title}
                 </span>
                 <span className="text-ork-mist">
-                  {p.status_label} · {money(p.totals.total, p.currency)}
+                  {p.status_label} · {p.totals.total != null ? money(p.totals.total, p.currency) : `Desde ${money(p.totals.from ?? 0, p.currency)}`}
                 </span>
               </Link>
             </li>
