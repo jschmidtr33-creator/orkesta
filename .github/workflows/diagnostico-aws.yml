@@ -1,0 +1,53 @@
+# Diagnóstico del servidor de AWS: estado de los contenedores, cifras de la base y los últimos
+# errores de la aplicación. El repositorio es público: los correos y direcciones de conexión se
+# ocultan antes de mostrarse.
+name: diagnostico-aws
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST: ${{ secrets.AWS_HOST }}
+      KEY: ${{ secrets.AWS_SSH_KEY }}
+    steps:
+      - name: Conexión
+        run: |
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@$HOST" >> "$GITHUB_ENV"
+
+      - name: Estado
+        run: |
+          $SSH 'sudo bash -s' <<'REMOTE' | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<correo>/g; s#(postgres(ql)?(\+psycopg)?://)[^ ]+#\1<oculto>#g'
+          cd /opt/orkesta
+          echo "==> Contenedores"; docker compose ps --format '{{.Name}} {{.State}} {{.Status}}'
+          echo "==> Memoria"; free -m | head -2
+          echo "==> Cifras"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT 'admin_audit', count(*) FROM orkesta.admin_audit UNION ALL
+            SELECT 'users', count(*) FROM orkesta.users UNION ALL
+            SELECT 'tenants', count(*) FROM orkesta.tenants UNION ALL
+            SELECT 'contacts', count(*) FROM orkesta.contacts;"
+          echo "==> Permisos del usuario de la app"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
+            SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';"
+          echo "==> Errores recientes de la app"
+          docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
+          echo "==> Últimas peticiones con error"
+          docker compose logs --since 3h app 2>&1 | grep -E '" (4|5)[0-9]{2}' | tail -40
+          REMOTE
+
+      - name: Limpiar
+        if: always()
+        run: rm -f key.pem
