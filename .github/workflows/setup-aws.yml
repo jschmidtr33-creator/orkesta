@@ -1,0 +1,104 @@
+# Prepara el servidor de AWS sin abrir una terminal: todo se configura con secretos de GitHub.
+# Se ejecuta a mano (Actions → setup-aws → Run workflow) o lo lanza el equipo de ORKESTA.
+# Secretos (Settings → Secrets and variables → Actions):
+#   AWS_HOST, AWS_SSH_KEY                       servidor y llave .pem (obligatorios)
+#   SECRET_KEY                                  la MISMA de Render (descifra buzones y sesiones)
+#   SERPER_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+#   MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET          (opcionales, los mismos de Render)
+#   RENDER_DATABASE_URL                         External Database URL de Render (para copiar datos)
+name: setup-aws
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Dominio de ORKESTA en AWS"
+        default: "3-130-137-39.sslip.io"
+        required: true
+      copiar_datos:
+        description: "Copiar la base de datos desde Render (solo la primera vez)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      HOST: ${{ secrets.AWS_HOST }}
+      KEY: ${{ secrets.AWS_SSH_KEY }}
+    steps:
+      - name: Revisar secretos
+        run: |
+          [ -n "$HOST" ] || { echo "::error::Falta el secreto AWS_HOST"; exit 1; }
+          [ -n "$KEY" ] || { echo "::error::Falta el secreto AWS_SSH_KEY"; exit 1; }
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 ubuntu@$HOST" >> "$GITHUB_ENV"
+
+      - name: 1. Preparar el servidor (Docker, memoria extra, respaldos)
+        run: $SSH 'curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/deploy/aws/setup.sh | sudo bash'
+
+      - name: 2. Configuración (.env) desde los secretos
+        env:
+          DOMAIN: ${{ inputs.domain }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+        run: |
+          umask 077
+          : > updates.env
+          echo "DOMAIN=$DOMAIN" >> updates.env
+          echo "PUBLIC_BASE_URL=https://$DOMAIN" >> updates.env
+          for name in SECRET_KEY SERPER_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
+                      MICROSOFT_CLIENT_ID MICROSOFT_CLIENT_SECRET; do
+            value="${!name}"
+            [ -n "$value" ] && echo "$name=$value" >> updates.env
+          done
+          [ -n "$SECRET_KEY" ] || echo "::warning::Sin SECRET_KEY de Render: los buzones conectados tendrán que reconectarse."
+          $SSH 'cat > /tmp/updates.env' < updates.env
+          $SSH 'sudo bash -s' <<'REMOTE'
+          set -e
+          cd /opt/orkesta
+          while IFS= read -r line; do
+            key="${line%%=*}"
+            grep -v "^${key}=" .env > .env.tmp || true
+            printf '%s\n' "$line" >> .env.tmp
+            mv .env.tmp .env
+          done < /tmp/updates.env
+          chmod 600 .env && rm -f /tmp/updates.env
+          echo "Configuración actualizada: $(grep -c '=.' .env) valores"
+          REMOTE
+          rm -f updates.env
+
+      - name: 3. Copiar los datos desde Render
+        if: inputs.copiar_datos
+        env:
+          RENDER_DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+        run: |
+          if [ -z "$RENDER_DATABASE_URL" ]; then
+            echo "::warning::Sin RENDER_DATABASE_URL: ORKESTA arranca con una base nueva."
+            exit 0
+          fi
+          printf '%s\n' "$RENDER_DATABASE_URL" | $SSH 'sudo /opt/orkesta/migrate-from-render.sh'
+
+      - name: 4. Arrancar ORKESTA
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | $SSH 'sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin'
+          $SSH 'sudo /opt/orkesta/deploy.sh'
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "https://${{ inputs.domain }}/api/health"; then
+              echo; echo "ORKESTA responde en https://${{ inputs.domain }}"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::ORKESTA arrancó pero el HTTPS aún no responde (el certificado puede tardar unos minutos)."
+
+      - name: Limpiar
+        if: always()
+        run: rm -f key.pem
