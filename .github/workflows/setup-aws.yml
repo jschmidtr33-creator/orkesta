@@ -31,6 +31,7 @@ jobs:
       HOST: ${{ secrets.AWS_HOST }}
       KEY: ${{ secrets.AWS_SSH_KEY }}
     steps:
+      - uses: actions/checkout@v4
       - name: Revisar secretos
         run: |
           [ -n "$HOST" ] || { echo "::error::Falta el secreto AWS_HOST"; exit 1; }
@@ -39,7 +40,8 @@ jobs:
           echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 ubuntu@$HOST" >> "$GITHUB_ENV"
 
       - name: 1. Preparar el servidor (Docker, memoria extra, respaldos)
-        run: $SSH 'curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/deploy/aws/setup.sh | sudo bash'
+        # El script va directo desde esta versión del repositorio (sin la caché de raw.githubusercontent).
+        run: $SSH 'sudo bash -s' < deploy/aws/setup.sh
 
       - name: 2. Configuración (.env) desde los secretos
         env:
