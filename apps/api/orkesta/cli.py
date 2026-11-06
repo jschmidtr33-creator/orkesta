@@ -35,6 +35,14 @@ def alembic_config(url: str | None = None) -> Config:
 def migrate() -> None:
     command.upgrade(alembic_config(get_settings().database_url), "head")
     print("release: migraciones al día")
+    try:
+        from orkesta.core.db import get_session_factory
+        from orkesta.research import sectors
+
+        found = sectors.backfill(get_session_factory())
+        print(f"release: sector deducido para {sum(found.values())} empresas {found}")
+    except Exception as exc:  # nunca debe frenar un despliegue
+        print(f"release: no se pudo deducir sectores: {exc}")
 
 
 def bootstrap_admin() -> None:

@@ -241,6 +241,7 @@ def normalize_row(
         "name": name,
         "name_key": key_name,
         "industry_code": industry or None,
+        "industry_source": "registro" if industry else None,
         "activity_code": code or None,
         "sector": sector or None,
         "city": city or None,
@@ -263,6 +264,7 @@ _UPDATE = (
     "name",
     "name_key",
     "industry_code",
+    "industry_source",
     "activity_code",
     "sector",
     "city",
@@ -563,11 +565,14 @@ def learn(factory: sessionmaker[Session], country: str, companies: Iterable[Any]
                         "place_key": fold(data["city"] or "") or None,
                         "search_text": fold(f"{data['name']} {data['sector'] or ''}")[:600],
                         "source": "busquedas",
+                        "industry_source": "busqueda" if data["industry_code"] else None,
                     })  # fmt: skip
                     continue
                 for attr in ("domain", "website", "linkedin", "industry_code", "employees"):
                     if getattr(row, attr) in (None, "") and data[attr]:
                         setattr(row, attr, data[attr])
+                        if attr == "industry_code":
+                            row.industry_source = "busqueda"
             if new:
                 session.execute(pg_insert(CompanyDirectory).values(new).on_conflict_do_nothing())
             return len(rows)

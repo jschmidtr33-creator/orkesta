@@ -186,6 +186,8 @@ class CompanyDirectory(Base):
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     name_key: Mapped[str] = mapped_column(String(300), nullable=False)
     industry_code: Mapped[str | None] = mapped_column(String(40))
+    # De dónde salió el sector: registro, curado, dominio, nombre, sitio, mismo dominio.
+    industry_source: Mapped[str | None] = mapped_column(String(20))
     activity_code: Mapped[str | None] = mapped_column(String(10))
     sector: Mapped[str | None] = mapped_column(String(200))
     city: Mapped[str | None] = mapped_column(String(120))

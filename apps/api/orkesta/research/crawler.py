@@ -27,6 +27,7 @@ RECRAWL = timedelta(days=60)
 RETRY_FAILED = timedelta(days=14)
 BUDGET_SECONDS = 240
 _RUNNING = threading.Lock()
+WEAK_SECTOR = ("mismo dominio",)  # el sitio oficial pesa más que esto
 STATS: dict[str, Any] = {}
 
 
@@ -47,6 +48,7 @@ def due(session: Session, limit: int) -> list[CompanyDirectory]:
         select(CompanyDirectory)
         .where(CompanyDirectory.domain.is_not(None), stale)
         .order_by(CompanyDirectory.crawled_at.nulls_first(),
+                  CompanyDirectory.industry_code.is_(None).desc(),  # primero las sin sector
                   CompanyDirectory.revenue.desc().nulls_last())
         .limit(limit)
     ))  # fmt: skip
@@ -101,6 +103,13 @@ def crawl_batch(factory: sessionmaker[Session], limit: int = BATCH) -> int:
                     for attr in ("linkedin", "employees"):
                         if found.get(attr) and getattr(row, attr) in (None, ""):
                             setattr(row, attr, found[attr])
+                    if not row.industry_code or row.industry_source in WEAK_SECTOR:
+                        from orkesta.research.sectors import from_description
+
+                        code = from_description(f"{found.get('name') or ''}. "
+                                                f"{found.get('description') or ''}")  # fmt: skip
+                        if code:
+                            row.industry_code, row.industry_source = code, "sitio"
                     done += 1
         STATS.update(last_run=datetime.now(UTC).isoformat(), last_batch=done)
         return done
