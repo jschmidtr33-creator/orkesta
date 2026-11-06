@@ -155,7 +155,10 @@ def clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def totals(items: list[dict[str, Any]], tax_rate: Decimal | float) -> dict[str, float]:
+PRICING_MODES = ("total", "opciones")
+
+
+def _sum(items: list[dict[str, Any]], tax_rate: Decimal | float) -> dict[str, float]:
     subtotal = Decimal(0)
     discounts = Decimal(0)
     for item in items:
@@ -174,6 +177,29 @@ def totals(items: list[dict[str, Any]], tax_rate: Decimal | float) -> dict[str, 
         "tax": q(tax),
         "total": q(subtotal + tax),
     }
+
+
+def totals(
+    items: list[dict[str, Any]], tax_rate: Decimal | float, mode: str = "total",
+    chosen: int | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Totales de la propuesta.
+
+    En modo «opciones» no hay total general: cada producto trae su propio total (con impuestos)
+    y, si el cliente ya eligió, los totales de arriba son los de la opción elegida."""
+    if mode != "opciones":
+        return {"mode": "total", **_sum(items, tax_rate)}
+    options = [_sum([item], tax_rate) for item in items]
+    picked = options[chosen] if chosen is not None and 0 <= chosen < len(options) else None
+    prices = [o["total"] for o in options]
+    return {
+        "mode": "opciones", "options": options, "chosen": chosen if picked else None,
+        "subtotal": picked["subtotal"] if picked else None,
+        "discounts": picked["discounts"] if picked else None,
+        "tax": picked["tax"] if picked else None,
+        "total": picked["total"] if picked else None,
+        "from": min(prices) if prices else 0.0, "to": max(prices) if prices else 0.0,
+    }  # fmt: skip
 
 
 # --- Generador de borradores (motor propio) -------------------------------------------------
@@ -512,6 +538,10 @@ def update_proposal(session: Session, proposal: Proposal, data: dict[str, Any]) 
         proposal.tax_rate = rate
     if "valid_until" in data:
         proposal.valid_until = data["valid_until"]
+    if "pricing_mode" in data:
+        if data["pricing_mode"] not in PRICING_MODES:
+            raise ProposalError("Modo de precios desconocido.")
+        proposal.pricing_mode = data["pricing_mode"]
     if "design" in data:
         try:
             proposal.design = clean_design(dict(data["design"] or {}), dict(proposal.design or {}))
@@ -575,6 +605,7 @@ def duplicate(session: Session, proposal: Proposal, user: User) -> Proposal:
         items=list(proposal.items),
         sections=list(proposal.sections),
         tax_rate=proposal.tax_rate,
+        pricing_mode=proposal.pricing_mode,
         valid_until=(now() + timedelta(days=30)).date(),
         public_id=secrets.token_urlsafe(24),
         design=dict(proposal.design or {}),
@@ -597,7 +628,9 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
         "status": p.status,
         "status_label": STATUS_LABELS[p.status],
         "currency": p.currency,
-        "totals": totals(p.items, p.tax_rate),
+        "totals": totals(p.items, p.tax_rate, p.pricing_mode, p.chosen_item),
+        "pricing_mode": p.pricing_mode,
+        "chosen_item": p.chosen_item,
         "valid_until": p.valid_until.isoformat() if p.valid_until else None,
         "public_id": p.public_id,
         "contact": {"id": str(contact.id), "full_name": contact.full_name, "email": contact.email}
@@ -742,6 +775,8 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
         "sections": data["sections"],
         "tax_rate": data["tax_rate"],
         "totals": data["totals"],
+        "pricing_mode": data["pricing_mode"],
+        "chosen_item": data["chosen_item"],
         "valid_until": data["valid_until"],
         "expired": expired,
         "company": data["company"],
@@ -775,6 +810,9 @@ def document_hash(session: Session, proposal: Proposal) -> str:
         "tax_rate": str(proposal.tax_rate), "valid_until": str(proposal.valid_until or ""),
         "issuer": tenant.name if tenant else "",
     }  # fmt: skip
+    if proposal.pricing_mode == "opciones":  # la opción elegida es parte de lo firmado
+        content["pricing_mode"] = "opciones"
+        content["chosen_item"] = proposal.chosen_item
     raw = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str).encode()
     return hashlib.sha256(raw).hexdigest()
 
@@ -812,6 +850,7 @@ def decide(
     consent: bool = False,
     ip: str = "",
     user_agent: str = "",
+    choice: int | None = None,
 ) -> None:
     if proposal.status in ("accepted", "rejected"):
         raise ProposalError("Esta propuesta ya fue respondida.", 409)
@@ -822,6 +861,16 @@ def decide(
     who = " ".join(name.split())[:160]
     if accept and len(who) < 3:
         raise ProposalError("Escribe tu nombre completo para aceptar.")
+    option_note = ""
+    if accept and proposal.pricing_mode == "opciones":
+        if choice is None or not 0 <= choice < len(proposal.items):
+            raise ProposalError("Elige una de las opciones antes de aceptar.")
+        proposal.chosen_item = choice
+        picked = proposal.items[choice]
+        price = totals([picked], proposal.tax_rate)["total"]
+        option_note = (
+            f" Eligió la opción «{picked.get('name', '')}» ({proposal.currency} {price:,.2f})."
+        )
     if accept:
         if not consent:
             raise ProposalError("Confirma que aceptas firmar electrónicamente.")
@@ -839,7 +888,7 @@ def decide(
     proposal.decided_by = who or None
     proposal.decision_note = note.strip()[:500] or None
     verb = "aceptó" if accept else "rechazó"
-    body = f"{who or 'El cliente'} {verb} la propuesta N.º {proposal.number}."
+    body = f"{who or 'El cliente'} {verb} la propuesta N.º {proposal.number}.{option_note}"
     if proposal.decision_note:
         body += f" Comentario: {proposal.decision_note}"
     crm_log(session, tenant_id=proposal.tenant_id, kind="system", user_id=None,
@@ -857,6 +906,11 @@ def decide(
          contact_id=proposal.contact_id, deal_id=proposal.deal_id, proposal_id=proposal.id,
          user_id=proposal.created_by)  # fmt: skip
     deal = session.get(Deal, proposal.deal_id) if proposal.deal_id else None
+    if deal is not None and accept and proposal.pricing_mode == "opciones":
+        # El valor de la oportunidad pasa a ser el de la opción que eligió el cliente.
+        chosen_total = totals(proposal.items, proposal.tax_rate, "opciones", choice)["total"]
+        if chosen_total is not None:
+            deal.value = Decimal(str(chosen_total))
     if deal is not None and deal.status == "open" and accept:
         won = session.scalar(
             select(Stage).where(Stage.tenant_id == deal.tenant_id, Stage.kind == "won")
@@ -892,17 +946,26 @@ def certificate_pdf(session: Session, proposal: Proposal) -> bytes:
              color="#4B5563")  # fmt: skip
     doc.rule()
     doc.text("Resumen del acuerdo", size=12, bold=True)
-    for item in data["items"]:
+    t = data["totals"]
+    options = t.get("mode") == "opciones"
+    if options:
+        doc.text("Opciones ofrecidas (el cliente eligió una):", size=10, color="#4B5563")
+    for i, item in enumerate(data["items"]):
         qty = item.get("quantity", 1)
         price = float(item.get("unit_price", 0))
         off = f" (−{item['discount']} %)" if item.get("discount") else ""
-        doc.text(f"• {item.get('name', '')} — {qty} × {proposal.currency} {price:,.2f}{off}",
-                 size=10)  # fmt: skip
-    t = data["totals"]
+        mark = ("» " if i == t.get("chosen") else "• ") if options else "• "
+        line = f"{mark}{item.get('name', '')} — {qty} × {proposal.currency} {price:,.2f}{off}"
+        if options:
+            line += f" = {proposal.currency} {t['options'][i]['total']:,.2f}"
+            if i == t.get("chosen"):
+                line += "  (elegida)"
+        doc.text(line, size=10, bold=options and i == t.get("chosen"))
     doc.space(4)
-    doc.text(f"Total: {proposal.currency} {t['total']:,.2f}"
-             + (f"  (incluye impuestos {proposal.currency} {t['tax']:,.2f})" if t["tax"] else ""),
-             size=11, bold=True)  # fmt: skip
+    if t.get("total") is not None:
+        label = "Opción elegida" if options else "Total"
+        tax = f"  (incluye impuestos {proposal.currency} {t['tax']:,.2f})" if t["tax"] else ""
+        doc.text(f"{label}: {proposal.currency} {t['total']:,.2f}{tax}", size=11, bold=True)
     if proposal.valid_until:
         doc.text(f"Válida hasta: {proposal.valid_until.isoformat()}", size=9, color="#6B7280")
     for section in data["sections"][:6]:

@@ -20,7 +20,19 @@ export type DocData = {
   items: DocItem[];
   sections: { key: string; title: string; body: string }[];
   tax_rate: number;
-  totals: { subtotal: number; discounts: number; tax: number; total: number };
+  totals: {
+    subtotal: number | null;
+    discounts: number | null;
+    tax: number | null;
+    total: number | null;
+    mode?: "total" | "opciones";
+    options?: { subtotal: number; tax: number; total: number }[];
+    chosen?: number | null;
+    from?: number;
+    to?: number;
+  };
+  pricing_mode?: "total" | "opciones";
+  chosen_item?: number | null;
   valid_until: string | null;
   expired?: boolean;
   company: string | null;
@@ -47,6 +59,13 @@ export const TEXT = {
     taxes: "Impuestos",
     discount: "Descuento",
     pay: "Pagar en línea",
+    option: "Opción",
+    chooseOne: "Elige la opción que prefieras: cada una tiene su propio valor.",
+    chosen: "Elegida",
+    choose: "Elegir esta opción",
+    optionTotal: "Valor de esta opción",
+    taxIncl: "incluye impuestos",
+    pickFirst: "Primero elige arriba la opción que prefieres.",
     contact: "Tu contacto",
     schedule: "Agendar reunión",
     content: "Contenido",
@@ -95,6 +114,13 @@ export const TEXT = {
     taxes: "Taxes",
     discount: "Discount",
     pay: "Pay online",
+    option: "Option",
+    chooseOne: "Choose the option you prefer: each one has its own price.",
+    chosen: "Selected",
+    choose: "Choose this option",
+    optionTotal: "Price of this option",
+    taxIncl: "taxes included",
+    pickFirst: "First choose the option you prefer above.",
     contact: "Your contact",
     schedule: "Book a meeting",
     content: "Contents",
@@ -143,6 +169,13 @@ export const TEXT = {
     taxes: "Impostos",
     discount: "Desconto",
     pay: "Pagar online",
+    option: "Opção",
+    chooseOne: "Escolha a opção que preferir: cada uma tem o seu próprio valor.",
+    chosen: "Escolhida",
+    choose: "Escolher esta opção",
+    optionTotal: "Valor desta opção",
+    taxIncl: "impostos incluídos",
+    pickFirst: "Primeiro escolha acima a opção que preferir.",
     contact: "Seu contato",
     schedule: "Agendar reunião",
     content: "Conteúdo",
@@ -213,7 +246,17 @@ export function fmtDate(iso: string, lang: Look["language"]) {
   return new Date(iso.length === 10 ? iso + "T00:00" : iso).toLocaleDateString(LOCALE[lang], { day: "numeric", month: "long", year: "numeric" });
 }
 
-type Ctx = { d: DocData; t: Texts; L: Look; lang: Look["language"]; on: string; dark: string; soft: string };
+type Ctx = {
+  d: DocData;
+  t: Texts;
+  L: Look;
+  lang: Look["language"];
+  on: string;
+  dark: string;
+  soft: string;
+  choice?: number | null;
+  onChoose?: (index: number) => void;
+};
 
 /** Párrafos y viñetas a partir del texto del editor. */
 function Body({ text, className, bullet }: { text: string; className?: string; bullet?: string }) {
@@ -278,9 +321,68 @@ function Logo({ L, className, light }: { L: Look; className?: string; light?: bo
   return <img src={L.logo_url} alt={L.company.legal_name} className={className ?? "h-10 w-auto max-w-[180px] object-contain"} />;
 }
 
+function Options({ c }: { c: Ctx }) {
+  const { d, t, lang } = c;
+  return (
+    <section className="break-inside-avoid">
+      <p className="mb-3 text-[13.5px] text-[#4B5563]">{t.chooseOne}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {d.items.map((i, n) => {
+          const total = d.totals.options?.[n]?.total ?? i.quantity * i.unit_price * (1 - i.discount / 100);
+          const selected = c.choice === n;
+          const Wrapper = c.onChoose ? "button" : "div";
+          return (
+            <Wrapper
+              key={n}
+              {...(c.onChoose ? { type: "button" as const, onClick: () => c.onChoose?.(n), "aria-pressed": selected } : {})}
+              className={`flex flex-col rounded-2xl border-2 p-4 text-left transition ${c.onChoose ? "cursor-pointer hover:shadow-md" : ""}`}
+              style={{ borderColor: selected ? "var(--p)" : "#E5E7EB", background: selected ? c.soft : "#fff" }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--p)" }}>
+                  {t.option} {n + 1}
+                </span>
+                {selected && (
+                  <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: "var(--p)", color: c.on }}>
+                    ✓ {t.chosen}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex gap-3">
+                {i.image_url && <img src={i.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                <div className="min-w-0">
+                  <p className="text-[15px] font-bold text-[#0B1220]">{i.name}</p>
+                  <RichText value={i.description} className="mt-1 text-[12.5px] leading-relaxed text-[#4B5563]" />
+                </div>
+              </div>
+              <div className="mt-auto pt-3">
+                <p className="text-[12px] text-[#6B7280]">
+                  {i.quantity} {i.unit} × {fmtMoney(i.unit_price, d.currency, lang)}
+                  {i.discount > 0 && ` · ${t.discount} ${i.discount} %`}
+                </p>
+                <p className="mt-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-[#6B7280]">{t.optionTotal}</p>
+                <p className="text-[22px] font-bold" style={{ color: "var(--p)" }}>
+                  {fmtMoney(total, d.currency, lang)}
+                </p>
+                {d.tax_rate > 0 && <p className="text-[11.5px] text-[#6B7280]">{t.taxIncl} ({d.tax_rate} %)</p>}
+                {c.onChoose && !selected && (
+                  <span className="mt-2 inline-block text-[12.5px] font-semibold" style={{ color: "var(--a)" }}>
+                    {t.choose} →
+                  </span>
+                )}
+              </div>
+            </Wrapper>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Investment({ c, variant }: { c: Ctx; variant: "solid" | "line" | "card" | "dark" }) {
   const { d, t, lang } = c;
   if (!d.items.length) return null;
+  if (d.pricing_mode === "opciones" || d.totals.mode === "opciones") return <Options c={c} />;
   const head =
     variant === "solid"
       ? { background: "var(--p)", color: c.on }
@@ -341,14 +443,14 @@ function Investment({ c, variant }: { c: Ctx; variant: "solid" | "line" | "card"
         <dl className="w-full max-w-[320px] text-[13.5px]">
           <div className="flex justify-between py-1 text-[#4B5563]">
             <dt>{t.subtotal}</dt>
-            <dd>{fmtMoney(d.totals.subtotal, d.currency, lang)}</dd>
+            <dd>{fmtMoney(d.totals.subtotal ?? 0, d.currency, lang)}</dd>
           </div>
           {d.tax_rate > 0 && (
             <div className="flex justify-between py-1 text-[#4B5563]">
               <dt>
                 {t.taxes} ({d.tax_rate} %)
               </dt>
-              <dd>{fmtMoney(d.totals.tax, d.currency, lang)}</dd>
+              <dd>{fmtMoney(d.totals.tax ?? 0, d.currency, lang)}</dd>
             </div>
           )}
           <div
@@ -362,7 +464,7 @@ function Investment({ c, variant }: { c: Ctx; variant: "solid" | "line" | "card"
             }
           >
             <dt>{t.total}</dt>
-            <dd style={variant === "dark" ? { color: "var(--a)" } : undefined}>{fmtMoney(d.totals.total, d.currency, lang)}</dd>
+            <dd style={variant === "dark" ? { color: "var(--a)" } : undefined}>{fmtMoney(d.totals.total ?? 0, d.currency, lang)}</dd>
           </div>
         </dl>
       </div>
@@ -763,10 +865,31 @@ function Audaz({ c }: { c: Ctx }) {
 const TEMPLATES = { ejecutiva: Ejecutiva, moderna: Moderna, corporativa: Corporativa, minimal: Minimal, audaz: Audaz };
 
 /** Documento de la propuesta con la plantilla, colores, tipografía e idioma elegidos. */
-export function ProposalDocument({ data, children }: { data: DocData; children?: ReactNode }) {
+export function ProposalDocument({
+  data,
+  children,
+  choice,
+  onChoose,
+}: {
+  data: DocData;
+  children?: ReactNode;
+  /** Modo opciones: la opción marcada (elegida por el cliente o en la página pública). */
+  choice?: number | null;
+  onChoose?: (index: number) => void;
+}) {
   const L = data.look;
   const lang = L.language in TEXT ? L.language : "es";
-  const ctx: Ctx = { d: data, t: TEXT[lang], L, lang, on: onColor(L.primary), dark: mix(L.primary, "#000000", 0.45), soft: mix(L.primary, "#FFFFFF", 0.92) };
+  const ctx: Ctx = {
+    d: data,
+    t: TEXT[lang],
+    L,
+    lang,
+    on: onColor(L.primary),
+    dark: mix(L.primary, "#000000", 0.45),
+    soft: mix(L.primary, "#FFFFFF", 0.92),
+    choice: choice ?? data.chosen_item ?? null,
+    onChoose,
+  };
   const Template = TEMPLATES[L.template] ?? Ejecutiva;
   return (
     <article

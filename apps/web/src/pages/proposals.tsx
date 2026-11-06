@@ -15,7 +15,25 @@ import { formatWhen } from "./dashboard";
 
 type Item = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number; image_url?: string; payment_url?: string };
 type Section = { key: string; title: string; body: string };
-type Totals = { subtotal: number; discounts: number; tax: number; total: number };
+type Totals = {
+  subtotal: number | null;
+  discounts: number | null;
+  tax: number | null;
+  total: number | null;
+  mode?: "total" | "opciones";
+  options?: { subtotal: number; discounts: number; tax: number; total: number }[];
+  chosen?: number | null;
+  from?: number;
+  to?: number;
+};
+type PricingMode = "total" | "opciones";
+
+/** Valor para listas: el total, o «Desde X» si son opciones y el cliente aún no elige. */
+function totalLabel(t: Totals, currency: string): string {
+  if (t.total != null) return money(t.total, currency);
+  if (t.mode === "opciones") return t.from === t.to ? money(t.from ?? 0, currency) : `Desde ${money(t.from ?? 0, currency)}`;
+  return money(0, currency);
+}
 type ProposalRow = {
   id: string;
   number: number;
@@ -24,6 +42,8 @@ type ProposalRow = {
   status_label: string;
   currency: string;
   totals: Totals;
+  pricing_mode?: PricingMode;
+  chosen_item?: number | null;
   valid_until: string | null;
   public_id: string;
   contact: { id: string; full_name: string; email: string | null } | null;
@@ -152,7 +172,7 @@ export function ProposalsPage() {
                         {p.deal && <p className="text-[12px] text-ork-mist">{p.deal.title}</p>}
                       </td>
                       <td className="px-3 py-3 text-ork-graphite">{[p.contact?.full_name, p.company].filter(Boolean).join(" · ") || "—"}</td>
-                      <td className="px-3 py-3 text-right font-semibold text-ork-graphite">{money(p.totals.total, p.currency)}</td>
+                      <td className="px-3 py-3 text-right font-semibold text-ork-graphite">{totalLabel(p.totals, p.currency)}</td>
                       <td className="px-3 py-3">
                         <Badge tone={STATUS_TONE[p.status]}>{p.status_label}</Badge>
                       </td>
@@ -372,7 +392,25 @@ function Catalog() {
 
 // --- Editor ---------------------------------------------------------------------------------
 
-function computeTotals(items: Item[], tax: number): Totals {
+function computeTotals(items: Item[], tax: number, mode: PricingMode = "total"): Totals {
+  if (mode === "opciones") {
+    const options = items.map((i) => {
+      const o = computeTotals([i], tax);
+      return { subtotal: o.subtotal ?? 0, discounts: o.discounts ?? 0, tax: o.tax ?? 0, total: o.total ?? 0 };
+    });
+    const prices = options.map((o) => o.total);
+    return {
+      mode: "opciones",
+      options,
+      chosen: null,
+      subtotal: null,
+      discounts: null,
+      tax: null,
+      total: null,
+      from: prices.length ? Math.min(...prices) : 0,
+      to: prices.length ? Math.max(...prices) : 0,
+    };
+  }
   let subtotal = 0;
   let discounts = 0;
   for (const i of items) {
@@ -383,7 +421,7 @@ function computeTotals(items: Item[], tax: number): Totals {
   }
   const t = (subtotal * (Number(tax) || 0)) / 100;
   const r = (v: number) => Math.round(v * 100) / 100;
-  return { subtotal: r(subtotal), discounts: r(discounts), tax: r(t), total: r(subtotal + t) };
+  return { mode: "total", subtotal: r(subtotal), discounts: r(discounts), tax: r(t), total: r(subtotal + t) };
 }
 
 export function ProposalEditor() {
@@ -393,7 +431,9 @@ export function ProposalEditor() {
   const products = useProducts();
   const query = useQuery({ queryKey: ["proposal", id], queryFn: () => api<Proposal>(`/api/proposals/${id}`) });
   const p = query.data;
-  const [draft, setDraft] = useState<Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until" | "design"> | null>(null);
+  const [draft, setDraft] = useState<
+    (Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until" | "design"> & { pricing_mode: PricingMode }) | null
+  >(null);
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
   const [openItem, setOpenItem] = useState<number | null>(null);
@@ -421,7 +461,16 @@ export function ProposalEditor() {
     f.apply(f.el.value.slice(0, start) + token + f.el.value.slice(end));
   };
   const brand = useBrand();
-  const snapshot = (x: Proposal) => ({ title: x.title, currency: x.currency, items: x.items, sections: x.sections, tax_rate: x.tax_rate, valid_until: x.valid_until, design: x.design ?? {} });
+  const snapshot = (x: Proposal) => ({
+    title: x.title,
+    currency: x.currency,
+    items: x.items,
+    sections: x.sections,
+    tax_rate: x.tax_rate,
+    valid_until: x.valid_until,
+    design: x.design ?? {},
+    pricing_mode: (x.pricing_mode ?? "total") as PricingMode,
+  });
   useEffect(() => {
     if (p) setDraft(snapshot(p));
   }, [p]);
@@ -469,7 +518,7 @@ export function ProposalEditor() {
 
   if (query.isLoading || !draft) return query.error ? <Alert>{query.error.message}</Alert> : <Spinner />;
   if (!p) return null;
-  const t = computeTotals(draft.items, draft.tax_rate);
+  const t = computeTotals(draft.items, draft.tax_rate, draft.pricing_mode);
   const setItem = (i: number, patch: Partial<Item>) => setDraft({ ...draft, items: draft.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
   const setSection = (i: number, patch: Partial<Section>) => setDraft({ ...draft, sections: draft.sections.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
   const copyLink = async () => {
@@ -611,6 +660,8 @@ export function ProposalEditor() {
                   sections: draft.sections.map((x) => ({ ...x, title: fill(x.title, p.values ?? {}), body: fill(x.body, p.values ?? {}) })),
                   tax_rate: draft.tax_rate,
                   totals: t,
+                  pricing_mode: draft.pricing_mode,
+                  chosen_item: p.chosen_item ?? null,
                   valid_until: draft.valid_until,
                   company: p.company,
                   contact_name: p.contact?.full_name ?? null,
@@ -812,26 +863,70 @@ export function ProposalEditor() {
             <TextField label="Impuesto %" disabled={locked} inputMode="decimal" value={String(draft.tax_rate)} onChange={(e) => setDraft({ ...draft, tax_rate: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} />
             <TextField label="Válida hasta" type="date" disabled={locked} className="col-span-2" value={draft.valid_until ?? ""} onChange={(e) => setDraft({ ...draft, valid_until: e.target.value || null })} />
           </div>
+<fieldset className="mt-4">
+            <legend className="mb-1.5 text-[13px] font-semibold text-ork-ink">¿Cómo se presentan los precios?</legend>
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-ork-surface p-1">
+              {(
+                [
+                  ["total", "Sumar todo", "Un total con todos los productos"],
+                  ["opciones", "Opciones", "El cliente elige uno solo"],
+                ] as const
+              ).map(([value, label, hint]) => (
+                <button
+                  key={value}
+                  type="button"
+                  disabled={locked}
+                  aria-pressed={draft.pricing_mode === value}
+                  onClick={() => setDraft({ ...draft, pricing_mode: value })}
+                  className={cx(
+                    "ork-focus rounded-lg px-2 py-1.5 text-left transition disabled:opacity-60",
+                    draft.pricing_mode === value ? "bg-ork-card shadow-sm" : "hover:bg-ork-card/60",
+                  )}
+                >
+                  <span className={cx("block text-[13px] font-semibold", draft.pricing_mode === value ? "text-ork-blue" : "text-ork-ink")}>{label}</span>
+                  <span className="block text-[11.5px] text-ork-mist">{hint}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          {draft.pricing_mode === "opciones" ? (
+            <div className="mt-4 text-[13.5px]">
+              <p className="text-[12.5px] text-ork-mist">Sin total general: cada producto es una alternativa con su propio valor{draft.tax_rate > 0 ? ` (con ${draft.tax_rate} % de impuestos)` : ""}. Al aceptar, el cliente elige una y la oportunidad toma ese valor.</p>
+              <ul className="mt-2 space-y-1.5">
+                {draft.items.map((it, i) => (
+                  <li key={i} className={cx("flex justify-between gap-3", p.chosen_item === i ? "font-bold text-ok" : "text-ork-graphite")}>
+                    <span className="min-w-0 truncate">
+                      Opción {i + 1}
+                      {it.name ? ` · ${it.name}` : ""}
+                      {p.chosen_item === i ? " · elegida" : ""}
+                    </span>
+                    <span className="shrink-0 font-semibold">{money(t.options?.[i]?.total ?? 0, draft.currency)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
           <dl className="mt-4 space-y-1.5 text-[13.5px]">
             <div className="flex justify-between text-ork-graphite">
               <dt>Subtotal</dt>
-              <dd>{money(t.subtotal, draft.currency)}</dd>
+              <dd>{money(t.subtotal ?? 0, draft.currency)}</dd>
             </div>
-            {t.discounts > 0 && (
+            {(t.discounts ?? 0) > 0 && (
               <div className="flex justify-between text-ork-mist">
                 <dt>Descuentos aplicados</dt>
-                <dd>−{money(t.discounts, draft.currency)}</dd>
+                <dd>−{money(t.discounts ?? 0, draft.currency)}</dd>
               </div>
             )}
             <div className="flex justify-between text-ork-graphite">
               <dt>Impuestos ({draft.tax_rate} %)</dt>
-              <dd>{money(t.tax, draft.currency)}</dd>
+              <dd>{money(t.tax ?? 0, draft.currency)}</dd>
             </div>
             <div className="flex justify-between border-t border-ork-line pt-2 text-[16px] font-bold text-ork-ink">
               <dt>Total</dt>
-              <dd>{money(t.total, draft.currency)}</dd>
+              <dd>{money(t.total ?? 0, draft.currency)}</dd>
             </div>
           </dl>
+          )}
           {p.design?.last_email && (
             <p className="mt-4 rounded-lg bg-ork-surface px-3 py-2 text-[12.5px] text-ork-graphite">
               Último envío a <strong>{p.design.last_email.to.join(", ")}</strong> desde {p.design.last_email.from}.

@@ -24,7 +24,7 @@ def test_health_and_forecast(client: TestClient, database: tuple[str, str]) -> N
                                              "type": "call", "body": "Llamada"})  # fmt: skip
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute("UPDATE orkesta.deals SET created_at = now() - interval '40 days', "
-                     "expected_close = current_date - 3 WHERE id = %s", (cold["id"],))  # fmt: skip
+                     "expected_close = current_date - 40 WHERE id = %s", (cold["id"],))  # fmt: skip
     deals = {d["title"]: d for d in client.get("/api/crm/deals").json()["deals"]}
     assert deals["Banco Andino"]["health"]["score"] > deals["Sin movimiento"]["health"]["score"]
     assert deals["Sin movimiento"]["health"]["label"] == "fria"
