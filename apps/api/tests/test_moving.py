@@ -29,3 +29,22 @@ def test_maintenance_then_redirect(monkeypatch, session_factory) -> None:  # typ
     finally:
         monkeypatch.delenv("MOVED_TO")
         get_settings.cache_clear()
+
+
+def test_moving_server_runs_no_jobs(monkeypatch, session_factory) -> None:  # type: ignore[no-untyped-def]
+    """Durante la mudanza el servidor viejo no envía campañas (las enviaría dos veces)."""
+    import orkesta.core.jobs as jobs
+
+    started: list[object] = []
+    monkeypatch.setattr(jobs.Worker, "start", lambda self: started.append(self))
+    monkeypatch.setenv("RUN_WORKER", "true")
+    monkeypatch.setenv("MOVED_TO", "mantenimiento")
+    get_settings.cache_clear()
+    try:
+        with TestClient(create_app(session_factory)) as client:
+            assert client.get("/api/health").status_code == 200
+        assert started == []
+    finally:
+        monkeypatch.delenv("MOVED_TO")
+        monkeypatch.delenv("RUN_WORKER")
+        get_settings.cache_clear()
