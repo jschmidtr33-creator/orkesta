@@ -52,6 +52,8 @@ class Task:
     threshold: float | None = None  # confianza fija (si no, se calibra con `target`)
     # Qué ejemplos de la partición de prueba cuentan para medir (p. ej. solo los curados).
     test_filter: Callable[[ml.Example], bool] | None = None
+    # Ejemplos enseñados a mano: mandan sobre los automáticos (el modelo debe aceptar «taught»).
+    taught: Callable[[ml.Example], bool] | None = None
     # Cómo decide el sistema en producción (p. ej. reglas primero y el modelo después).
     predictor: Callable[[Any, float, ml.Example], tuple[str | None, float]] | None = None
     extras: Callable[[Session, Any, float], dict[str, Any]] | None = None
@@ -78,6 +80,13 @@ def active_row(session: Session, task: str) -> BrainModel | None:
     )
 
 
+def _fit(task: Task, examples: list[ml.Example]) -> Any:
+    xs, ys = [ex.x for ex in examples], [ex.y for ex in examples]
+    if task.taught is None:
+        return task.make().fit(xs, ys)
+    return task.make().fit(xs, ys, [task.taught(ex) for ex in examples])
+
+
 def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
     """Entrena una versión nueva, la mide en datos que no vio y decide si la activa."""
     task = TASKS.get(name)
@@ -91,7 +100,7 @@ def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
     train_set, test_set = ml.split(examples)
     if not test_set or len({ex.y for ex in train_set}) < 2:
         raise BrainError("Los ejemplos no alcanzan para separar entrenamiento y prueba.")
-    candidate = task.make().fit([ex.x for ex in train_set], [ex.y for ex in train_set])
+    candidate = _fit(task, train_set)
     measured = [ex for ex in test_set if task.test_filter(ex)] if task.test_filter else test_set
     measured = list({ex.key: ex for ex in measured}.values())  # sin duplicados al medir
     if not measured:
@@ -111,11 +120,7 @@ def train(session: Session, name: str, trigger: str = "manual") -> BrainModel:
     )
     promote = better_than_rules and not_worse
     # Con la decisión tomada, el modelo de producción aprende de todos los ejemplos.
-    final = (
-        task.make().fit([ex.x for ex in examples], [ex.y for ex in examples])
-        if promote
-        else candidate
-    )
+    final = _fit(task, examples) if promote else candidate
     if task.extras:
         metrics["extra"] = task.extras(session, final, threshold)
     version = int(session.scalar(select(func.max(BrainModel.version)).where(

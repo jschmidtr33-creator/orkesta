@@ -158,6 +158,7 @@ def _title_task(name: str, label: str, description: str, status: Any) -> Task:
         baseline=titles._baseline(name), predictor=titles._predictor(name),
         threshold=titles.THRESHOLD, extras=titles._extras(name),
         on_activate=titles._on_activate(name), test_filter=lambda ex: ex.key[0] in "sf",
+        taught=lambda ex: ex.key[0] in "sf",  # banco curado y correcciones mandan sobre las bases
         min_examples=300,
     )  # fmt: skip
 
