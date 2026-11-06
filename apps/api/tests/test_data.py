@@ -279,3 +279,21 @@ def test_import_respects_plan_contact_limit(
     ]
     done = _import(client, session_factory, "\n".join(rows).encode(), "plan.csv")
     assert done["totals"]["nuevos"] == 3 and done["totals"]["sobre_limite"] == 2
+
+
+def test_manual_contact_goes_to_existing_and_new_lists(client: TestClient) -> None:
+    register(client, "ana@lacteos.co")
+    feria = client.post("/api/lists", json={"name": "Feria"}).json()
+    created = client.post("/api/contacts", json={
+        "first_name": "Laura", "last_name": "Gómez", "company": "Banco Andino",
+        "list_ids": [feria["id"]], "new_list": "Clientes VIP",
+    })  # fmt: skip
+    assert created.status_code == 201
+    names = {item["name"]: item for item in client.get("/api/lists").json()}
+    assert names["Feria"]["contacts"] == 1 and names["Clientes VIP"]["contacts"] == 1
+    # Sin listas sigue funcionando; y si la lista nueva ya existe, no queda el contacto a medias.
+    assert client.post("/api/contacts", json={"first_name": "Pedro"}).status_code == 201
+    dup = client.post("/api/contacts", json={"first_name": "Marta", "new_list": "feria"})
+    assert dup.status_code >= 400
+    people = client.get("/api/contacts", params={"q": "Marta"}).json()
+    assert people["total"] == 0
