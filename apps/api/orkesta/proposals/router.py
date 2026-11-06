@@ -248,7 +248,7 @@ def duplicate(proposal_id: uuid.UUID, principal: Member, db: Db) -> dict[str, An
 @router.delete("/api/proposals/{proposal_id}")
 def delete(proposal_id: uuid.UUID, principal: Member, db: Db) -> dict[str, bool]:
     proposal = _load(db, principal, proposal_id)
-    if principal.role == "vendedor" and proposal.created_by != principal.user.id:
+    if not principal.can_modify(proposal.created_by):
         raise HTTPException(403, "Solo puedes eliminar tus propias propuestas.")
     db.delete(proposal)
     return {"ok": True}

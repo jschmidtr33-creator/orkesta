@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
 import { api } from "../lib/api";
 
-type Kpis = {
+export type Kpis = {
   contacts_added: number;
   emails_sent: number;
   contacted: number;
@@ -20,8 +20,8 @@ type Kpis = {
   won_value: Record<string, number>;
   activities: number;
 };
-type Point = { date: string; emails_sent: number; replies: number; contacts_added: number; won: number };
-type CampaignRow = {
+export type Point = { date: string; emails_sent: number; replies: number; contacts_added: number; won: number };
+export type CampaignRow = {
   id: string;
   name: string;
   status: string;
@@ -74,7 +74,7 @@ const SOURCES: Record<string, string> = {
   investigacion: "Prospección",
   validacion: "Validación",
 };
-const PRESETS = [
+export const PRESETS = [
   { key: "7", label: "7 días" },
   { key: "30", label: "30 días" },
   { key: "90", label: "90 días" },
@@ -84,17 +84,17 @@ const PRESETS = [
 const BAR = "#2a78d6"; // serie única: un solo tono
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const n = (v: number) => new Intl.NumberFormat("es").format(v);
-const money = (m: Record<string, number>) =>
+export const n = (v: number) => new Intl.NumberFormat("es").format(v);
+export const money = (m: Record<string, number>) =>
   Object.entries(m).length
     ? Object.entries(m)
         .map(([cur, v]) => new Intl.NumberFormat("es", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(v))
         .join(" · ")
     : "—";
-const pct = (v: number | null) => (v === null ? "—" : `${v} %`);
-const shortDate = (s: string) => new Date(s + "T00:00").toLocaleDateString("es", { day: "numeric", month: "short" });
+export const pct = (v: number | null) => (v === null ? "—" : `${v} %`);
+export const shortDate = (s: string) => new Date(s + "T00:00").toLocaleDateString("es", { day: "numeric", month: "short" });
 
-function range(preset: string): { desde: string; hasta: string } {
+export function range(preset: string): { desde: string; hasta: string } {
   const today = new Date();
   const start = new Date(today);
   if (preset === "mes") start.setDate(1);
@@ -213,7 +213,7 @@ export function ReportsPage() {
   );
 }
 
-function Kpi({ label, value, now, before, hint, points }: { label: string; value: string; now: number | null; before: number | null; hint?: string; points?: boolean }) {
+export function Kpi({ label, value, now, before, hint, points }: { label: string; value: string; now: number | null; before: number | null; hint?: string; points?: boolean }) {
   let delta: { text: string; dir: "up" | "down" | "flat" } | null = null;
   if (now !== null && before !== null) {
     if (points) {
@@ -243,7 +243,7 @@ function Kpi({ label, value, now, before, hint, points }: { label: string; value
   );
 }
 
-function Funnel({ steps }: { steps: { key: string; label: string; value: number }[] }) {
+export function Funnel({ steps }: { steps: { key: string; label: string; value: number }[] }) {
   const max = Math.max(1, ...steps.map((s) => s.value));
   return (
     <ol className="flex flex-col gap-2.5">
@@ -267,7 +267,7 @@ function Funnel({ steps }: { steps: { key: string; label: string; value: number 
   );
 }
 
-function HBars({ rows, empty }: { rows: { label: string; value: number; note?: string }[]; empty: string }) {
+export function HBars({ rows, empty }: { rows: { label: string; value: number; note?: string }[]; empty: string }) {
   if (!rows.length || rows.every((r) => r.value === 0)) return <p className="py-6 text-center text-[13px] text-ork-mist">{empty}</p>;
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
@@ -291,7 +291,7 @@ function HBars({ rows, empty }: { rows: { label: string; value: number; note?: s
 }
 
 /** Columnas de una sola serie con tooltip al pasar el cursor. */
-function Columns({ points, field, unit, label }: { points: Point[]; field: keyof Omit<Point, "date">; unit: "day" | "week"; label: string }) {
+export function Columns({ points, field, unit, label }: { points: Point[]; field: keyof Omit<Point, "date">; unit: "day" | "week"; label: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const values = points.map((p) => p[field]);
   const max = Math.max(1, ...values);
@@ -366,7 +366,7 @@ function csv(name: string, header: string[], rows: (string | number)[][]) {
   URL.revokeObjectURL(a.href);
 }
 
-function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
+export function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
   return (
     <Card className="overflow-x-auto p-0">
       <div className="flex items-start justify-between gap-3 px-5 pt-5">

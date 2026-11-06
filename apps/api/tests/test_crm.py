@@ -100,8 +100,9 @@ def test_sellers_only_edit_their_deals_and_tenants_are_isolated(client: TestClie
     client.post("/api/auth/logout")
     client.post(f"/api/invitations/{token}/accept",
                 json={"full_name": "Vende Dor", "password": "ClaveSegura2026"})  # fmt: skip
-    assert client.get("/api/crm/deals").json()["deals"][0]["title"] == "Grande"
-    assert client.patch(f"/api/crm/deals/{deal['id']}", json={"value": 1}).status_code == 403
+    # El vendedor no ve el trabajo de la administradora (ni puede tocarlo).
+    assert client.get("/api/crm/deals").json()["deals"] == []
+    assert client.patch(f"/api/crm/deals/{deal['id']}", json={"value": 1}).status_code in (403, 404)
     mine = client.post("/api/crm/deals", json={"title": "Mía"}).json()
     assert client.patch(f"/api/crm/deals/{mine['id']}", json={"value": 5}).json()["value"] == 5
     assert client.post("/api/crm/stages", json={"name": "Nueva"}).status_code == 403

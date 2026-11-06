@@ -206,7 +206,7 @@ def _mailbox(db: Db, principal: Principal, mailbox_id: uuid.UUID) -> Mailbox:
     mailbox = db.get(Mailbox, mailbox_id)
     if mailbox is None or mailbox.tenant_id != principal.tenant_id:
         raise HTTPException(404, "Ese buzón no existe.")
-    if principal.role == "vendedor" and mailbox.user_id != principal.user.id:
+    if not principal.can_modify(mailbox.user_id):
         raise HTTPException(403, "Solo puedes cambiar tu propio buzón.")
     return mailbox
 
@@ -493,7 +493,7 @@ def delete_campaign(
     campaign_id: uuid.UUID, request: Request, principal: Member, db: Db
 ) -> dict[str, bool]:
     campaign = _campaign(db, principal, campaign_id)
-    if principal.role == "vendedor" and campaign.created_by != principal.user.id:
+    if not principal.can_modify(campaign.created_by):
         raise HTTPException(403, "Solo puedes borrar tus propias campañas.")
     name = campaign.name
     svc.delete_campaign(db, campaign)

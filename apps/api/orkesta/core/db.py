@@ -8,7 +8,7 @@ empresa aunque una consulta olvide filtrar.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from functools import lru_cache
@@ -68,6 +68,34 @@ def set_context(
         text("SELECT set_config('app.tenant_id', :t, true), set_config('app.user_id', :u, true)"),
         {"t": str(tenant_id) if tenant_id else "", "u": str(user_id) if user_id else ""},
     )
+
+
+def set_scope(session: Session, user_ids: Iterable[uuid.UUID] | None) -> None:
+    """Personas cuyo trabajo puede ver esta transacción. ``None``: sin restricción (administración
+    y procesos internos). Las políticas RLS ``scope_*`` aplican la regla en la base."""
+    value = "" if user_ids is None else ",".join(sorted({str(u) for u in user_ids}))
+    session.execute(text("SELECT set_config('app.scope', :s, true)"), {"s": value})
+
+
+def current_scope(session: Session) -> str:
+    return str(session.scalar(text("SELECT coalesce(current_setting('app.scope', true), '')")))
+
+
+def can_edit(session: Session, owner: uuid.UUID | None, user_id: uuid.UUID | None) -> bool:
+    """Igual que la política ``scope_update``: sin alcance, o el dueño es quien actúa."""
+    return owner is None or owner == user_id or current_scope(session) == ""
+
+
+@contextmanager
+def unscoped(session: Session) -> Iterator[None]:
+    """Mira toda la empresa por un momento (p. ej. para no duplicar un contacto que ya trabaja
+    otra persona). Nunca debe devolver al usuario datos de otros."""
+    previous = current_scope(session)
+    session.execute(text("SELECT set_config('app.scope', '', true)"))
+    try:
+        yield
+    finally:
+        session.execute(text("SELECT set_config('app.scope', :s, true)"), {"s": previous})
 
 
 @contextmanager

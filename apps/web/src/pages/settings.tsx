@@ -23,9 +23,11 @@ import { DigestCard, PushCard, TwoFactorCard } from "./security-settings";
 import { formatWhen } from "./dashboard";
 
 type Team = {
-  roles: { value: string; label: string }[];
+  roles: { value: string; label: string; help?: string }[];
   members: {
     id: string;
+    user_id: string;
+    manages: string[];
     full_name: string;
     email: string;
     job_title?: string;
@@ -307,6 +309,7 @@ function TeamSettings() {
     onSettled: refresh,
   });
   const roleLabel = (value: string) => team.data?.roles.find((r) => r.value === value)?.label ?? value;
+  const [assigning, setAssigning] = useState<Team["members"][number] | null>(null);
 
   if (team.isLoading) return <Spinner />;
   if (team.error) return <Alert>{team.error.message}</Alert>;
@@ -316,7 +319,7 @@ function TeamSettings() {
       <Card>
         <CardHeader
           title={`Miembros (${data.members.filter((m) => m.active).length})`}
-          description="Administrador: todo. Supervisor: ve el trabajo del equipo y la auditoría. Vendedor: su propio trabajo."
+          description="Cada persona ve solo su propio trabajo. Las jefaturas ven, sin poder modificarlo, el de las personas que tienen a cargo; la administración ve todo."
           action={
             isAdmin && (
               <Button
@@ -382,6 +385,9 @@ function TeamSettings() {
                       </select>
                     ) : (
                       roleLabel(m.role)
+                    )}
+                    {m.role === "supervisor" && (
+                      <TeamUnder member={m} members={data.members} canEdit={isAdmin} onEdit={() => setAssigning(m)} />
                     )}
                   </td>
                   <td className="py-3 pr-3">{m.active ? <Badge tone="ok">Activo</Badge> : <Badge>Desactivado</Badge>}</td>
@@ -471,13 +477,84 @@ function TeamSettings() {
                 </option>
               ))}
             </SelectField>
+            <p className="-mt-2 text-[12.5px] text-ork-mist">{data.roles.find((r) => r.value === form.role)?.help}</p>
             <Button type="submit" loading={invite.isPending}>
               Crear invitación
             </Button>
           </form>
         )}
       </Modal>
+      {assigning && <AssignModal member={assigning} members={data.members} onClose={() => setAssigning(null)} onSaved={refresh} />}
     </div>
+  );
+}
+
+function TeamUnder({ member, members, canEdit, onEdit }: { member: Team["members"][number]; members: Team["members"]; canEdit: boolean; onEdit: () => void }) {
+  const names = members.filter((x) => member.manages.includes(x.user_id)).map((x) => x.full_name || x.email);
+  return (
+    <div className="mt-1.5 text-[12.5px] text-ork-mist">
+      {names.length ? `A cargo: ${names.join(", ")}` : "Sin personas a cargo"}
+      {canEdit && (
+        <button type="button" onClick={onEdit} className="ork-focus ml-2 rounded font-semibold text-ork-blue hover:underline">
+          {names.length ? "Cambiar" : "Asignar"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AssignModal({ member, members, onClose, onSaved }: { member: Team["members"][number]; members: Team["members"]; onClose: () => void; onSaved: () => void }) {
+  const [chosen, setChosen] = useState<string[]>(member.manages);
+  const save = useMutation({
+    mutationFn: () => api(`/api/team/members/${member.id}/assignments`, { method: "PUT", json: { member_ids: chosen } }),
+    onSuccess: () => {
+      onSaved();
+      onClose();
+    },
+  });
+  const others = members.filter((x) => x.user_id !== member.user_id);
+  return (
+    <Modal
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={`Personas a cargo de ${member.full_name || member.email}`}
+      description="Verá su pipeline, búsquedas, campañas, respuestas y rebotes en «Mi equipo», sin poder modificarlos. Ellas no verán su trabajo."
+    >
+      <div className="flex flex-col gap-4">
+        {save.error && <Alert>{save.error.message}</Alert>}
+        {others.length === 0 ? (
+          <p className="text-[13.5px] text-ork-mist">Todavía no hay más personas en el equipo.</p>
+        ) : (
+          <ul className="max-h-[50vh] divide-y divide-ork-line overflow-y-auto rounded-xl border border-ork-line">
+            {others.map((x) => (
+              <li key={x.user_id}>
+                <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-ork-surface">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--color-ork-blue)]"
+                    checked={chosen.includes(x.user_id)}
+                    onChange={(e) => setChosen(e.target.checked ? [...chosen, x.user_id] : chosen.filter((u) => u !== x.user_id))}
+                  />
+                  <Avatar name={x.full_name} email={x.email} src={x.avatar_url} size={28} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13.5px] font-semibold text-ork-ink">{x.full_name || x.email}</span>
+                    <span className="block truncate text-[12px] text-ork-mist">{x.job_title || x.email}</span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button loading={save.isPending} onClick={() => save.mutate()}>
+            Guardar ({chosen.length})
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

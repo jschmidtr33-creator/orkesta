@@ -19,6 +19,7 @@ import { PublicProposalPage } from "./pages/publicProposal";
 import { ImportPage } from "./pages/importer";
 import { ProspectingPage } from "./pages/prospecting";
 import { ReportsPage } from "./pages/reports";
+import { TeamMemberPage, TeamPage } from "./pages/team";
 import { SettingsPage } from "./pages/settings";
 
 const client = new QueryClient({
@@ -57,6 +58,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/propuestas" element={<ProposalsPage />} />
               <Route path="/propuestas/:id" element={<ProposalEditor />} />
               <Route path="/reportes" element={<ReportsPage />} />
+              <Route path="/equipo" element={<TeamPage />} />
+              <Route path="/equipo/:userId" element={<TeamMemberPage />} />
               <Route path="/configuracion/*" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

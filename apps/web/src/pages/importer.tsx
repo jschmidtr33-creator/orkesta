@@ -313,6 +313,7 @@ function ImportResult({ record, onAgain }: { record: ImportRecord; onAgain: () =
     { label: "Filas sin nombre o empresa", value: t.omitidas },
     { label: "Repetidos dentro del archivo", value: t.repetidas_en_archivo },
     ...(t.sobre_limite ? [{ label: "Sin cargar: límite de contactos del plan", value: t.sobre_limite }] : []),
+    ...(t.de_otros ? [{ label: "Ya los trabaja otra persona de tu equipo", value: t.de_otros }] : []),
   ];
   return (
     <div className="py-4">

@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sun,
   Users,
+  UsersRound,
   Workflow,
   X,
 } from "lucide-react";
@@ -41,6 +42,9 @@ export const NAV: NavItem[] = [
   { to: "/propuestas", label: "Propuestas", icon: FileText },
   { to: "/reportes", label: "Reportes", icon: BarChart3 },
 ];
+
+/** Solo para jefaturas y administración: lo que trabaja cada persona a cargo. */
+export const TEAM_NAV: NavItem = { to: "/equipo", label: "Mi equipo", icon: UsersRound };
 
 function WorkspaceSwitcher({ session }: { session: Session }) {
   const { setSession } = useSession();
@@ -154,6 +158,12 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
             {label}
           </NavLink>
         ))}
+        {["admin", "supervisor"].includes(session.workspace?.role ?? "") && (
+          <NavLink to={TEAM_NAV.to} className={linkClass} onClick={onNavigate}>
+            <TEAM_NAV.icon className="size-[18px]" aria-hidden />
+            {TEAM_NAV.label}
+          </NavLink>
+        )}
         <div className="my-3 h-px bg-white/10" />
         <NavLink to="/configuracion" className={linkClass} onClick={onNavigate}>
           <Settings className="size-[18px]" aria-hidden />

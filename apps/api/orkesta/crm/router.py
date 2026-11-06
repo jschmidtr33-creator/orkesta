@@ -24,7 +24,7 @@ def _fail(exc: svc.CrmError) -> HTTPException:
 
 
 def _can_edit(principal: Principal, deal: Deal) -> None:
-    if principal.role == "vendedor" and deal.owner_user_id != principal.user.id:
+    if not principal.can_modify(deal.owner_user_id):
         raise HTTPException(403, "Solo puedes modificar tus propias oportunidades.")
 
 
@@ -274,7 +274,7 @@ def delete_activity(activity_id: uuid.UUID, principal: Member, db: Db) -> dict[s
         raise _fail(exc) from exc
     if activity.type in ("stage", "system"):
         raise HTTPException(400, "Los registros automáticos no se pueden borrar.")
-    if principal.role == "vendedor" and activity.user_id != principal.user.id:
+    if not principal.can_modify(activity.user_id):
         raise HTTPException(403, "Solo puedes borrar tus propias actividades.")
     db.delete(activity)
     return {"ok": True}

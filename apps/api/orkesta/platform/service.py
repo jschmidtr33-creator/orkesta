@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from email_validator import EmailNotValidError, validate_email
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from orkesta.core.config import get_settings
@@ -32,6 +32,7 @@ from orkesta.platform.models import (
     Invitation,
     LoginAttempt,
     Membership,
+    TeamAssignment,
     Tenant,
     User,
 )
@@ -523,6 +524,13 @@ def update_member(
         session, tenant_id=tenant_id, actor_id=actor_id, action="member.updated",
         entity_type="membership", entity_id=member.id, role=member.role, status=member.status,
     )  # fmt: skip
+    if member.role != "supervisor":
+        # Solo una jefatura tiene personas a cargo.
+        session.execute(
+            delete(TeamAssignment).where(
+                TeamAssignment.tenant_id == tenant_id, TeamAssignment.manager_id == member.user_id
+            )
+        )
     if member.status == "disabled":
         # Cierra sus sesiones en este espacio de trabajo.
         session.execute(
@@ -535,6 +543,47 @@ def update_member(
             .values(revoked_at=now())
         )
     return member
+
+
+def set_assignments(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    member_ids: list[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Fija las personas a cargo de una jefatura (reemplaza las anteriores)."""
+    manager = session.get(Membership, membership_id)
+    if manager is None or manager.tenant_id != tenant_id:
+        raise PlatformError("Miembro no encontrado.", 404)
+    if manager.role != "supervisor":
+        raise PlatformError("Primero asígnale el rol Jefatura.")
+    wanted = {u for u in member_ids if u != manager.user_id}
+    valid = set(
+        session.scalars(
+            select(Membership.user_id).where(
+                Membership.tenant_id == tenant_id, Membership.user_id.in_(wanted)
+            )
+        ).all()
+    )
+    if wanted - valid:
+        raise PlatformError("Alguna de esas personas no es parte de tu equipo.")
+    session.execute(
+        delete(TeamAssignment).where(
+            TeamAssignment.tenant_id == tenant_id, TeamAssignment.manager_id == manager.user_id
+        )
+    )
+    session.add_all(
+        TeamAssignment(tenant_id=tenant_id, manager_id=manager.user_id, member_id=u)
+        for u in sorted(valid)
+    )
+    session.flush()
+    audit(
+        session, tenant_id=tenant_id, actor_id=actor_id, action="team.assigned",
+        entity_type="membership", entity_id=manager.id, members=len(valid),
+    )  # fmt: skip
+    return sorted(valid)
 
 
 # --- Sitio público -------------------------------------------------------------------------

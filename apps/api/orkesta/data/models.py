@@ -151,7 +151,7 @@ class DataPoint(IdMixin, Base):
 
 class ContactList(IdMixin, Base):
     __tablename__ = "contact_lists"
-    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "created_by", "name"),)
 
     tenant_id: Mapped[uuid.UUID] = _tenant()
     name: Mapped[str] = mapped_column(String(120), nullable=False)
