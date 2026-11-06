@@ -10,6 +10,7 @@ def load_all() -> None:
     import orkesta.crm.models
     import orkesta.data.models
     import orkesta.enrichment.models
+    import orkesta.library.models
     import orkesta.notifications.models
     import orkesta.platform.models
     import orkesta.proposals.models

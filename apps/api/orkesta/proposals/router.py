@@ -42,6 +42,7 @@ class CreateIn(BaseModel):
     deal_id: uuid.UUID | None = None
     contact_id: uuid.UUID | None = None
     product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    template_id: uuid.UUID | None = None  # plantilla de equipo para empezar
 
 
 class ItemIn(BaseModel):
@@ -162,8 +163,16 @@ def create(body: CreateIn, request: Request, principal: Member, db: Db) -> dict[
             db, tenant_id=principal.tenant_id, user=principal.user, deal_id=body.deal_id,
             contact_id=body.contact_id, product_ids=body.product_ids,
         )  # fmt: skip
+        if body.template_id:
+            from orkesta.library import service as templates
+
+            templates.apply_to_proposal(
+                proposal, templates.get(db, principal.tenant_id, body.template_id, "proposal")
+            )
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
+    except ValueError as exc:  # plantilla inexistente
+        raise HTTPException(getattr(exc, "status", 400), str(exc)) from exc
     audit(
         db, tenant_id=principal.tenant_id, actor_id=principal.user.id, action="proposal.created",
         entity_type="proposal", entity_id=proposal.id, ip=client_ip(request),
