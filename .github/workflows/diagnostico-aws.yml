@@ -32,6 +32,9 @@ jobs:
           cd /opt/orkesta
           echo "==> Contenedores"; docker compose ps --format '{{.Name}} {{.State}} {{.Status}}'
           echo "==> Memoria"; free -m | head -2
+          echo "==> Reinicios"; docker inspect orkesta-app-1 --format 'reinicios={{.RestartCount}} oom={{.State.OOMKilled}} salida={{.State.ExitCode}} inicio={{.State.StartedAt}}'
+          dmesg 2>/dev/null | grep -i -E "killed process|out of memory" | tail -5
+          echo "==> Últimas líneas de la app"; docker compose logs --tail 60 app 2>&1 | grep -v "/api/health"
           echo "==> Cifras"
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
             SELECT 'admin_audit', count(*) FROM orkesta.admin_audit UNION ALL
