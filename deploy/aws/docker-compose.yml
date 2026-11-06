@@ -1,0 +1,66 @@
+# ORKESTA en una sola máquina (AWS EC2 u otro servidor Linux): app + PostgreSQL + HTTPS.
+# La imagen la construye GitHub Actions y la publica en GHCR; aquí solo se descarga.
+name: orkesta
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # "postgres" es el administrador; la app usa el usuario "orkesta" sin superusuario
+      # (lo crea initdb/01-orkesta.sh), así el aislamiento entre empresas (RLS) se cumple.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Falta DB_ADMIN_PASSWORD en .env}
+      DB_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env}
+    # Ajustado a una máquina pequeña (1-2 GB de RAM).
+    command: >
+      postgres -c shared_buffers=128MB -c effective_cache_size=384MB -c work_mem=4MB
+      -c maintenance_work_mem=64MB -c max_connections=40
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orkesta"]
+      interval: 10s
+      retries: 10
+    mem_limit: 512m
+
+  app:
+    image: ${ORKESTA_IMAGE:-ghcr.io/jschmidtr33-creator/orkesta:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://orkesta:${DB_PASSWORD}@db:5432/orkesta
+      PORT: "8000"
+      RUN_WORKER: "true"
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    mem_limit: 1g
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Falta DOMAIN en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
