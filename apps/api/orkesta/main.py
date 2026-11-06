@@ -57,6 +57,17 @@ def _same_origin(request: Request) -> bool:
     return urlsplit(origin).netloc == request.headers.get("host", "")
 
 
+MOVING_PAGE = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>ORKESTA</title>
+<meta http-equiv="refresh" content="60"></head>
+<body style="font-family:system-ui,sans-serif;background:#0B1020;color:#fff;display:grid;
+place-items:center;min-height:100vh;margin:0;text-align:center;padding:24px">
+<div><p style="letter-spacing:.3em;color:#8B9DFF;font-size:13px">ORKESTA</p>
+<h1 style="font-size:28px;margin:8px 0">Estamos mudando ORKESTA a un servidor más rápido</h1>
+<p style="color:#C7CDE0">Tu información está a salvo. Vuelve en unos minutos; esta página se
+actualiza sola.</p></div></body></html>"""
+
+
 def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     load_all()
     settings = get_settings()
@@ -91,6 +102,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     from orkesta.brain.titles import install as install_titles
 
     install_titles(factory)  # el clasificador de cargos usa el modelo propio activo
+
+    @app.middleware("http")
+    async def moving(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        target = settings.moved_to.strip()
+        if not target or request.url.path == "/api/health":
+            return await call_next(request)
+        if target.startswith("https://"):
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(target.rstrip("/") + request.url.path + query, status_code=308)
+        if request.url.path.startswith("/api"):
+            return JSONResponse({"detail": "ORKESTA se está mudando. Vuelve en unos minutos."},
+                                status_code=503, headers={"Retry-After": "600"})  # fmt: skip
+        return Response(MOVING_PAGE, status_code=503, media_type="text/html",
+                        headers={"Retry-After": "600"})  # fmt: skip
 
     @app.middleware("http")
     async def security(

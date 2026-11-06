@@ -85,10 +85,7 @@ def copy_from_env() -> int:
     if not source or not target:
         print("Faltan ORKESTA_SOURCE_URL y ORKESTA_TARGET_URL", file=sys.stderr)
         return 2
-    copied = copy_database(source, target)
-    for table, count in sorted(copied.items(), key=lambda kv: -kv[1]):
-        if count:
-            print(f"  {table}: {count}")
+    copied = copy_database(source, target, log=lambda m: print(m, flush=True))
     print(f"copiar-base: {sum(copied.values())} filas en {len(copied)} tablas")
     return 0
 
