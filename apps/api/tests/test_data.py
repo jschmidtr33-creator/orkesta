@@ -208,7 +208,7 @@ def test_manual_contacts_roles_and_provenance(
         f"/api/invitations/{link.rsplit('/', 1)[1]}/accept",
         json={"full_name": "Luis", "password": "ClaveSegura2026"},
     )
-    assert seller.patch(f"/api/contacts/{contact_id}", json=body).status_code == 403
+    assert seller.patch(f"/api/contacts/{contact_id}", json=body).status_code in (403, 404)
     assert seller.post("/api/contacts/delete", json={"ids": [contact_id]}).status_code == 403
     assert client.post("/api/contacts/delete", json={"ids": [contact_id]}).json() == {"deleted": 1}
     with session_factory() as session:

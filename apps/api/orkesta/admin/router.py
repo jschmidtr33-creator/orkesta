@@ -162,6 +162,38 @@ def update_tenant(
     return {"ok": True, "status": tenant.status, "plan": tenant.plan}
 
 
+class MergeIn(BaseModel):
+    target_id: uuid.UUID
+    role: str | None = Field(default="vendedor", pattern="^(admin|supervisor|vendedor)$")
+    confirm: str = Field(default="", max_length=200)
+
+
+@router.post("/tenants/{tenant_id}/merge")
+def merge_tenant(
+    tenant_id: uuid.UUID,
+    body: MergeIn,
+    principal: Annotated[Principal, Depends(require("gestionar_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Une una empresa a otra: todo su trabajo pasa al destino y el origen se cierra."""
+    from orkesta.platform.merge import MergeError, merge_tenants
+
+    if principal.user.platform_role != "owner":
+        raise HTTPException(403, "Solo la creadora del panel puede unir empresas.")
+    source = db.get(Tenant, tenant_id)
+    if source is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    if " ".join(body.confirm.split()).lower() != " ".join(source.name.split()).lower():
+        raise HTTPException(400, f"Para confirmar, escribe el nombre exacto: {source.name}")
+    try:
+        report = merge_tenants(db, source_id=tenant_id, target_id=body.target_id, role=body.role)
+    except MergeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    svc.log(db, principal.user, "tenant.merged", f"{report['source']} → {report['target']}",
+            moved=sum(report["moved"].values()))  # fmt: skip
+    return report
+
+
 # --- Usuarios -------------------------------------------------------------------------------
 
 

@@ -17,6 +17,7 @@ from sqlalchemy import Select, and_, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from orkesta.campaigns.models import Campaign, Mailbox, Message, Recipient
+from orkesta.core.db import current_scope
 from orkesta.crm.models import Activity, Deal, Stage
 from orkesta.data.models import Contact
 from orkesta.platform.models import Membership, User
@@ -226,12 +227,16 @@ def by_campaign(session: Session, s: Scope, p: Period) -> list[dict[str, Any]]:
 
 def by_user(session: Session, tenant_id: uuid.UUID, p: Period,
             only: uuid.UUID | None = None) -> list[dict[str, Any]]:  # fmt: skip
-    members = session.execute(
+    query = (
         select(User.id, User.full_name, User.email, Membership.role)
         .join(Membership, Membership.user_id == User.id)
         .where(Membership.tenant_id == tenant_id, Membership.status == "active")
         .order_by(User.full_name)
-    ).all()
+    )
+    scope = current_scope(session)
+    if scope:  # solo las personas cuyo trabajo puede ver quien consulta
+        query = query.where(User.id.in_([uuid.UUID(u) for u in scope.split(",")]))
+    members = session.execute(query).all()
     rows = []
     for uid, name, email, role in members:
         if only and uid != only:

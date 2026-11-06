@@ -32,7 +32,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from orkesta.core.db import Base, IdMixin
 
 ROLES = ("admin", "supervisor", "vendedor")
-ROLE_LABELS = {"admin": "Administrador", "supervisor": "Supervisor", "vendedor": "Vendedor"}
+ROLE_LABELS = {"admin": "Administrador", "supervisor": "Jefatura", "vendedor": "Vendedor"}
+ROLE_HELP = {
+    "admin": "Configura la empresa y ve el trabajo de todo el equipo.",
+    "supervisor": "Ve el trabajo de las personas que tiene a cargo, sin poder modificarlo. "
+    "Su propio trabajo no lo ve su equipo.",
+    "vendedor": "Ve y trabaja solo lo suyo: contactos, listas, búsquedas, campañas y pipeline.",
+}
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -100,6 +106,27 @@ class Membership(IdMixin, Base):
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+
+
+class TeamAssignment(IdMixin, Base):
+    """Una persona a cargo de una jefatura: la jefatura ve su trabajo, sin poder modificarlo."""
+
+    __tablename__ = "team_assignments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "manager_id", "member_id", name="uq_team_assignments_pair"),
+        CheckConstraint("manager_id <> member_id", name="distinct"),
+        Index("ix_team_assignments_manager", "tenant_id", "manager_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    manager_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    member_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
 
 
 class Invitation(IdMixin, Base):

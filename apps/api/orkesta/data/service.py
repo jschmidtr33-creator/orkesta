@@ -17,13 +17,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, Table, and_, delete, func, literal_column, select
+from sqlalchemy import Select, Table, and_, delete, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit, emit_many
 from orkesta.core import jobs
-from orkesta.core.db import set_context
+from orkesta.core.db import set_context, unscoped
 from orkesta.data.models import (
     CONTACT_STATUSES,
     EMAIL_STATUSES,
@@ -228,6 +228,7 @@ class Totals:
     nuevos: int = 0
     actualizados: int = 0
     sobre_limite: int = 0
+    de_otros: int = 0
     empresas: set[str] = field(default_factory=set)
 
     def as_dict(self) -> dict[str, int]:
@@ -238,6 +239,7 @@ class Totals:
             "nuevos": self.nuevos,
             "actualizados": self.actualizados,
             "sobre_limite": self.sobre_limite,
+            "de_otros": self.de_otros,
             "empresas": len(self.empresas),
         }
 
@@ -526,6 +528,12 @@ def _upsert_chunk(
             "industry_code": func.coalesce(table.c.industry_code, ex.industry_code),
             "updated_at": func.now(),
         },
+        # Un contacto que ya trabaja otra persona del equipo no se toca ni se suma a esta lista.
+        where=or_(
+            table.c.owner_user_id.is_(None),
+            ex.owner_user_id.is_(None),
+            table.c.owner_user_id == ex.owner_user_id,
+        ),
     ).returning(table.c.id, table.c.dedup_key, literal_column("(xmax = 0)").label("inserted"))
     result = session.connection().execute(upsert, rows).all()
     ids = {row.dedup_key: row.id for row in result}
@@ -534,6 +542,7 @@ def _upsert_chunk(
               source="importacion", user_id=user_id)  # fmt: skip
     totals.nuevos += inserted
     totals.actualizados += len(result) - inserted
+    totals.de_otros += len(rows) - len(result)
     # Procedencia: cada valor presente en el archivo queda registrado con su fuente.
     points = []
     for row, item in zip(rows, items, strict=True):
@@ -825,10 +834,15 @@ def create_contact(
 ) -> Contact:
     values = _clean_input(data)
     key = dedup_key(values["email"], values["full_name"], values["company_key"])
-    existing = session.scalar(
-        select(Contact.id).where(Contact.tenant_id == tenant_id, Contact.dedup_key == key)
-    )
+    with unscoped(session):  # puede pertenecer a otra persona del equipo
+        existing = session.execute(
+            select(Contact.id, Contact.owner_user_id).where(
+                Contact.tenant_id == tenant_id, Contact.dedup_key == key
+            )
+        ).first()
     if existing is not None:
+        if existing.owner_user_id not in (None, user.id) and not session.get(Contact, existing.id):
+            raise DataError("Ese contacto ya lo trabaja otra persona de tu equipo.", 409)
         raise DataError("Ese contacto ya existe en tu base.", 409)
     _check_contact_limit(session, tenant_id)
     contact = Contact(
@@ -913,7 +927,9 @@ def create_list(
         raise DataError("Escribe un nombre para la lista.")
     duplicate = session.scalar(
         select(ContactList.id).where(
-            ContactList.tenant_id == tenant_id, func.lower(ContactList.name) == name.lower()
+            ContactList.tenant_id == tenant_id,
+            ContactList.created_by == user_id,  # cada persona nombra sus listas a su manera
+            func.lower(ContactList.name) == name.lower(),
         )
     )
     if duplicate is not None:

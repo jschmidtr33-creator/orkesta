@@ -32,12 +32,14 @@ from orkesta.data import service as data_service
 from orkesta.platform import google
 from orkesta.platform import service as svc
 from orkesta.platform.models import (
+    ROLE_HELP,
     ROLE_LABELS,
     AuditLog,
     DemoRequest,
     Invitation,
     LoginAttempt,
     Membership,
+    TeamAssignment,
     Tenant,
     User,
 )
@@ -410,8 +412,15 @@ def team(principal: Member, db: Db) -> dict[str, Any]:
         )
         .order_by(Invitation.created_at.desc())
     )
+    manages: dict[uuid.UUID, list[str]] = {}
+    for manager_id, member_id in db.execute(
+        select(TeamAssignment.manager_id, TeamAssignment.member_id).where(
+            TeamAssignment.tenant_id == tid
+        )
+    ).tuples():
+        manages.setdefault(manager_id, []).append(str(member_id))
     return {
-        "roles": [{"value": k, "label": v} for k, v in ROLE_LABELS.items()],
+        "roles": [{"value": k, "label": v, "help": ROLE_HELP[k]} for k, v in ROLE_LABELS.items()],
         "members": [
             {
                 "id": str(m.id),
@@ -424,6 +433,7 @@ def team(principal: Member, db: Db) -> dict[str, Any]:
                 "active": m.status == "active",
                 "is_me": u.id == principal.user.id,
                 "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+                "manages": manages.get(u.id, []) if m.role == "supervisor" else [],
             }
             for m, u in members
         ],
@@ -478,6 +488,25 @@ def update_member(
         db.rollback()
         raise _fail(exc) from exc
     return {"ok": True}
+
+
+class AssignmentsIn(BaseModel):
+    member_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+
+
+@router.put("/team/members/{membership_id}/assignments")
+def set_assignments(
+    membership_id: uuid.UUID, body: AssignmentsIn, principal: Admin, db: Db
+) -> dict[str, Any]:
+    """Personas a cargo de una jefatura: verá su trabajo (sin poder modificarlo)."""
+    try:
+        assigned = svc.set_assignments(
+            db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
+            membership_id=membership_id, member_ids=body.member_ids,
+        )  # fmt: skip
+    except svc.PlatformError as exc:
+        raise _fail(exc) from exc
+    return {"manages": [str(u) for u in assigned]}
 
 
 @router.get("/invitations/{token}")
@@ -547,6 +576,7 @@ ACTION_LABELS = {
     "workspace.renamed": "cambió el nombre de la empresa",
     "member.invited": "invitó a una persona",
     "member.updated": "cambió el rol o el acceso de un miembro",
+    "team.assigned": "asignó personas a una jefatura",
     "invitation.accepted": "aceptó una invitación",
     "invitation.revoked": "anuló una invitación",
     "contacts.imported": "importó una base de contactos",

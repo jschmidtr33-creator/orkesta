@@ -444,9 +444,12 @@ function Tenants({ me }: { me: Me }) {
     onSuccess: () => client.invalidateQueries({ queryKey: ["admin-tenants"] }),
   });
   const manage = can(me, "gestionar_empresas");
+  const canMerge = manage && me.role === "owner";
+  const [merging, setMerging] = useState<TenantRow | null>(null);
   return (
     <>
       <Title title="Empresas" description="Cada espacio de trabajo en ORKESTA, su plan y su uso." />
+      {merging && <MergeDialog source={merging} tenants={list.data?.items ?? []} onClose={() => setMerging(null)} />}
       <Card className="overflow-x-auto p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar empresa…" className="ork-focus h-10 w-full max-w-xs rounded-xl border border-ork-line px-3 text-[14px]" />
@@ -495,7 +498,12 @@ function Tenants({ me }: { me: Me }) {
                   <td className="py-3 text-right">{n(t.emails_sent)}</td>
                   <td className="py-3 text-right">{n(t.proposals)}</td>
                   <td className="py-3 pl-4">{t.status === "active" ? <Badge tone="ok">Activa</Badge> : <Badge tone="bad">Suspendida</Badge>}</td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="space-x-2 whitespace-nowrap px-5 py-3 text-right">
+                    {canMerge && (
+                      <Button size="sm" variant="secondary" onClick={() => setMerging(t)}>
+                        Unir a otra empresa
+                      </Button>
+                    )}
                     {manage &&
                       (t.status === "active" ? (
                         <Button size="sm" variant="danger" onClick={() => window.confirm(`¿Suspender «${t.name}»? Sus usuarios no podrán entrar.`) && patch.mutate({ id: t.id, status: "suspended" })}>
@@ -514,6 +522,84 @@ function Tenants({ me }: { me: Me }) {
         )}
       </Card>
     </>
+  );
+}
+
+type MergeReport = {
+  source: string;
+  target: string;
+  moved: Record<string, number>;
+  personas_movidas?: number;
+  contactos_que_ya_existian?: number;
+  empresas_cliente_unidas?: number;
+  propuestas_renumeradas?: number;
+};
+
+function MergeDialog({ source, tenants, onClose }: { source: TenantRow; tenants: TenantRow[]; onClose: () => void }) {
+  const client = useQueryClient();
+  const [target, setTarget] = useState("");
+  const [role, setRole] = useState("vendedor");
+  const [confirm, setConfirm] = useState("");
+  const merge = useMutation({
+    mutationFn: () => api<MergeReport>(`/api/admin/tenants/${source.id}/merge`, { method: "POST", json: { target_id: target, role, confirm } }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin-tenants"] }),
+  });
+  const r = merge.data;
+  const others = tenants.filter((t) => t.id !== source.id);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Unir empresas">
+      <Card className="max-h-[90vh] w-full max-w-lg overflow-y-auto">
+        <CardHeader title={`Unir «${source.name}» a otra empresa`} description="Todo su trabajo pasa a la empresa elegida y cada registro conserva su dueño. Después, esta cuenta se cierra." />
+        {r ? (
+          <div className="flex flex-col gap-3 text-[13.5px]">
+            <Alert tone="ok">
+              Listo: «{r.source}» ahora es parte de «{r.target}».
+            </Alert>
+            <ul className="list-disc pl-5 text-ork-graphite">
+              <li>{r.personas_movidas ?? 0} personas movidas</li>
+              <li>{n(r.moved.contacts ?? 0)} contactos, {n(r.moved.campaigns ?? 0)} campañas, {n(r.moved.deals ?? 0)} oportunidades y {n(r.moved.proposals ?? 0)} propuestas</li>
+              {!!r.contactos_que_ya_existian && <li>{r.contactos_que_ya_existian} contactos ya existían en el destino: cada persona conserva el suyo</li>}
+              {!!r.propuestas_renumeradas && <li>{r.propuestas_renumeradas} propuestas siguen ahora la numeración del destino (las firmadas conservan su constancia)</li>}
+            </ul>
+            <p className="text-ork-mist">Las personas movidas solo deben volver a ingresar.</p>
+            <Button onClick={onClose}>Cerrar</Button>
+          </div>
+        ) : (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              merge.mutate();
+            }}
+          >
+            {merge.error && <Alert>{merge.error.message}</Alert>}
+            <SelectField label="Empresa de destino" required value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="">Elige la empresa…</option>
+              {others.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} {t.owner ? `· ${t.owner.email}` : ""}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField label="Rol de sus personas en el destino" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="vendedor">Vendedor: ve solo lo suyo</option>
+              <option value="supervisor">Jefatura: ve a las personas que se le asignen</option>
+              <option value="admin">Administrador: ve todo</option>
+            </SelectField>
+            <p className="-mt-2 text-[12.5px] text-ork-mist">Quien ya es parte del destino conserva su rol allí. Revisa que el plan del destino admita a todas las personas.</p>
+            <TextField label={`Para confirmar, escribe «${source.name}»`} required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button type="submit" variant="danger" loading={merge.isPending} disabled={!target || !confirm}>
+                Unir empresas
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -1552,6 +1638,7 @@ const ACTIONS: Record<string, string> = {
   "tenant.suspended": "suspendió la empresa",
   "tenant.active": "reactivó la empresa",
   "tenant.plan": "cambió el plan de",
+  "tenant.merged": "unió las empresas",
   "brain.train": "entrenó el modelo",
   "brain.activate": "activó la versión",
   "brain.teach": "enseñó el cargo",

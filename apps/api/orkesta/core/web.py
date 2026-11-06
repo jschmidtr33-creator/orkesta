@@ -11,12 +11,14 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy import select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from orkesta.core.config import get_settings
-from orkesta.core.db import set_context
+from orkesta.core.db import set_context, set_scope
 from orkesta.core.security import read_access_token
-from orkesta.platform.models import Membership, Tenant, User
+from orkesta.platform.models import Membership, TeamAssignment, Tenant, User
 
 ACCESS_COOKIE = "ork_at"
 REFRESH_COOKIE = "ork_rt"
@@ -27,6 +29,12 @@ def get_db(request: Request) -> Iterator[Session]:
     try:
         yield session
         session.commit()
+    except (StaleDataError, ProgrammingError) as exc:
+        session.rollback()
+        # La base rechazó modificar trabajo de otra persona (políticas de supervisión).
+        if isinstance(exc, StaleDataError) or "row-level security" in str(exc):
+            raise HTTPException(403, READ_ONLY) from exc
+        raise
     except Exception:
         session.rollback()
         raise
@@ -34,7 +42,10 @@ def get_db(request: Request) -> Iterator[Session]:
         session.close()
 
 
-Db = Annotated[Session, Depends(get_db)]
+READ_ONLY = "Puedes ver el trabajo de tu equipo, pero solo su dueño puede modificarlo."
+
+
+Db = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def client_ip(request: Request) -> str | None:
@@ -78,6 +89,10 @@ class Principal:
     def role(self) -> str | None:
         return self.membership.role if self.membership else None
 
+    def can_modify(self, owner: uuid.UUID | None) -> bool:
+        """Solo la administración modifica trabajo ajeno; la jefatura solo lo ve."""
+        return self.role == "admin" or owner is None or owner == self.user.id
+
 
 def current_principal(request: Request, db: Db) -> Principal:
     claims = read_access_token(request.cookies.get(ACCESS_COOKIE, ""))
@@ -100,7 +115,27 @@ def current_principal(request: Request, db: Db) -> Principal:
         if membership is None:
             raise HTTPException(401, "Ya no tienes acceso a este espacio de trabajo.")
         tenant = db.get(Tenant, claims.tenant_id)
+        set_scope(db, visible_users(db, membership))
     return Principal(user=user, tenant=tenant, membership=membership)
+
+
+def visible_users(db: Session, membership: Membership) -> list[uuid.UUID] | None:
+    """De quién es el trabajo que ve esta persona. ``None``: toda la empresa (administración).
+
+    - Administrador: todo.
+    - Jefatura: lo suyo y lo de las personas que tiene a cargo (sin poder modificarlo).
+    - Vendedor: solo lo suyo."""
+    if membership.role == "admin":
+        return None
+    users = [membership.user_id]
+    if membership.role == "supervisor":
+        users += db.scalars(
+            select(TeamAssignment.member_id).where(
+                TeamAssignment.tenant_id == membership.tenant_id,
+                TeamAssignment.manager_id == membership.user_id,
+            )
+        ).all()
+    return users
 
 
 CurrentPrincipal = Annotated[Principal, Depends(current_principal)]

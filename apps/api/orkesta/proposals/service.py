@@ -804,11 +804,14 @@ def document_hash(session: Session, proposal: Proposal) -> str:
     import json
 
     tenant = session.get(Tenant, proposal.tenant_id)
+    # Si la cuenta se unió a otra empresa después de firmar, el número y el emisor cambian: la
+    # firma guarda los que tenía al firmarse («frozen») y la huella se calcula con ellos.
+    frozen = (proposal.signature or {}).get("frozen") or {}
     content = {
-        "number": proposal.number, "title": proposal.title, "currency": proposal.currency,
-        "items": proposal.items, "sections": proposal.sections,
+        "number": frozen.get("number", proposal.number), "title": proposal.title,
+        "currency": proposal.currency, "items": proposal.items, "sections": proposal.sections,
         "tax_rate": str(proposal.tax_rate), "valid_until": str(proposal.valid_until or ""),
-        "issuer": tenant.name if tenant else "",
+        "issuer": frozen.get("issuer", tenant.name if tenant else ""),
     }  # fmt: skip
     if proposal.pricing_mode == "opciones":  # la opción elegida es parte de lo firmado
         content["pricing_mode"] = "opciones"

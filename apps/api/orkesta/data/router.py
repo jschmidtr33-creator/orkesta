@@ -191,7 +191,7 @@ def update_contact(
 ) -> dict[str, Any]:
     try:
         contact = svc.get_contact(db, principal.tenant_id, contact_id)
-        if principal.role == "vendedor" and contact.owner_user_id != principal.user.id:
+        if not principal.can_modify(contact.owner_user_id):
             raise svc.DataError("Solo puedes editar los contactos que creaste o importaste.", 403)
         svc.update_contact(
             db, contact=contact, user=principal.user, data=svc.ContactInput(**body.model_dump())
