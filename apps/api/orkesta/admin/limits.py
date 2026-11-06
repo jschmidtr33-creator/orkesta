@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orkesta.core.db import unscoped
 from orkesta.platform.models import Invitation, Membership, Tenant, User
 
 PLAN_LABELS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía"}
@@ -58,9 +59,10 @@ def contact_capacity(session: Session, tenant_id: uuid.UUID) -> int | None:
     found = plan_limits(session, tenant_id)
     if found is None or not found[1].get("contacts"):
         return None
-    used = session.scalar(
-        select(func.count()).select_from(Contact).where(Contact.tenant_id == tenant_id)
-    )
+    with unscoped(session):  # el límite es de la empresa, no de cada persona
+        used = session.scalar(
+            select(func.count()).select_from(Contact).where(Contact.tenant_id == tenant_id)
+        )
     return max(0, found[1]["contacts"] - int(used or 0))
 
 
@@ -83,11 +85,12 @@ def emails_left_today(session: Session, tenant_id: uuid.UUID, tz: ZoneInfo) -> i
     if found is None or not found[1].get("emails_per_day"):
         return None
     start = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    sent = session.scalar(
-        select(func.count())
-        .select_from(Message)
-        .where(Message.tenant_id == tenant_id, Message.sent_at >= start.astimezone(UTC))
-    )
+    with unscoped(session):  # el cupo diario es de la empresa
+        sent = session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(Message.tenant_id == tenant_id, Message.sent_at >= start.astimezone(UTC))
+        )
     return max(0, found[1]["emails_per_day"] - int(sent or 0))
 
 

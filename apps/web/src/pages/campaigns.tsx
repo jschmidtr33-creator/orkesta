@@ -6,6 +6,7 @@ import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectFi
 import type { Editor } from "@tiptap/react";
 import { CopyAssistant, StepReview } from "../components/CopyAssistant";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
+import { TemplatePicker, SaveTemplateButton } from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
 import { formatWhen } from "./dashboard";
@@ -319,13 +320,14 @@ function Kpi({ label, value, hint }: { label: string; value: string | number; hi
 
 function NewCampaignModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [name, setName] = useState("");
+  const [template, setTemplate] = useState("");
   const navigate = useNavigate();
   const create = useMutation({
-    mutationFn: () => api<Campaign>("/api/campaigns", { method: "POST", json: { name } }),
+    mutationFn: () => api<Campaign>("/api/campaigns", { method: "POST", json: { name, template_id: template || null } }),
     onSuccess: (c) => navigate(`/campanas/${c.id}`),
   });
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Nueva campaña" description="Arrancamos con una secuencia de 3 correos que puedes editar.">
+    <Modal open={open} onOpenChange={onOpenChange} title="Nueva campaña" description="Arranca en blanco o desde una plantilla de tu equipo; después la editas.">
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -335,6 +337,7 @@ function NewCampaignModal({ open, onOpenChange }: { open: boolean; onOpenChange:
       >
         {create.error && <Alert>{create.error.message}</Alert>}
         <TextField label="Nombre" placeholder="Ej.: Bancos Colombia · Q4" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <TemplatePicker kind="campaign" value={template} onChange={setTemplate} />
         <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>
           Crear y editar
         </Button>
@@ -378,7 +381,7 @@ export function CampaignDetail() {
             : `Lanzada ${c.launched_at ? formatWhen(c.launched_at) : ""} · desde ${c.mailbox?.email ?? "—"}`
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
             {draft && (
               <Button icon={<Rocket className="size-4" aria-hidden />} onClick={() => setConfirm(true)}>
@@ -395,6 +398,7 @@ export function CampaignDetail() {
                 Reanudar
               </Button>
             )}
+            <SaveTemplateButton kind="campaign" sourceId={c.id} defaultName={c.name} />
             <Button variant="ghost" aria-label="Borrar campaña" icon={<Trash2 className="size-4" aria-hidden />} onClick={() => setDeleting(true)} />
           </div>
         }

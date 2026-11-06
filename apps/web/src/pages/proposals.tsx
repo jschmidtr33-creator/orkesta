@@ -4,6 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
+import { SaveTemplateButton, TemplatePicker } from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { RichEditor } from "../components/RichEditor";
 import type { Editor } from "@tiptap/react";
@@ -205,14 +206,16 @@ export function NewProposalModal({ open, onOpenChange, dealId }: { open: boolean
   const deals = useQuery({ queryKey: ["crm-deals", "open-for-proposals"], queryFn: () => api<{ deals: Deal[] }>("/api/crm/deals?estado=open"), enabled: open && !dealId });
   const [deal, setDeal] = useState(dealId ?? "");
   const [picked, setPicked] = useState<string[]>([]);
+  const [template, setTemplate] = useState("");
   useEffect(() => {
     if (open) {
       setDeal(dealId ?? "");
       setPicked([]);
+      setTemplate("");
     }
   }, [open, dealId]);
   const create = useMutation({
-    mutationFn: () => api<Proposal>("/api/proposals", { method: "POST", json: { deal_id: deal || null, product_ids: picked } }),
+    mutationFn: () => api<Proposal>("/api/proposals", { method: "POST", json: { deal_id: deal || null, product_ids: template ? [] : picked, template_id: template || null } }),
     onSuccess: (p) => {
       client.invalidateQueries({ queryKey: ["proposals"] });
       onOpenChange(false);
@@ -241,6 +244,8 @@ export function NewProposalModal({ open, onOpenChange, dealId }: { open: boolean
             ))}
           </SelectField>
         )}
+        <TemplatePicker kind="proposal" value={template} onChange={setTemplate} />
+        {!template && (
         <div>
           <p className="mb-1.5 text-[13px] font-semibold text-ork-ink">Productos o servicios del catálogo (opcional)</p>
           {active.length === 0 ? (
@@ -266,6 +271,7 @@ export function NewProposalModal({ open, onOpenChange, dealId }: { open: boolean
             </div>
           )}
         </div>
+        )}
         <Button type="submit" loading={create.isPending}>
           Crear borrador
         </Button>
@@ -567,6 +573,7 @@ export function ProposalEditor() {
           <Button variant="secondary" icon={copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />} onClick={copyLink}>
             {copied ? "Enlace copiado" : "Copiar enlace"}
           </Button>
+          {!dirty && <SaveTemplateButton kind="proposal" sourceId={p.id} defaultName={p.title} />}
           {locked ? (
             <Button variant="secondary" loading={dup.isPending} icon={<Files className="size-4" aria-hidden />} onClick={() => dup.mutate()}>
               Duplicar

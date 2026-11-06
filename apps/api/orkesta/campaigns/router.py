@@ -287,6 +287,7 @@ def delete_mailbox(
 
 class CampaignIn(BaseModel):
     name: str = Field(max_length=160)
+    template_id: uuid.UUID | None = None  # plantilla de equipo para empezar
 
 
 class VariantIn(BaseModel):
@@ -348,8 +349,16 @@ def create(body: CampaignIn, request: Request, principal: Member, db: Db) -> dic
         campaign = svc.create_campaign(
             db, tenant_id=principal.tenant_id, user=principal.user, name=body.name
         )
+        if body.template_id:
+            from orkesta.library import service as templates
+
+            templates.apply_to_campaign(
+                campaign, templates.get(db, principal.tenant_id, body.template_id, "campaign")
+            )
     except svc.CampaignError as exc:
         raise _fail(exc) from exc
+    except ValueError as exc:  # plantilla inexistente
+        raise HTTPException(getattr(exc, "status", 400), str(exc)) from exc
     audit(
         db,
         tenant_id=principal.tenant_id,
