@@ -96,6 +96,12 @@ class Proposal(IdMixin, Base):
     # [{"key", "title", "body"}]
     sections: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    # "total": se suman todos los productos. "opciones": cada producto es una alternativa y el
+    # cliente elige una sola al aceptar (no hay total general).
+    pricing_mode: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="total", server_default="total"
+    )
+    chosen_item: Mapped[int | None] = mapped_column(Integer)
     valid_until: Mapped[date | None] = mapped_column(Date)
     public_id: Mapped[str] = mapped_column(String(48), nullable=False, unique=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

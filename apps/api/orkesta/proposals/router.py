@@ -69,6 +69,7 @@ class UpdateIn(BaseModel):
     tax_rate: float | None = Field(default=None, ge=0, le=100)
     valid_until: date | None = None
     design: dict[str, Any] | None = None
+    pricing_mode: str | None = Field(default=None, max_length=10)
 
 
 class DecisionIn(BaseModel):
@@ -79,6 +80,7 @@ class DecisionIn(BaseModel):
     document: str = Field(default="", max_length=40)
     signature: str = Field(default="", max_length=300_000)
     consent: bool = False
+    choice: int | None = Field(default=None, ge=0, le=99)
 
 
 # --- Catálogo -------------------------------------------------------------------------------
@@ -300,7 +302,7 @@ def public_decision(public_id: str, body: DecisionIn, request: Request, db: Db) 
         proposal = svc.public_load(db, public_id)
         svc.decide(db, proposal, accept=body.accept, name=body.name, note=body.note,
                    email=body.email, document=body.document, signature=body.signature,
-                   consent=body.consent, ip=client_ip(request) or "",
+                   consent=body.consent, choice=body.choice, ip=client_ip(request) or "",
                    user_agent=request.headers.get("user-agent", ""))  # fmt: skip
     except svc.ProposalError as exc:
         db.rollback()

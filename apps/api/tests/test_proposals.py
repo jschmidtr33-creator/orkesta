@@ -46,8 +46,8 @@ def test_catalog_draft_totals_and_public_acceptance(client: TestClient) -> None:
                   {"name": "Implementación", "quantity": 1, "unit_price": 3000}],
         "tax_rate": 19,
     }).json()  # fmt: skip
-    assert updated["totals"] == {"subtotal": 13800.0, "discounts": 1200.0, "tax": 2622.0,
-                                 "total": 16422.0}  # fmt: skip
+    assert updated["totals"] == {"mode": "total", "subtotal": 13800.0, "discounts": 1200.0,
+                                 "tax": 2622.0, "total": 16422.0}  # fmt: skip
 
     public_id = updated["public_id"]
     # Vista previa del equipo: no cuenta como apertura del cliente.
@@ -199,3 +199,55 @@ def test_variables_are_personalized_for_the_client(client: TestClient) -> None:
     assert "<b>Laura</b>" in view["items"][0]["description"]
     # El editor conserva las variables para reutilizar el texto.
     assert "{{nombre}}" in client.get(f"/api/proposals/{p['id']}").json()["sections"][0]["body"]
+
+
+def test_options_mode_has_no_total_and_client_picks_one(client: TestClient) -> None:
+    contact_id, deal_id = _setup(client)
+    p = client.post("/api/proposals", json={"deal_id": deal_id}).json()
+    updated = client.patch(f"/api/proposals/{p['id']}", json={
+        "items": [{"name": "Plan Básico", "quantity": 1, "unit_price": 1000},
+                  {"name": "Plan Pro", "quantity": 1, "unit_price": 2500, "discount": 10}],
+        "tax_rate": 19, "pricing_mode": "opciones",
+    }).json()  # fmt: skip
+    t = updated["totals"]
+    # Sin total general: cada opción trae su propio valor con impuestos.
+    assert t["mode"] == "opciones" and t["total"] is None and t["chosen"] is None
+    assert [o["total"] for o in t["options"]] == [1190.0, 2677.5]
+    assert t["from"] == 1190.0 and t["to"] == 2677.5
+    assert client.patch(f"/api/proposals/{p['id']}",
+                        json={"pricing_mode": "x"}).status_code == 400  # fmt: skip
+    client.post(f"/api/proposals/{p['id']}/send")
+    public_id = updated["public_id"]
+    client.post("/api/auth/logout")
+    view = client.get(f"/api/public/proposals/{public_id}").json()
+    assert view["pricing_mode"] == "opciones" and view["totals"]["total"] is None
+    sign = {"accept": True, "name": "Laura Gómez", "email": "laura@banco.co",
+            "signature": SIGNATURE, "consent": True}  # fmt: skip
+    missing = client.post(f"/api/public/proposals/{public_id}/decision", json=sign)
+    assert missing.status_code == 400 and "opciones" in missing.json()["detail"]
+    bad = client.post(f"/api/public/proposals/{public_id}/decision", json={**sign, "choice": 5})
+    assert bad.status_code == 400
+    accepted = client.post(f"/api/public/proposals/{public_id}/decision",
+                           json={**sign, "choice": 1}).json()  # fmt: skip
+    assert accepted["status"] == "accepted" and accepted["chosen_item"] == 1
+    assert accepted["totals"]["total"] == 2677.5 and accepted["totals"]["chosen"] == 1
+    pdf = client.get(f"/api/public/proposals/{public_id}/constancia.pdf").content
+    import re
+    import zlib
+
+    pages = b""
+    for chunk in re.findall(rb"stream\n(.*?)\nendstream", pdf, re.S):
+        try:
+            pages += zlib.decompress(chunk)
+        except zlib.error:
+            continue  # la imagen de la firma (JPEG) no usa zlib
+    assert b"Plan Pro" in pages and b"elegida" in pages
+
+    client.post("/api/auth/login", json={"email": "ana@lacteos.co", "password": "ClaveSegura2026"})
+    deal = client.get(f"/api/crm/deals/{deal_id}").json()
+    assert deal["status"] == "won" and float(deal["value"]) == 2677.5  # valor de lo elegido
+    timeline = [a["body"] for a in client.get("/api/crm/timeline",
+                                              params={"contacto": contact_id}).json()]  # fmt: skip
+    assert any("Eligió la opción «Plan Pro»" in b for b in timeline)
+    copy = client.post(f"/api/proposals/{p['id']}/duplicate").json()
+    assert copy["pricing_mode"] == "opciones" and copy["chosen_item"] is None
