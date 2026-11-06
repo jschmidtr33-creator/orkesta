@@ -41,7 +41,9 @@ jobs:
 
       - name: 1. Preparar el servidor (Docker, memoria extra, respaldos)
         # El script va directo desde esta versión del repositorio (sin la caché de raw.githubusercontent).
-        run: $SSH 'sudo bash -s' < deploy/aws/setup.sh
+        run: |
+          tar -C deploy/aws -czf - . | $SSH 'rm -rf /tmp/orkesta-deploy && mkdir -p /tmp/orkesta-deploy && tar -xzf - -C /tmp/orkesta-deploy'
+          $SSH 'sudo bash -s' < deploy/aws/setup.sh
 
       - name: 2. Configuración (.env) desde los secretos
         env:

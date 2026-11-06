@@ -75,12 +75,33 @@ def bootstrap_admin() -> None:
         print(f"release: administrador inicial creado ({email})")
 
 
+def copy_from_env() -> int:
+    """Migración entre proveedores: el destino ya tiene las migraciones (release)."""
+    import os
+
+    from orkesta.transfer import copy_database
+
+    source, target = os.environ.get("ORKESTA_SOURCE_URL"), os.environ.get("ORKESTA_TARGET_URL")
+    if not source or not target:
+        print("Faltan ORKESTA_SOURCE_URL y ORKESTA_TARGET_URL", file=sys.stderr)
+        return 2
+    copied = copy_database(source, target)
+    for table, count in sorted(copied.items(), key=lambda kv: -kv[1]):
+        if count:
+            print(f"  {table}: {count}")
+    print(f"copiar-base: {sum(copied.values())} filas en {len(copied)} tablas")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orkesta")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("release", help="Migraciones y administrador inicial")
     sub.add_parser("migrate", help="Solo migraciones")
+    sub.add_parser("copiar-base", help="Copia todo desde ORKESTA_SOURCE_URL a ORKESTA_TARGET_URL")
     args = parser.parse_args(argv)
+    if args.command == "copiar-base":
+        return copy_from_env()
     migrate()
     if args.command == "release":
         try:
