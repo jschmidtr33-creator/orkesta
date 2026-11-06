@@ -142,10 +142,22 @@ def feedback(session: Session, email: str, outcome: str) -> None:
         )
 
 
-def search(session: Session, filters: Filters, limit: int = 400) -> list[dict[str, Any]]:
+INDEX_LIMIT = 1500  # perfiles propios por búsqueda (la investigación suma más)
+LEVEL_ORDER = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe", "coordinador",
+               "especialista")  # fmt: skip
+
+
+def search(session: Session, filters: Filters, limit: int = INDEX_LIMIT) -> list[dict[str, Any]]:
     """Perfiles del índice que cumplen los filtros (cargo, nivel, función, empresa, sector,
-    ciudad, tamaño, palabras clave)."""
+    ciudad, tamaño, palabras clave).
+
+    Los filtros se aplican en la base de datos (antes se leía una muestra y se descartaba en
+    memoria, y casi todo quedaba fuera). El sector sale del directorio, incluido el que deduce
+    el motor propio para empresas cuyas bases no lo traían."""
+    from sqlalchemy import case, or_
+
     from orkesta.engine.taxonomy import linkedin as li
+    from orkesta.engine.taxonomy.titles import DECISION_LEVELS
 
     query = (
         select(PersonIndex, CompanyDirectory.industry_code, CompanyDirectory.employees)
@@ -156,15 +168,24 @@ def search(session: Session, filters: Filters, limit: int = 400) -> list[dict[st
     industries = list(dict.fromkeys([*filters.industries, *li.sector_parents(filters.sectors)]))
     if industries:
         query = query.where(CompanyDirectory.industry_code.in_(industries))
-    for place in [fold(c) for c in filters.cities if fold(c)][:1]:
-        query = query.where(func.lower(PersonIndex.location).contains(place))
-    rows = session.execute(query.order_by(PersonIndex.seen.desc()).limit(limit * 5)).all()
-    companies = {fold(c) for c in filters.companies}
+    places = [fold(c) for c in filters.cities if fold(c)]
+    if places:
+        query = query.where(or_(*[func.lower(PersonIndex.location).contains(p) for p in places]))
+    if filters.companies:
+        query = query.where(or_(*[func.lower(PersonIndex.company).contains(fold(c))
+                                  for c in filters.companies if fold(c)]))  # fmt: skip
+    # Nivel y área ya vienen calculados en el índice: se filtran en la base de datos.
+    if not filters.seniority and not filters.titles:
+        query = query.where(PersonIndex.level.in_(filters.levels or list(DECISION_LEVELS)))
+    if filters.areas and not filters.functions and not filters.seniority:
+        query = query.where(PersonIndex.area.in_(filters.areas))
+    rank = case({lvl: i for i, lvl in enumerate(LEVEL_ORDER)}, value=PersonIndex.level, else_=99)
+    has_email = case((PersonIndex.email_status.in_(("confirmado", "publicado")), 0),
+                     (PersonIndex.email.is_not(None), 1), else_=2)  # fmt: skip
+    query = query.order_by(has_email, rank, PersonIndex.seen.desc()).limit(limit * 3)
     words = fold(filters.keywords).split()
     out: list[dict[str, Any]] = []
-    for person, industry, employees in rows:
-        if companies and not any(c in fold(person.company) for c in companies):
-            continue
+    for person, industry, employees in session.execute(query):
         if words and not all(w in fold(f"{person.title} {person.company}") for w in words):
             continue
         if filters.sizes and employees and size_band(employees) not in filters.sizes:

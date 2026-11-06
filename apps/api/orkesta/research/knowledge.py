@@ -245,6 +245,9 @@ def apply(factory: sessionmaker[Session], knowledge: Knowledge) -> dict[str, int
     from orkesta.research import people
 
     stats["profiles"] = people.upsert(factory, [dict(p) for p in knowledge.profiles.values()])
+    from orkesta.research import sectors
+
+    stats["sectors"] = sum(sectors.backfill(factory).values())  # sector de cada empresa nueva
     return stats
 
 
