@@ -35,25 +35,17 @@ jobs:
           echo "==> Reinicios"; docker inspect orkesta-app-1 --format 'reinicios={{.RestartCount}} oom={{.State.OOMKilled}} salida={{.State.ExitCode}} inicio={{.State.StartedAt}}'
           dmesg 2>/dev/null | grep -i -E "killed process|out of memory" | tail -5
           echo "==> Últimas líneas de la app"; docker compose logs --tail 60 app 2>&1 | grep -v "/api/health"
-          echo "==> Cifras"
+          echo "==> Cerebro"
+          docker compose exec -T db psql -U postgres -d orkesta -c "
+            SELECT task, version AS v, active, trigger, n_train, n_test,
+                   round((metrics->>'accuracy')::numeric*100,1) AS acierto,
+                   round((baseline->>'accuracy')::numeric*100,1) AS reglas,
+                   round((metrics->>'coverage')::numeric*100,1) AS cobertura,
+                   to_char(created_at AT TIME ZONE 'America/Bogota','MM-DD HH24:MI') AS fecha, notes
+            FROM orkesta.brain_models ORDER BY task, version;" </dev/null
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
-            SELECT 'admin_audit', count(*) FROM orkesta.admin_audit UNION ALL
-            SELECT 'users', count(*) FROM orkesta.users UNION ALL
-            SELECT 'tenants', count(*) FROM orkesta.tenants UNION ALL
-            SELECT 'contacts', count(*) FROM orkesta.contacts;" </dev/null
-          echo "==> Miembros por empresa (solo cifras)"
-          docker compose exec -T db psql -U postgres -d orkesta -At -c "
-            SELECT left(m.tenant_id::text,8), string_agg(m.role||':'||m.status, ' ' ORDER BY m.role),
-                   (SELECT count(*) FROM orkesta.contacts c WHERE c.tenant_id=m.tenant_id)
-            FROM orkesta.memberships m GROUP BY m.tenant_id ORDER BY 3 DESC;" </dev/null
-          echo "==> Permisos del usuario de la app"
-          docker compose exec -T db psql -U postgres -d orkesta -At -c "
-            SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
-            SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';" </dev/null
-          echo "==> Errores recientes de la app"
-          docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
-          echo "==> Últimas peticiones con error"
-          docker compose logs --since 3h app 2>&1 | grep -E "\"(GET|POST|PUT|PATCH|DELETE) /api" | sed -E "s/[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/<ip>/" | tail -80
+            SELECT 'cargos en el indice', count(*) FROM orkesta.people_index WHERE title <> '' UNION ALL
+            SELECT 'correcciones humanas', count(*) FROM orkesta.brain_feedback;" </dev/null
           REMOTE
 
       - name: Limpiar
