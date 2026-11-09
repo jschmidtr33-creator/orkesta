@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, EyeOff, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, BookmarkCheck, Eye, EyeOff, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
 import { AskConcertino } from "../components/Concertino";
 import type { Editor } from "@tiptap/react";
 import { CopyAssistant, StepReview } from "../components/CopyAssistant";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
-import { TemplatePicker, SaveTemplateButton } from "../components/TeamTemplates";
+import { TemplatePicker, SaveTemplateButton, useTeamTemplates } from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
 import { formatWhen } from "./dashboard";
@@ -33,11 +33,6 @@ type Stats = {
 type Step = { subject: string; body: string; delay_days: number; variant_b?: { subject: string; body: string }; winner?: "A" | "B" };
 type AbSide = { sent: number; opened: number; replied: number; reply_rate: number | null; open_rate: number | null };
 type AbResult = { step: number; winner: "A" | "B" | null; A: AbSide; B: AbSide };
-type Insights = {
-  emails_sent: number;
-  lessons: { key: string; text: string; good: boolean }[];
-  top: { campaign: string; subject: string; body: string; sent: number; replied: number; reply_rate: number }[];
-};
 type Settings = {
   timezone: string;
   days: number[];
@@ -165,6 +160,9 @@ export function CampaignsPage() {
   const boxes = useMailboxes();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Campaign | null>(null);
+  const [params, setParams] = useSearchParams();
+  const view = params.get("vista") === "plantillas" ? "plantillas" : "campanas";
+  const setView = (v: "campanas" | "plantillas") => setParams(v === "plantillas" ? { vista: "plantillas" } : {}, { replace: true });
   const items = list.data?.items ?? [];
   const totals = items.reduce(
     (acc, c) => ({ sent: acc.sent + c.stats.emails_sent, replied: acc.replied + c.stats.replied, active: acc.active + (c.status === "active" ? 1 : 0) }),
@@ -209,7 +207,28 @@ export function CampaignsPage() {
         <Kpi label="Correos enviados" value={totals.sent} />
         <Kpi label="Respuestas" value={totals.replied} />
       </div>
-      {list.isLoading ? (
+      <div className="mb-4 flex w-fit rounded-xl border border-ork-line bg-ork-card p-1" role="tablist" aria-label="Vista">
+        {(
+          [
+            ["campanas", "Mis campañas"],
+            ["plantillas", "Plantillas"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={view === value}
+            onClick={() => setView(value)}
+            className={cx("rounded-lg px-4 py-1.5 text-[13.5px] font-semibold", view === value ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "plantillas" ? (
+        <TemplatesGallery />
+      ) : list.isLoading ? (
         <Spinner />
       ) : items.length === 0 ? (
         <Card className="py-12 text-center">
@@ -619,7 +638,15 @@ function StepsEditor({ c }: { c: Campaign }) {
           · Valor alterno si falta: <code className="rounded bg-ork-ink/5 px-1">{"{{nombre|Hola}}"}</code>
         </span>
       </div>
-      {!locked && <WhatWorks onUse={(subject, body) => update(0, { subject, body })} />}
+      {!locked && (
+        <MyTemplates
+          onLoad={(loaded) => {
+            setSteps(loaded);
+            setDirty(true);
+            setEditorKey((k) => k + 1);
+          }}
+        />
+      )}
       <div ref={area} className={cx(live && wide && "grid gap-5 grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
       <div className="min-w-0">
       <ol className="flex flex-col gap-4">
@@ -761,45 +788,6 @@ function StepsEditor({ c }: { c: Campaign }) {
         }}
       />
     </Card>
-  );
-}
-
-/** Lo que el asistente aprendió de las respuestas a tus campañas. */
-function WhatWorks({ onUse }: { onUse: (subject: string, body: string) => void }) {
-  const q = useQuery({ queryKey: ["copy-insights"], queryFn: () => api<Insights>("/api/copy/insights"), staleTime: 300000 });
-  const d = q.data;
-  if (!d || (d.lessons.length === 0 && d.top.length === 0)) return null;
-  return (
-    <div className="mb-4 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] p-4 text-[13px]">
-      <p className="flex items-center gap-2 font-semibold text-ork-ink">
-        <Sparkles className="size-4 text-ork-violet" aria-hidden /> Lo que funciona en tus campañas
-        <span className="font-normal text-ork-mist">· aprendido de {d.emails_sent.toLocaleString("es")} envíos</span>
-      </p>
-      {d.lessons.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1 text-ork-graphite">
-          {d.lessons.map((l) => (
-            <li key={l.key}>• {l.text}</li>
-          ))}
-        </ul>
-      )}
-      {d.top.length > 0 && (
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {d.top.map((t, i) => (
-            <div key={i} className="rounded-xl border border-ork-line bg-ork-card p-3">
-              <p className="truncate font-semibold text-ork-ink" title={t.subject}>
-                {t.subject || "(sin asunto)"}
-              </p>
-              <p className="text-[12px] text-ork-mist">
-                {t.reply_rate.toLocaleString("es")} % de respuesta · {t.sent} envíos · {t.campaign}
-              </p>
-              <button type="button" className="mt-1.5 text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => onUse(t.subject, t.body)}>
-                Usar en el correo 1
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -1772,6 +1760,197 @@ function ContactPicker({ ids, onChange }: { ids: string[]; onChange: (ids: strin
             ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+type TemplateDetail = { id: string; name: string; description: string; shared: boolean; payload: { steps?: { subject?: string; body?: string; delay_days?: number }[] } };
+
+function plain(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return (div.textContent ?? "").replace(/\s+\n/g, "\n").trim();
+}
+
+/** Plantillas de campaña: las del equipo y las propias. Se usan como punto de partida: la
+ * plantilla nunca cambia, se crea una campaña nueva con su contenido. */
+function TemplatesGallery() {
+  const list = useTeamTemplates("campaign");
+  const [filter, setFilter] = useState<"todas" | "equipo" | "mias">("todas");
+  const [seeing, setSeeing] = useState<string | null>(null);
+  const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
+  if (list.isLoading) return <Spinner />;
+  const items = (list.data ?? []).filter((t) => (filter === "equipo" ? t.shared : filter === "mias" ? !t.shared : true));
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {(
+          [
+            ["todas", "Todas"],
+            ["equipo", "Compartidas por el equipo"],
+            ["mias", "Solo mías"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={filter === value}
+            onClick={() => setFilter(value)}
+            className={cx("rounded-full border px-3 py-1 text-[12.5px] font-semibold", filter === value ? "border-ork-blue bg-ork-blue/10 text-ork-blue" : "border-ork-line text-ork-graphite hover:border-ork-blue/40")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {items.length === 0 ? (
+        <Card className="py-10 text-center">
+          <p className="text-[15px] font-semibold text-ork-ink">Todavía no hay plantillas aquí</p>
+          <p className="mt-1 text-[13.5px] text-ork-mist">Desde una campaña, usa «Guardar como plantilla» o «Compartir con el equipo».</p>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((t) => (
+            <Card key={t.id} className="flex flex-col gap-2 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[14.5px] font-bold text-ork-ink">{t.name}</p>
+                <Badge tone={t.shared ? "violet" : "neutral"}>{t.shared ? "Del equipo" : "Solo tú"}</Badge>
+              </div>
+              {t.description && <p className="text-[13px] text-ork-graphite">{t.description}</p>}
+              {t.preview && <p className="truncate text-[12.5px] text-ork-mist">Asunto: {t.preview}</p>}
+              <p className="text-[12px] text-ork-mist">
+                {t.summary} · de {t.mine ? "ti" : t.author}
+                {t.use_count ? ` · usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""}
+              </p>
+              <div className="mt-auto flex gap-2 pt-1">
+                <Button size="sm" onClick={() => setUsing({ id: t.id, name: t.name })}>
+                  Usar
+                </Button>
+                <Button size="sm" variant="secondary" icon={<Eye className="size-3.5" aria-hidden />} onClick={() => setSeeing(t.id)}>
+                  Ver correos
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {seeing && <TemplatePreview id={seeing} onClose={() => setSeeing(null)} onUse={(t) => { setSeeing(null); setUsing(t); }} />}
+      {using && <UseTemplateModal template={using} onClose={() => setUsing(null)} />}
+    </div>
+  );
+}
+
+function TemplatePreview({ id, onClose, onUse }: { id: string; onClose: () => void; onUse: (t: { id: string; name: string }) => void }) {
+  const q = useQuery({ queryKey: ["template-detail", id], queryFn: () => api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`) });
+  const t = q.data;
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} title={t?.name ?? "Plantilla"} description={t?.description || "Así son sus correos. Al usarla, se copian a una campaña nueva que puedes editar."} wide>
+      {q.isLoading || !t ? (
+        <Spinner />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {(t.payload.steps ?? []).map((st, i) => (
+            <div key={i} className="rounded-xl border border-ork-line p-3">
+              <p className="text-[12px] font-semibold text-ork-mist">
+                Correo {i + 1}
+                {i > 0 ? ` · ${st.delay_days ?? 0} días después` : " · apenas se lanza"}
+              </p>
+              <p className="mt-1 text-[13.5px] font-semibold text-ork-ink">{st.subject || "(respuesta en el mismo hilo)"}</p>
+              <p className="mt-1 whitespace-pre-line text-[13px] text-ork-graphite">{plain(st.body ?? "")}</p>
+            </div>
+          ))}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              Cerrar
+            </Button>
+            <Button onClick={() => onUse({ id: t.id, name: t.name })}>Usar esta plantilla</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function UseTemplateModal({ template, onClose }: { template: { id: string; name: string }; onClose: () => void }) {
+  const [name, setName] = useState(template.name);
+  const navigate = useNavigate();
+  const create = useMutation({
+    mutationFn: () => api<Campaign>("/api/campaigns", { method: "POST", json: { name, template_id: template.id } }),
+    onSuccess: (c) => navigate(`/campanas/${c.id}`),
+  });
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} title="Usar plantilla" description={`Se crea una campaña nueva con todo lo de «${template.name}» precargado en el editor. La plantilla no cambia.`}>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate();
+        }}
+      >
+        {create.error && <Alert>{create.error.message}</Alert>}
+        <TextField label="Nombre de tu campaña" placeholder="Ej.: Bancos Colombia · Q4" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>
+          Crear y abrir en el editor
+        </Button>
+      </form>
+    </Modal>
+  );
+}
+
+/** Plantillas a mano en el editor: las propias y las del equipo. Cargar una reemplaza los
+ * correos de esta campaña (la plantilla no cambia) y queda todo listo para editar. */
+function MyTemplates({ onLoad }: { onLoad: (steps: Step[]) => void }) {
+  const list = useTeamTemplates("campaign");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const items = list.data ?? [];
+  if (!items.length) return null;
+  const load = async (id: string, name: string) => {
+    if (!window.confirm(`¿Cargar «${name}»? Reemplaza los correos de esta campaña; la plantilla no cambia.`)) return;
+    setBusy(id);
+    setError("");
+    try {
+      const t = await api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`);
+      const steps = (t.payload.steps ?? []).map((st, i) => ({ subject: st.subject ?? "", body: st.body ?? "", delay_days: st.delay_days ?? (i === 0 ? 0 : 3) })) as Step[];
+      if (steps.length) onLoad(steps);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No pude cargar la plantilla.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const groups = [
+    { title: "Mis plantillas", rows: items.filter((t) => t.mine && !t.shared) },
+    { title: "Del equipo", rows: items.filter((t) => t.shared) },
+  ].filter((g) => g.rows.length);
+  return (
+    <div className="mb-4 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] p-4 text-[13px]">
+      <p className="flex items-center gap-2 font-semibold text-ork-ink">
+        <BookmarkCheck className="size-4 text-ork-violet" aria-hidden /> Empezar desde una plantilla
+        <span className="font-normal text-ork-mist">· se copian sus correos aquí para que los ajustes</span>
+      </p>
+      {error && <div className="mt-2"><Alert>{error}</Alert></div>}
+      {groups.map((g) => (
+        <div key={g.title} className="mt-3">
+          <p className="mb-1.5 text-[11.5px] font-bold uppercase tracking-wide text-ork-mist">{g.title}</p>
+          <div className="grid gap-2 md:grid-cols-3">
+            {g.rows.map((t) => (
+              <div key={t.id} className="flex flex-col rounded-xl border border-ork-line bg-ork-card p-3">
+                <p className="truncate font-semibold text-ork-ink" title={t.name}>
+                  {t.name}
+                </p>
+                <p className="truncate text-[12px] text-ork-mist" title={t.preview}>
+                  {t.summary}
+                  {t.shared && !t.mine ? ` · de ${t.author}` : ""}
+                  {t.preview ? ` · ${t.preview}` : ""}
+                </p>
+                <button type="button" disabled={busy !== null} className="mt-1.5 w-fit text-[12.5px] font-semibold text-ork-blue hover:underline disabled:opacity-50" onClick={() => load(t.id, t.name)}>
+                  {busy === t.id ? "Cargando…" : "Cargar en esta campaña"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
