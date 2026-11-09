@@ -16,6 +16,7 @@ import {
   Spinner,
   TextField,
 } from "../components/ui";
+import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
@@ -254,6 +255,7 @@ export function ContactsPage() {
             <Button size="sm" variant="secondary" icon={<MailCheck className="size-3.5" aria-hidden />} onClick={() => setValidateOpen(true)}>
               Validar correos
             </Button>
+            <ReassignButton kind="contact" ids={[...selected]} onDone={() => setSelected(new Set())} />
             {canManage && (
               <Button
                 size="sm"

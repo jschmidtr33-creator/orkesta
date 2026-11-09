@@ -1,6 +1,6 @@
 import "@orkesta/ui/theme.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense, type ComponentType, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
@@ -9,18 +9,43 @@ import { applyTheme } from "./lib/theme";
 import { SessionProvider } from "./lib/session";
 import { InvitationPage, LoginPage, RegisterPage, WelcomePage } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
-import { ContactsPage, ListsPage } from "./pages/contacts";
-import { AdminApp } from "./pages/admin";
-import { AutomationPage } from "./pages/automation";
-import { CampaignDetail, CampaignsPage } from "./pages/campaigns";
-import { CrmPage } from "./pages/crm";
-import { ProposalEditor, ProposalsPage } from "./pages/proposals";
-import { PublicProposalPage } from "./pages/publicProposal";
-import { ImportPage } from "./pages/importer";
-import { ProspectingPage } from "./pages/prospecting";
-import { ReportsPage } from "./pages/reports";
-import { TeamMemberPage, TeamPage } from "./pages/team";
-import { SettingsPage } from "./pages/settings";
+
+/** Cada pantalla se descarga solo cuando se abre: la app inicial pesa mucho menos. */
+function page<K extends string>(load: () => Promise<Record<K, unknown>>, name: K) {
+  const Lazy = lazy(() => load().then((m) => ({ default: m[name] as ComponentType })));
+  return function Page() {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Lazy />
+      </Suspense>
+    );
+  };
+}
+
+function Loading(): ReactNode {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Cargando">
+      <span className="size-6 animate-spin rounded-full border-2 border-ork-blue/30 border-t-ork-blue" />
+    </div>
+  );
+}
+
+const AdminApp = page(() => import("./pages/admin"), "AdminApp");
+const AutomationPage = page(() => import("./pages/automation"), "AutomationPage");
+const CampaignDetail = page(() => import("./pages/campaigns"), "CampaignDetail");
+const CampaignsPage = page(() => import("./pages/campaigns"), "CampaignsPage");
+const CrmPage = page(() => import("./pages/crm"), "CrmPage");
+const ProposalEditor = page(() => import("./pages/proposals"), "ProposalEditor");
+const ProposalsPage = page(() => import("./pages/proposals"), "ProposalsPage");
+const PublicProposalPage = page(() => import("./pages/publicProposal"), "PublicProposalPage");
+const ImportPage = page(() => import("./pages/importer"), "ImportPage");
+const ProspectingPage = page(() => import("./pages/prospecting"), "ProspectingPage");
+const ReportsPage = page(() => import("./pages/reports"), "ReportsPage");
+const TeamMemberPage = page(() => import("./pages/team"), "TeamMemberPage");
+const TeamPage = page(() => import("./pages/team"), "TeamPage");
+const SettingsPage = page(() => import("./pages/settings"), "SettingsPage");
+const ContactsPage = page(() => import("./pages/contacts"), "ContactsPage");
+const ListsPage = page(() => import("./pages/contacts"), "ListsPage");
 
 const client = new QueryClient({
   defaultOptions: {
