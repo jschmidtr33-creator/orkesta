@@ -131,6 +131,7 @@ def _chain(stats: list[PatternStat], primary: str, learned: list[str] | None = N
 # --- Formato más probable por país (aprendido de todas las empresas conocidas) ---------------
 
 _GENERIC_SLD = ("com", "gob", "gov", "org", "net", "edu", "co", "ac")
+_MODEL_CACHE: dict[str, tuple[float, list[tuple[str, int]]]] = {}
 _ORDER_CACHE: dict[str, tuple[float, list[tuple[str, int]]]] = {}
 MIN_EVIDENCE = 30
 
@@ -158,6 +159,23 @@ def learned_ranking(factory: sessionmaker[Session], domain: str) -> list[tuple[s
     import time
 
     suffix = domain_suffix(domain)
+    modeled = _MODEL_CACHE.get(domain)
+    if modeled and time.monotonic() - modeled[0] < 3600:
+        return modeled[1]
+    try:
+        # Si el modelo de la IA propia ya superó a la regla del país, ordena él (tiene en cuenta
+        # sector, tamaño y empresas parecidas).
+        from orkesta.brain.patterns import ranking as model_ranking
+
+        with factory() as session:
+            predicted = model_ranking(session, domain)
+        if predicted:
+            if len(_MODEL_CACHE) > 5000:
+                _MODEL_CACHE.clear()
+            _MODEL_CACHE[domain] = (time.monotonic(), predicted)
+            return predicted
+    except Exception:
+        logger.exception("memory_model_ranking")
     cached = _ORDER_CACHE.get(suffix)
     if cached and time.monotonic() - cached[0] < 3600:
         return cached[1]
