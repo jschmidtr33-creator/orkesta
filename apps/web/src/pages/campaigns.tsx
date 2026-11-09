@@ -1088,6 +1088,7 @@ function AudienceCard({ c }: { c: Campaign }) {
     enabled: !locked,
   });
   const setAudience = (patch: Partial<Audience>) => save.mutate({ audience: { ...a, ...patch } });
+  const [pickMode, setPickMode] = useState<"filtros" | "contactos">(a.contact_ids?.length ? "contactos" : "filtros");
   const setFilter = (k: string, v: string) => setAudience({ filters: { ...(a.filters ?? {}), [k]: v } });
   const p = preview.data;
   if (locked)
@@ -1101,13 +1102,29 @@ function AudienceCard({ c }: { c: Campaign }) {
     <Card>
       <CardHeader title="Audiencia" description="Solo se escribe a contactos con correo; se excluyen inválidos, rebotes y bajas." />
       <div className="flex flex-col gap-3">
-        {a.contact_ids && a.contact_ids.length > 0 ? (
-          <Alert tone="blue">
-            {a.contact_ids.length} contactos elegidos desde Contactos.{" "}
-            <button className="font-semibold underline" onClick={() => setAudience({ contact_ids: [] })}>
-              Usar filtros
+        <div className="flex w-fit rounded-lg border border-ork-line bg-ork-card p-0.5" role="group" aria-label="A quién enviar">
+          {(
+            [
+              ["filtros", "Lista o filtros"],
+              ["contactos", "Contactos específicos"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={pickMode === value}
+              onClick={() => {
+                setPickMode(value);
+                if (value === "filtros" && a.contact_ids?.length) setAudience({ contact_ids: [] });
+              }}
+              className={cx("rounded-md px-3 py-1.5 text-[12.5px] font-semibold", pickMode === value ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+            >
+              {label}
             </button>
-          </Alert>
+          ))}
+        </div>
+        {pickMode === "contactos" ? (
+          <ContactPicker ids={a.contact_ids ?? []} onChange={(ids) => setAudience({ contact_ids: ids })} />
         ) : (
           <>
             <SelectField label="Lista" value={a.list_id ?? ""} onChange={(e) => setAudience({ list_id: e.target.value || null })}>
@@ -1688,6 +1705,73 @@ function CopyCoach({ step, subject, body }: { step: number; subject: string; bod
         </ul>
       )}
       <p className="mt-1.5 text-[11.5px] text-ork-mist">Aprendido de los resultados de todas las empresas en ORKESTA, solo con cifras de estilo.</p>
+    </div>
+  );
+}
+
+type PickedContact = { id: string; full_name: string; email: string | null; company: string | null; job_title: string | null };
+
+/** Elegir uno o varios contactos puntuales para una campaña muy personalizada. */
+function ContactPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[]) => void }) {
+  const [q, setQ] = useState("");
+  const term = useDebounced(q.trim(), 300);
+  const found = useQuery({
+    queryKey: ["contact-pick", term],
+    queryFn: () => api<{ items: PickedContact[] }>(`/api/contacts?q=${encodeURIComponent(term)}`),
+    enabled: term.length >= 2,
+  });
+  const chosen = useQuery({
+    queryKey: ["contact-chosen", ids],
+    queryFn: () => Promise.all(ids.slice(0, 50).map((id) => api<PickedContact>(`/api/contacts/${id}`).catch(() => null))),
+    enabled: ids.length > 0,
+  });
+  const people = (chosen.data ?? []).filter((x): x is PickedContact => Boolean(x));
+  return (
+    <div className="flex flex-col gap-2">
+      {ids.length > 0 && (
+        <ul className="flex flex-col gap-1.5" aria-label="Contactos elegidos">
+          {(people.length ? people : ids.map((id) => ({ id, full_name: "Cargando…", email: null, company: null, job_title: null }))).map((x) => (
+            <li key={x.id} className="flex items-center justify-between gap-2 rounded-lg border border-ork-line px-3 py-2 text-[13px]">
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-ork-ink">{x.full_name}</span>
+                <span className="block truncate text-[12px] text-ork-mist">{[x.job_title, x.company, x.email ?? "sin correo"].filter(Boolean).join(" · ")}</span>
+              </span>
+              <button type="button" className="shrink-0 text-[12px] font-semibold text-bad hover:underline" onClick={() => onChange(ids.filter((i) => i !== x.id))}>
+                Quitar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <TextField label={ids.length ? "Agregar otro contacto" : "Busca el contacto"} placeholder="Nombre, correo o empresa" value={q} onChange={(e) => setQ(e.target.value)} />
+      {term.length >= 2 && (
+        <ul className="max-h-56 overflow-y-auto rounded-lg border border-ork-line" aria-label="Resultados">
+          {found.isLoading && <li className="px-3 py-2 text-[12.5px] text-ork-mist">Buscando…</li>}
+          {found.data && found.data.items.length === 0 && <li className="px-3 py-2 text-[12.5px] text-ork-mist">No encontré contactos con «{term}».</li>}
+          {(found.data?.items ?? [])
+            .filter((x) => !ids.includes(x.id))
+            .slice(0, 8)
+            .map((x) => (
+              <li key={x.id}>
+                <button
+                  type="button"
+                  disabled={!x.email}
+                  onClick={() => {
+                    onChange([...ids, x.id]);
+                    setQ("");
+                  }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] hover:bg-ork-blue/5 disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-ork-ink">{x.full_name}</span>
+                    <span className="block truncate text-[12px] text-ork-mist">{[x.job_title, x.company, x.email ?? "sin correo: no se le puede escribir"].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  {x.email && <span className="shrink-0 text-[12px] font-semibold text-ork-blue">Agregar</span>}
+                </button>
+              </li>
+            ))}
+        </ul>
+      )}
     </div>
   );
 }
