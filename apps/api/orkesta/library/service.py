@@ -6,7 +6,7 @@ import copy
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from orkesta.library.models import TeamTemplate
@@ -57,7 +57,7 @@ def proposal_payload(proposal: Any) -> dict[str, Any]:
 
 def save(
     session: Session, *, tenant_id: uuid.UUID, user: User, kind: str, source_id: uuid.UUID,
-    name: str, description: str = "",
+    name: str, description: str = "", shared: bool = False,
 ) -> TeamTemplate:  # fmt: skip
     if kind == "campaign":
         from orkesta.campaigns.models import Campaign
@@ -75,21 +75,28 @@ def save(
         raise TemplateError("No encontramos lo que quieres guardar.", 404)
     template = TeamTemplate(
         tenant_id=tenant_id, created_by=user.id, kind=kind, name=_clean_name(name),
-        description=" ".join(description.split())[:300], payload=build(source),
+        description=" ".join(description.split())[:300], payload=build(source), shared=shared,
     )  # fmt: skip
     session.add(template)
     session.flush()
     return template
 
 
-def get(session: Session, tenant_id: uuid.UUID, template_id: uuid.UUID, kind: str) -> TeamTemplate:
+def get(session: Session, tenant_id: uuid.UUID, template_id: uuid.UUID, kind: str,
+        user_id: uuid.UUID | None = None) -> TeamTemplate:  # fmt: skip
     template = session.get(TeamTemplate, template_id)
     if template is None or template.tenant_id != tenant_id or template.kind != kind:
         raise TemplateError("Esa plantilla ya no existe.", 404)
+    if not template.shared and template.created_by != user_id:
+        raise TemplateError("Esa plantilla ya no existe.", 404)  # personal de otra persona
     return template
 
 
 def can_manage(template: TeamTemplate, user: User, role: str | None) -> bool:
+    """Una plantilla personal solo la maneja quien la guardó; una de equipo, también la
+    administración."""
+    if not template.shared:
+        return template.created_by == user.id
     return role == "admin" or template.created_by == user.id
 
 
@@ -99,7 +106,11 @@ def listing(
     rows = session.execute(
         select(TeamTemplate, User)
         .outerjoin(User, User.id == TeamTemplate.created_by)
-        .where(TeamTemplate.tenant_id == tenant_id, TeamTemplate.kind == kind)
+        .where(
+            TeamTemplate.tenant_id == tenant_id,
+            TeamTemplate.kind == kind,
+            or_(TeamTemplate.shared.is_(True), TeamTemplate.created_by == user.id),
+        )
         .order_by(TeamTemplate.use_count.desc(), TeamTemplate.created_at.desc())
     ).tuples()
     out = []
@@ -120,6 +131,7 @@ def listing(
             "preview": preview[:160], "use_count": t.use_count,
             "author": (author.full_name or author.email) if author else "—",
             "mine": t.created_by == user.id, "can_manage": can_manage(t, user, role),
+            "shared": t.shared,
             "created_at": t.created_at.isoformat(),
         })  # fmt: skip
     return out

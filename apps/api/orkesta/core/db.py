@@ -77,6 +77,30 @@ def set_scope(session: Session, user_ids: Iterable[uuid.UUID] | None) -> None:
     session.execute(text("SELECT set_config('app.scope', :s, true)"), {"s": value})
 
 
+def set_private(session: Session, user_id: uuid.UUID | None, *, admin: bool = False) -> None:
+    """Contactos privados: cada persona ve solo los suyos, incluida la administración (política
+    ``private_*`` en la base). Los contactos sin dueño, anteriores a esta regla, los ve la
+    administración. Sin valor (procesos internos) no hay restricción."""
+    session.execute(
+        text(
+            "SELECT set_config('app.private', :u, true), set_config('app.private_admin', :a, true)"
+        ),
+        {"u": str(user_id) if user_id else "", "a": "1" if admin else ""},
+    )
+
+
+@contextmanager
+def private_open(session: Session) -> Iterator[None]:
+    """Cuenta contactos de otras personas solo para cifras (reportes, límites del plan), sin
+    devolver sus datos."""
+    previous = session.scalar(text("SELECT coalesce(current_setting('app.private', true), '')"))
+    session.execute(text("SELECT set_config('app.private', '', true)"))
+    try:
+        yield
+    finally:
+        session.execute(text("SELECT set_config('app.private', :u, true)"), {"u": previous or ""})
+
+
 def current_scope(session: Session) -> str:
     return str(session.scalar(text("SELECT coalesce(current_setting('app.scope', true), '')")))
 
@@ -93,7 +117,8 @@ def unscoped(session: Session) -> Iterator[None]:
     previous = current_scope(session)
     session.execute(text("SELECT set_config('app.scope', '', true)"))
     try:
-        yield
+        with private_open(session):
+            yield
     finally:
         session.execute(text("SELECT set_config('app.scope', :s, true)"), {"s": previous})
 

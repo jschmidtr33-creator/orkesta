@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from orkesta.core.db import private_open
 from orkesta.core.web import Db, Principal, require_roles
 from orkesta.reports import service as svc
 from orkesta.reports import supervision as team
@@ -25,7 +26,8 @@ def overview(
     # Un vendedor solo ve sus propias cifras; la jefatura, las suyas y las de su equipo (la base
     # filtra el resto); la administración, todo.
     user_id = principal.user.id if principal.role == "vendedor" else vendedor
-    data = svc.overview(db, principal.tenant_id, svc.period(desde, hasta, tz), user_id)
+    with private_open(db):  # solo cifras: los contactos de cada persona siguen siendo privados
+        data = svc.overview(db, principal.tenant_id, svc.period(desde, hasta, tz), user_id)
     data["scope"] = {"user_id": str(user_id) if user_id else None,
                      "can_filter": principal.role != "vendedor"}  # fmt: skip
     return data
@@ -38,7 +40,8 @@ def team_overview(
 ) -> dict[str, Any]:  # fmt: skip
     """Mi equipo: cifras de cada persona a cargo (solo lectura)."""
     p = svc.period(desde, hasta, tz)
-    return team.team_overview(db, principal.tenant_id, principal.user.id, p)
+    with private_open(db):
+        return team.team_overview(db, principal.tenant_id, principal.user.id, p)
 
 
 @router.get("/team/{user_id}")
@@ -48,4 +51,5 @@ def team_member(
 ) -> dict[str, Any]:  # fmt: skip
     if not team.can_supervise(db, principal.tenant_id, principal.user.id, user_id):
         raise HTTPException(404, "Esa persona no está a tu cargo.")
-    return team.person_detail(db, principal.tenant_id, user_id, svc.period(desde, hasta, tz))
+    with private_open(db):
+        return team.person_detail(db, principal.tenant_id, user_id, svc.period(desde, hasta, tz))

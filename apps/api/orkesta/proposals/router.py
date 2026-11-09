@@ -170,7 +170,10 @@ def create(body: CreateIn, request: Request, principal: Member, db: Db) -> dict[
             from orkesta.library import service as templates
 
             templates.apply_to_proposal(
-                proposal, templates.get(db, principal.tenant_id, body.template_id, "proposal")
+                proposal,
+                templates.get(
+                    db, principal.tenant_id, body.template_id, "proposal", principal.user.id
+                ),
             )
     except svc.ProposalError as exc:
         raise _fail(exc) from exc

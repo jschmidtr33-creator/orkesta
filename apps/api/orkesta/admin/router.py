@@ -51,6 +51,9 @@ def require(permission: str) -> Callable[..., Principal]:
             raise HTTPException(428, LOCKED)
         if permission and permission not in svc.permissions_for(db, principal.user):
             raise HTTPException(403, "Tu rol en el panel no permite esta acción.")
+        from orkesta.core.db import set_private
+
+        set_private(db, None)  # el panel de la plataforma trabaja con cifras de todas las cuentas
         return principal
 
     return dependency

@@ -394,7 +394,10 @@ def create(body: CampaignIn, request: Request, principal: Member, db: Db) -> dic
             from orkesta.library import service as templates
 
             templates.apply_to_campaign(
-                campaign, templates.get(db, principal.tenant_id, body.template_id, "campaign")
+                campaign,
+                templates.get(
+                    db, principal.tenant_id, body.template_id, "campaign", principal.user.id
+                ),
             )
     except svc.CampaignError as exc:
         raise _fail(exc) from exc

@@ -27,7 +27,7 @@ import psycopg
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from orkesta.core.db import set_context, set_scope
+from orkesta.core.db import set_context, set_private, set_scope
 from orkesta.platform.models import ROLES, Tenant
 
 SCHEMA = "orkesta"
@@ -234,6 +234,7 @@ def merge_tenants(
         raise MergeError("Empresa no encontrada.")
     source_name = source.name
     set_scope(session, None)
+    set_private(session, None)
     report = _resolve_conflicts(session, source, target, role)
     session.flush()
 

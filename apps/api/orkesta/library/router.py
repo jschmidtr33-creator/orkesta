@@ -20,11 +20,13 @@ class SaveIn(BaseModel):
     source_id: uuid.UUID
     name: str = Field(max_length=120)
     description: str = Field(default="", max_length=300)
+    shared: bool = False  # True: compartirla con el equipo; False: solo para quien la guarda
 
 
 class PatchIn(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     description: str | None = Field(default=None, max_length=300)
+    shared: bool | None = None
 
 
 def _fail(exc: svc.TemplateError) -> HTTPException:
@@ -44,6 +46,7 @@ def save(body: SaveIn, principal: Member, db: Db) -> dict[str, Any]:
         template = svc.save(
             db, tenant_id=principal.tenant_id, user=principal.user, kind=body.kind,
             source_id=body.source_id, name=body.name, description=body.description,
+            shared=body.shared,
         )  # fmt: skip
     except svc.TemplateError as exc:
         raise _fail(exc) from exc
@@ -73,6 +76,10 @@ def rename(template_id: uuid.UUID, body: PatchIn, principal: Member, db: Db) -> 
         raise _fail(exc) from exc
     if body.description is not None:
         template.description = " ".join(body.description.split())[:300]
+    if body.shared is not None:
+        if template.created_by != principal.user.id:
+            raise HTTPException(403, "Solo quien guardó la plantilla decide si se comparte.")
+        template.shared = body.shared
     return {"id": str(template.id), "name": template.name}
 
 

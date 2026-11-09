@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from orkesta.core.config import get_settings
-from orkesta.core.db import set_context, set_scope
+from orkesta.core.db import set_context, set_private, set_scope
 from orkesta.core.security import read_access_token
 from orkesta.platform.models import Membership, TeamAssignment, Tenant, User
 
@@ -126,6 +126,7 @@ def current_principal(request: Request, db: Db) -> Principal:
             raise HTTPException(401, "Ya no tienes acceso a este espacio de trabajo.")
         tenant = db.get(Tenant, claims.tenant_id)
         set_scope(db, visible_users(db, membership))
+        set_private(db, user.id, admin=membership.role == "admin")
     return Principal(user=user, tenant=tenant, membership=membership)
 
 

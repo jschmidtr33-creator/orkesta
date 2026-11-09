@@ -76,8 +76,11 @@ def test_each_person_sees_their_work_and_managers_see_their_team(
     assert sara.get("/api/contacts").json()["total"] == 0
     # Jefatura: lo suyo y lo de su equipo (Luis), no lo de Sara ni lo de la administradora.
     assert _deals(jefa) == {"De la jefa", "De Luis"}
-    assert jefa.get("/api/contacts").json()["total"] == 1
-    assert {x["name"] for x in jefa.get("/api/lists").json()} == {"Mis decisores"}
+    # Contactos y listas son privados de cada persona, también frente a la jefatura.
+    assert jefa.get("/api/contacts").json()["total"] == 0
+    assert jefa.get("/api/lists").json() == []
+    assert luis.get("/api/contacts").json()["total"] == 1
+    assert client.get("/api/contacts").json()["total"] == 0
     # Administradora: todo.
     assert _deals(client) == {"De Ana", "De la jefa", "De Luis", "De Sara"}
 
@@ -90,7 +93,7 @@ def test_each_person_sees_their_work_and_managers_see_their_team(
         404,
     )
     renamed = jefa.patch(f"/api/lists/{luis_list['id']}", json={"name": "Cambiada"})
-    assert renamed.status_code == 403
+    assert renamed.status_code in (403, 404)
     assert {x["name"] for x in luis.get("/api/lists").json()} == {"Mis decisores"}
 
     # Un contacto que ya trabaja Luis no se duplica para Sara (ni se le muestra).
