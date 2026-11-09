@@ -219,3 +219,29 @@ register(Task(
     build=_copy.build, make=_copy.make, baseline=_copy.baseline, threshold=0.5,
     min_examples=200, extras=lambda s, _m, _t: {"ranking": _copy.ranking(s)},
 ))  # fmt: skip
+
+
+def _concertino_tasks() -> None:
+    from orkesta.brain import concertino as _cc
+
+    register(Task(
+        name="concertino_objecion", label="Concertino: tipo de objeción",
+        description="Reconoce qué objeción hay detrás de lo que dijo el cliente, aunque lo "
+                    "diga con "
+                    "otras palabras. Aprende de cada corrección de los vendedores.",
+        step=7, status=lambda s: _cc.status(s, "concertino_objecion"),
+        method="Mapa de objeciones",
+        build=_cc.build_objections, make=_cc.make, baseline=_cc.baseline_objections,
+        min_examples=30, target=0.9,
+    ))  # fmt: skip
+    register(Task(
+        name="concertino_tema", label="Concertino: tema de la pregunta",
+        description="Entiende de qué trata cada consulta a Concertino (objeción, perfil, cuenta, "
+                    "campaña, propuesta, reunión, estrategia o producto).",
+        step=7, status=lambda s: _cc.status(s, "concertino_tema"), method="Palabras clave",
+        build=_cc.build_topics, make=_cc.make, baseline=_cc.baseline_topics,
+        min_examples=30, target=0.9,
+    ))  # fmt: skip
+
+
+_concertino_tasks()
