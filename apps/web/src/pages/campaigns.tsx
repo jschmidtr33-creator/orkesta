@@ -3,6 +3,7 @@ import { ArrowLeft, Eye, EyeOff, Sparkles, Mail, MousePointerClick, Pause, Play,
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
+import { AskConcertino } from "../components/Concertino";
 import type { Editor } from "@tiptap/react";
 import { CopyAssistant, StepReview } from "../components/CopyAssistant";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
@@ -1325,6 +1326,13 @@ function Recipients({ campaignId }: { campaignId: string }) {
                         </div>
                       )}
                       {r.reply_snippet && <p className="mt-1 whitespace-normal text-[11.5px] italic text-ork-graphite">«{r.reply_snippet.slice(0, 160)}{r.reply_snippet.length > 160 ? "…" : ""}»</p>}
+                      {r.reply_snippet && (
+                        <div className="mt-1">
+                          <AskConcertino recipient_id={r.id} mode="respuesta" autoAsk label="Respuesta recibida" prompt="Asísteme con esta respuesta">
+                            Asísteme con esta respuesta
+                          </AskConcertino>
+                        </div>
+                      )}
                       {r.deal_id && (
                         <Link to={`/crm?oportunidad=${r.deal_id}`} className="mt-0.5 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
                           Ver oportunidad →

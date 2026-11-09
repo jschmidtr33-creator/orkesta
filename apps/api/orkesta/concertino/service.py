@@ -486,7 +486,10 @@ def import_text(session: Session, *, tenant_id: uuid.UUID, user: User, role: str
             r"(\$|usd|dolares|pesos|cop|mxn|al mes|mensual|anual|por usuario|precio|inversion)", f
         ) and re.search(r"\d", s):
             kind = "precio"
-        elif re.search(r"\d+ ?(%|x\b|veces|dias|semanas|meses|horas)|paso de \d|de \d+ a \d+", f"{f} {s.lower()}"):
+        elif re.search(
+            r"\d+ ?(%|x\b|veces|dias|semanas|meses|horas)|paso de \d|de \d+ a \d+",
+            f"{f} {s.lower()}",
+        ):
             kind = "prueba"
         elif s.rstrip().endswith("?"):
             kind = "pregunta"

@@ -437,13 +437,13 @@ def advise_account(session: Session, ctx: Context) -> dict[str, Any]:
             f"Oportunidad «{ctx.deal.title}» en {stage.name if stage else 'su etapa'} ({value})."
         )
     if quiet is not None:
+        when = "hoy" if quiet == 0 else f"hace {quiet} día{'s' if quiet != 1 else ''}"
         facts.append(
-            f"Último movimiento hace {quiet} día{'s' if quiet != 1 else ''}"
-            + (f" ({_ACT.get(last.type, last.type)})." if last else ".")
+            f"Último movimiento {when}" + (f" ({_ACT.get(last.type, last.type)})." if last else ".")
         )
-    facts.append(
-        f"{meetings} reunión{'es' if meetings != 1 else ''} registrada{'s' if meetings != 1 else ''} y {open_tasks} tarea{'s' if open_tasks != 1 else ''} pendiente{'s' if open_tasks != 1 else ''}."
-    )
+    meetings_text = "1 reunión registrada" if meetings == 1 else f"{meetings} reuniones registradas"
+    tasks_text = "1 tarea pendiente" if open_tasks == 1 else f"{open_tasks} tareas pendientes"
+    facts.append(f"{meetings_text} y {tasks_text}.")
     plan: list[str]
     options: list[dict[str, Any]] = []
     missing: list[str] = []

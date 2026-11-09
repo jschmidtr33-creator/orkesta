@@ -2,6 +2,7 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
+  BookOpenText,
   Check,
   ChevronsUpDown,
   FileText,
@@ -27,6 +28,7 @@ import { useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
+import { ConcertinoProvider } from "./Concertino";
 import { NotificationBell } from "./Notifications";
 import { Avatar, cx, Spinner, Wordmark } from "./ui";
 
@@ -41,6 +43,7 @@ export const NAV: NavItem[] = [
   { to: "/crm", label: "CRM", icon: Handshake },
   { to: "/propuestas", label: "Propuestas", icon: FileText },
   { to: "/reportes", label: "Reportes", icon: BarChart3 },
+  { to: "/producto", label: "Producto", icon: BookOpenText },
 ];
 
 /** Solo para jefaturas y administración: lo que trabaja cada persona a cargo. */
@@ -244,7 +247,9 @@ export function AppLayout() {
         </div>
         <NewVersionBanner />
         <Announcement />
-        <Outlet />
+        <ConcertinoProvider>
+          <Outlet />
+        </ConcertinoProvider>
       </main>
     </div>
   );

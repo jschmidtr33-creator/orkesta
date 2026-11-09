@@ -46,6 +46,7 @@ const TeamPage = page(() => import("./pages/team"), "TeamPage");
 const SettingsPage = page(() => import("./pages/settings"), "SettingsPage");
 const ContactsPage = page(() => import("./pages/contacts"), "ContactsPage");
 const ListsPage = page(() => import("./pages/contacts"), "ListsPage");
+const ProductPage = page(() => import("./pages/product"), "ProductPage");
 
 const client = new QueryClient({
   defaultOptions: {
@@ -83,6 +84,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/propuestas" element={<ProposalsPage />} />
               <Route path="/propuestas/:id" element={<ProposalEditor />} />
               <Route path="/reportes" element={<ReportsPage />} />
+              <Route path="/producto" element={<ProductPage />} />
               <Route path="/equipo" element={<TeamPage />} />
               <Route path="/equipo/:userId" element={<TeamMemberPage />} />
               <Route path="/configuracion/*" element={<SettingsPage />} />
