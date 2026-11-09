@@ -62,7 +62,7 @@ export function ConcertinoProvider({ children }: { children: ReactNode }) {
       <button
         type="button"
         onClick={() => setContext({})}
-        className="ork-focus fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-ork-ink px-4 py-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-pop)] hover:bg-ork-ink/90 print:hidden"
+        className="ork-focus fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-ork-blue px-4 py-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-pop)] hover:bg-ork-blue/90 print:hidden"
         aria-label="Abrir Concertino, tu asesor de ventas"
       >
         <Music2 className="size-4" aria-hidden /> Concertino
@@ -132,7 +132,7 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
       <aside className="absolute inset-y-0 right-0 flex w-full max-w-[480px] flex-col bg-ork-surface shadow-[var(--shadow-pop)]">
         <header className="flex items-start justify-between gap-3 border-b border-ork-line bg-ork-card px-5 py-4">
           <div className="flex items-start gap-3">
-            <span className="mt-0.5 grid size-9 place-items-center rounded-xl bg-ork-ink text-white">
+            <span className="mt-0.5 grid size-9 place-items-center rounded-xl bg-ork-blue text-white">
               <Music2 className="size-4" aria-hidden />
             </span>
             <div>
