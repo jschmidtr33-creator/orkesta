@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from orkesta.brain import ml
+from orkesta.brain import outcomes as _outcomes
 from orkesta.brain import patterns as _patterns
 from orkesta.brain.registry import Task, register
 from orkesta.core.db import set_context
@@ -206,6 +207,8 @@ register(Task(
     name="puntaje", label="Puntaje que aprende de resultados",
     description="Aprende en cada empresa qué perfiles responden y compran, y explica cada puntaje.",
     step=5, status=_outcomes_status, method="Parecido con la búsqueda",
+    build=_outcomes.build, make=_outcomes.make, baseline=_outcomes.baseline,
+    threshold=0.5, min_examples=60,
 ))  # fmt: skip
 register(Task(
     name="redaccion", label="Redacción que aprende entre todos",

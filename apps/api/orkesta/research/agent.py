@@ -307,6 +307,15 @@ class Run:
         self.serp = serp.SerpStats()
         self.seen: dict[str, Candidate] = {}  # empresas encontradas: alimentan el directorio
         self.filters: Filters | None = None
+        self._scorer: Any = None  # lo que la empresa aprendió de sus resultados (paso 5)
+
+    def scorer(self) -> Any:
+        if self._scorer is None:
+            from orkesta.brain.outcomes import Scorer
+
+            with self.session() as session:
+                self._scorer = Scorer.load(session, self.tenant_id)
+        return self._scorer
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -379,6 +388,13 @@ class Run:
 
     def save_person(self, prospect: Prospect, country: str) -> None:
         score, reasons = people.fit_score(prospect, self.filters)
+        try:
+            level, area = prospect.classification()
+            score, reasons = self.scorer().adjust(
+                score, reasons, level=level, area=area,
+                industry=prospect.company.industry_code, country=country)  # fmt: skip
+        except Exception:
+            logger.exception("research_learned_score")
         data = {**prospect.data(country), "score_reasons": reasons}
         self._upsert("person", prospect.key, prospect.company.key, data, prospect.sources, score)
 
