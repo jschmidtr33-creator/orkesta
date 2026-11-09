@@ -93,6 +93,12 @@ class Principal:
     def role(self) -> str | None:
         return self.membership.role if self.membership else None
 
+    def owns(self, owner: uuid.UUID | None) -> bool:
+        """Campañas y propuestas son de quien las crea: solo esa persona las ve en detalle y
+        las edita. La administración y la jefatura ven el resumen en «Mi equipo». Lo que no
+        tiene dueño (anterior a esta regla) lo maneja la administración."""
+        return owner == self.user.id or (owner is None and self.role == "admin")
+
     def can_modify(self, owner: uuid.UUID | None) -> bool:
         """Solo la administración modifica trabajo ajeno; la jefatura solo lo ve."""
         return self.role == "admin" or owner is None or owner == self.user.id

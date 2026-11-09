@@ -521,7 +521,8 @@ def advise_campaign(session: Session, ctx: Context) -> dict[str, Any]:
     query = query.where(Recipient.tenant_id == ctx.tenant_id, Recipient.sent_count > 0)
     campaign = ctx.campaign
     if campaign is None:
-        campaign = session.scalars(select(Campaign).where(Campaign.tenant_id == ctx.tenant_id)
+        campaign = session.scalars(select(Campaign).where(Campaign.tenant_id == ctx.tenant_id,
+                                                          Campaign.created_by == ctx.user_id)
                                    .order_by(Campaign.created_at.desc()).limit(1)).first()  # fmt: skip
     if campaign is None:
         return _ask_more("Todavía no tienes campañas. Cuando envíes la primera, pregúntame y la "

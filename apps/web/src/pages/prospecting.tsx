@@ -293,7 +293,7 @@ function FilterRow({ title, count, pills, children, hint }: { title: string; cou
       <button type="button" onClick={() => setOpen(!open)} className="ork-focus flex w-full items-center justify-between gap-2 rounded-md text-left" aria-expanded={open}>
         <span className="text-[13.5px] font-semibold text-ork-ink">
           {title}
-          {count > 0 && <span className="ml-1.5 rounded-full bg-ork-blue px-1.5 py-px text-[11px] font-bold text-white">{count}</span>}
+          {count > 0 && <span className="ml-1.5 rounded-full bg-ork-blue-solid px-1.5 py-px text-[11px] font-bold text-white">{count}</span>}
         </span>
         <span className="inline-flex size-6 items-center justify-center rounded-full text-ork-graphite hover:bg-ork-ink/5">
           {open ? <Minus className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />}

@@ -245,14 +245,18 @@ def attribution(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
         for d in by_contact.get(contact_id, []):
             if d.created_at >= replied_at - timedelta(days=1):
                 credited.setdefault(d.id, campaign_id)
-    names = dict(session.execute(
-        select(Campaign.id, Campaign.name).where(Campaign.id.in_(set(credited.values())))
-    ).tuples().all()) if credited else {}  # fmt: skip
+    found = session.execute(
+        select(Campaign.id, Campaign.name, Campaign.created_by)
+        .where(Campaign.id.in_(set(credited.values())))
+    ).all() if credited else []  # fmt: skip
+    names = {r[0]: r[1] for r in found}
+    owners = {r[0]: str(r[2]) if r[2] else None for r in found}
     stats: dict[uuid.UUID, dict[str, Any]] = {}
     for deal_id, campaign_id in credited.items():
         d = deals[deal_id]
         row = stats.setdefault(campaign_id, {
             "campaign_id": str(campaign_id), "campaign": names.get(campaign_id, "—"),
+            "owner_id": owners.get(campaign_id),
             "deals": 0, "won": 0, "lost": 0, "won_value": defaultdict(float),
             "pipeline": defaultdict(float)})  # fmt: skip
         row["deals"] += 1

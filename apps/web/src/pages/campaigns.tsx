@@ -908,7 +908,7 @@ function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: st
                 role="tab"
                 aria-selected={i === selected}
                 onClick={() => onSelect(i)}
-                className={cx("shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-semibold", i === selected ? "bg-ork-blue text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+                className={cx("shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-semibold", i === selected ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
               >
                 Correo {i + 1}
               </button>
@@ -1011,7 +1011,7 @@ function SendingCard({ c }: { c: Campaign }) {
                   onClick={() => set({ days: on ? s.days.filter((x) => x !== day) : [...s.days, day] })}
                   className={cx(
                     "ork-focus size-9 rounded-lg border text-[13px] font-semibold",
-                    on ? "border-ork-blue bg-ork-blue text-white" : "border-ork-line text-ork-graphite",
+                    on ? "border-ork-blue bg-ork-blue-solid text-white" : "border-ork-line text-ork-graphite",
                   )}
                 >
                   {d}
@@ -1620,7 +1620,7 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
               key={k}
               type="button"
               onClick={() => setMode(k)}
-              className={cx("rounded-md px-2.5 py-1", mode === k ? "bg-ork-blue text-white" : "text-ork-graphite")}
+              className={cx("rounded-md px-2.5 py-1", mode === k ? "bg-ork-blue-solid text-white" : "text-ork-graphite")}
             >
               {label}
             </button>

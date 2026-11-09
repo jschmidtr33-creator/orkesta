@@ -191,3 +191,37 @@ def test_invitation_is_emailed_from_the_inviters_mailbox(client: TestClient, mon
     old_token, new_token = first["link"].rsplit("/", 1)[1], again["link"].rsplit("/", 1)[1]
     assert client.get(f"/api/invitations/{old_token}").status_code != 200
     assert client.get(f"/api/invitations/{new_token}").status_code == 200
+
+
+def test_campaigns_and_proposals_are_only_their_owners(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Cada persona ve y edita solo sus campañas y propuestas; la administración y la jefatura
+    ven el resumen en «Mi equipo», sin abrirlas ni editarlas."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    jefa = _join(client, "jefa@lacteos.co", "supervisor", "Jefa Comercial")
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    people = _members(client)
+    client.put(f"/api/team/members/{people['jefa@lacteos.co']['id']}/assignments",
+               json={"member_ids": [people["luis@lacteos.co"]["user_id"]]})  # fmt: skip
+    mine = client.post("/api/campaigns", json={"name": "De Ana"}).json()
+    his = luis.post("/api/campaigns", json={"name": "De Luis"}).json()
+    proposal = luis.post("/api/proposals", json={}).json()
+
+    assert [c["name"] for c in client.get("/api/campaigns").json()["items"]] == ["De Ana"]
+    assert [c["name"] for c in luis.get("/api/campaigns").json()["items"]] == ["De Luis"]
+    assert jefa.get("/api/campaigns").json()["items"] == []
+    for who in (client, jefa):
+        assert who.get(f"/api/campaigns/{his['id']}").status_code == 404
+        assert who.patch(f"/api/campaigns/{his['id']}", json={"name": "X"}).status_code == 404
+        assert who.get(f"/api/proposals/{proposal['id']}").status_code == 404
+        assert who.get("/api/proposals").json() == []
+    assert luis.get(f"/api/campaigns/{mine['id']}").status_code == 404
+    assert luis.patch(f"/api/campaigns/{his['id']}", json={"name": "Nueva"}).status_code == 200
+
+    uid = people["luis@lacteos.co"]["user_id"]
+    for who in (client, jefa):
+        detail = who.get(f"/api/reports/team/{uid}").json()
+        assert [c["name"] for c in detail["campaigns"]] == ["Nueva"]
+        assert [p["id"] for p in detail["proposals"]] == [proposal["id"]]

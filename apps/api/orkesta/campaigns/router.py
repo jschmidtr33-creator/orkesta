@@ -326,9 +326,12 @@ class PreviewIn(BaseModel):
 
 def _campaign(db: Db, principal: Principal, campaign_id: uuid.UUID) -> Campaign:
     try:
-        return svc.get_campaign(db, principal.tenant_id, campaign_id)
+        campaign = svc.get_campaign(db, principal.tenant_id, campaign_id)
     except svc.CampaignError as exc:
         raise _fail(exc) from exc
+    if not principal.owns(campaign.created_by):
+        raise HTTPException(404, "Esa campaña no existe o es de otra persona del equipo.")
+    return campaign
 
 
 class CopyIn(BaseModel):
@@ -357,11 +360,20 @@ def copy_ranking(principal: Member, db: Db) -> dict[str, Any]:
     return {"ready": row is not None, "groups": groups}
 
 
+def _mine(column: Any, principal: Principal) -> Any:
+    """Solo lo propio (y, para la administración, lo que no tiene dueño)."""
+    from sqlalchemy import or_
+
+    if principal.role == "admin":
+        return or_(column == principal.user.id, column.is_(None))
+    return column == principal.user.id
+
+
 @router.get("/api/campaigns")
 def campaigns(principal: Member, db: Db) -> dict[str, Any]:
     rows = db.scalars(
         select(Campaign)
-        .where(Campaign.tenant_id == principal.tenant_id)
+        .where(Campaign.tenant_id == principal.tenant_id, _mine(Campaign.created_by, principal))
         .order_by(Campaign.created_at.desc())
         .limit(200)
     ).all()

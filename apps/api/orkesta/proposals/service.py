@@ -663,8 +663,14 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
 
 
 def list_proposals(session: Session, tenant_id: uuid.UUID, status: str = "",
-                   deal_id: uuid.UUID | None = None) -> list[dict[str, Any]]:  # fmt: skip
+                   deal_id: uuid.UUID | None = None, owner: uuid.UUID | None = None,
+                   include_unowned: bool = False) -> list[dict[str, Any]]:  # fmt: skip
+    from sqlalchemy import or_
+
     query = select(Proposal).where(Proposal.tenant_id == tenant_id)
+    if owner is not None:
+        mine = Proposal.created_by == owner
+        query = query.where(or_(mine, Proposal.created_by.is_(None)) if include_unowned else mine)
     if status in STATUS_LABELS:
         query = query.where(Proposal.status == status)
     if deal_id:

@@ -48,6 +48,9 @@ jobs:
     needs: image
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Desplegar en AWS (solo si el servidor está configurado)
         env:
           HOST: ${{ secrets.AWS_HOST }}
@@ -59,6 +62,9 @@ jobs:
           fi
           install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
           SSH="ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@$HOST"
+          # Scripts de operación al día (el repositorio puede ser privado: se copian desde aquí).
+          scp -i key.pem -o StrictHostKeyChecking=accept-new deploy/aws/deploy.sh deploy/aws/backup.sh deploy/aws/watchdog.sh ubuntu@$HOST:/tmp/
+          $SSH 'sudo install -m 755 /tmp/deploy.sh /tmp/backup.sh /tmp/watchdog.sh /opt/orkesta/ && rm -f /tmp/deploy.sh /tmp/backup.sh /tmp/watchdog.sh'
           echo "${{ secrets.GITHUB_TOKEN }}" | $SSH 'sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin'
           $SSH 'sudo /opt/orkesta/deploy.sh'
           rm -f key.pem

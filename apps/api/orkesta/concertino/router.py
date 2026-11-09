@@ -93,8 +93,15 @@ def history(principal: Member, db: Db) -> list[dict[str, Any]]:
 
 
 @router.get("/facts")
-def facts(principal: Member, db: Db, learn: bool = False) -> dict[str, Any]:
-    learned = svc.learn_from_campaigns(db, principal.tenant_id) if learn else None
+def facts(principal: Member, db: Db) -> dict[str, Any]:
+    return {**svc.facts(db, principal.tenant_id), "learned": None,
+            "can_curate": svc.can_curate(principal.role)}  # fmt: skip
+
+
+@router.post("/facts/learn")
+def learn_facts(principal: Member, db: Db) -> dict[str, Any]:
+    """Aprende de las respuestas de las campañas (solo cuando alguien lo pide)."""
+    learned = svc.learn_from_campaigns(db, principal.tenant_id)
     return {**svc.facts(db, principal.tenant_id), "learned": learned,
             "can_curate": svc.can_curate(principal.role)}  # fmt: skip
 

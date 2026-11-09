@@ -105,6 +105,8 @@ def _context(session: Session, *, tenant_id: uuid.UUID, user: User, contact_id: 
         contact_id = deal.contact_id
     contact = mine(Contact, contact_id)
     campaign = mine(Campaign, campaign_id or (recipient.campaign_id if recipient else None))
+    if campaign is not None and campaign.created_by not in (user.id, None):
+        raise ConcertinoError("Esa campaña es de otra persona del equipo.", 404)
     level = getattr(contact, "level_code", None)
     area = getattr(contact, "area_code", None)
     if contact is not None and not (level and area) and contact.job_title:
@@ -252,13 +254,23 @@ def history(
 # --- Lo que aprende de los resultados ---------------------------------------------------------
 
 
+LEARN_EVERY = 600  # segundos entre revisiones de resultados por persona
+_LEARNED_AT: dict[tuple[Any, Any], float] = {}
+
+
 def learn_outcomes(session: Session, tenant_id: uuid.UUID, user: User) -> int:
     """Cierra los casos usados del vendedor con lo que pasó después en la cuenta: reunión,
     oportunidad, respuesta positiva o silencio (a los 21 días)."""
+    import time
+
     from orkesta.campaigns.models import Recipient
     from orkesta.campaigns.replies import POSITIVE
     from orkesta.crm.models import Activity, Deal
 
+    key = (tenant_id, user.id)
+    if time.monotonic() - _LEARNED_AT.get(key, -1e9) < LEARN_EVERY:
+        return 0  # revisado hace poco: no repetir consultas en cada pregunta
+    _LEARNED_AT[key] = time.monotonic()
     cases = list(session.scalars(select(AdviceCase).where(
         AdviceCase.tenant_id == tenant_id, AdviceCase.user_id == user.id,
         AdviceCase.action.in_(("usada", "editada")), AdviceCase.outcome.is_(None)).limit(200)))  # fmt: skip
@@ -412,9 +424,10 @@ def save_fact(
     if fact_id is None:
         if kind not in FACT_KINDS:
             raise ConcertinoError("Tipo de dato no válido.")
-        count = len(
-            list(session.scalars(select(ProductFact.id).where(ProductFact.tenant_id == tenant_id)))
-        )
+        from sqlalchemy import func
+
+        count = int(session.scalar(select(func.count()).select_from(ProductFact)
+                                   .where(ProductFact.tenant_id == tenant_id)) or 0)  # fmt: skip
         if count >= MAX_FACTS:
             raise ConcertinoError(f"La ficha admite hasta {MAX_FACTS} datos.")
         if not (title or "").strip():

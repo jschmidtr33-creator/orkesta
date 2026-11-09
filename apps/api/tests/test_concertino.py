@@ -166,7 +166,7 @@ def test_sheet_permissions_privacy_and_learning(
             session.add(Recipient(tenant_id=tenant_id, campaign_id=uuid.UUID(campaign["id"]),
                                   contact_id=uuid.UUID(c["id"]), email=f"p{i}@y{i}.co", sent_count=1,
                                   status="replied", reply_category="otro", reply_snippet=text))  # fmt: skip
-    sheet = client.get("/api/concertino/facts", params={"learn": True}).json()
+    sheet = client.post("/api/concertino/facts/learn").json()
     learned = [f for f in sheet["items"] if f["status"] == "aprendido"]
     assert any(f["kind"] == "objecion" and f["meta"]["tipo"] == "precio" for f in learned)
     assert any(f["kind"] == "pregunta" and "SAP" in f["title"] for f in learned)
@@ -181,6 +181,9 @@ def test_sheet_permissions_privacy_and_learning(
     )
     client.post("/api/crm/activities", json={"type": "meeting", "body": "Reunión",
                                              "contact_id": contact["id"]})  # fmt: skip
+    from orkesta.concertino import service as concertino_service
+
+    concertino_service._LEARNED_AT.clear()
     client.post("/api/concertino/ask", json={"question": "hola"})
     with session_factory() as session:
         set_context(session, tenant_id=tenant_id)

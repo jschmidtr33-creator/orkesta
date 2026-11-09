@@ -53,6 +53,7 @@ type Detail = {
   };
   deals: { id: string; title: string; value: number; currency: string; stage: string; updated_at: string }[];
   searches: { id: string; summary: string; status: string; found: number; saved_name: string | null; at: string }[];
+  proposals?: { id: string; number: number | null; title: string; status: string; status_label: string; total: number | null; currency: string; created_at: string }[];
   timeline: { id: string; at: string; label: string; action: string }[];
 };
 
@@ -95,7 +96,7 @@ function usePeriod() {
           type="button"
           onClick={() => setPreset(p.key)}
           aria-pressed={preset === p.key}
-          className={cx("shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-semibold", preset === p.key ? "bg-ork-blue text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+          className={cx("shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-semibold", preset === p.key ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
         >
           {p.label}
         </button>
@@ -312,6 +313,30 @@ export function TeamMemberPage() {
               )}
             </Card>
           </div>
+          <Card>
+            <CardHeader title="Propuestas" description="Resumen de solo lectura: solo quien la creó puede abrirla y editarla" />
+            {(d.proposals ?? []).length === 0 ? (
+              <p className="text-[13.5px] text-ork-mist">Todavía no ha creado propuestas.</p>
+            ) : (
+              <ul className="divide-y divide-ork-line">
+                {(d.proposals ?? []).map((x) => (
+                  <li key={x.id} className="flex items-center justify-between gap-3 py-2.5 text-[13.5px]">
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold text-ork-ink">
+                        {x.number ? `N.º ${x.number} · ` : ""}
+                        {x.title || "Propuesta sin título"}
+                      </span>
+                      <span className="text-[12.5px] text-ork-mist">Creada {when(x.created_at)}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <Badge>{x.status_label}</Badge>
+                      {x.total != null && <span className="tabular-nums text-ork-graphite">{money({ [x.currency]: x.total })}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
           <Card>
             <CardHeader title="Actividad" description="Lo último que hizo en ORKESTA" />
             {d.timeline.length === 0 ? (

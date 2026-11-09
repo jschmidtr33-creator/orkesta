@@ -36,7 +36,7 @@ export function ProductPage() {
   const client = useQueryClient();
   const sheet = useQuery({ queryKey: ["concertino-facts"], queryFn: () => api<Sheet>("/api/concertino/facts") });
   const learn = useMutation({
-    mutationFn: () => api<Sheet>("/api/concertino/facts?learn=true"),
+    mutationFn: () => api<Sheet>("/api/concertino/facts/learn", { method: "POST" }),
     onSuccess: (data) => client.setQueryData(["concertino-facts"], data),
   });
   const [adding, setAdding] = useState<{ kind: string; title?: string } | null>(null);

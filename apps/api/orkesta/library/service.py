@@ -71,7 +71,7 @@ def save(
         build = proposal_payload
     else:
         raise TemplateError("Tipo de plantilla no válido.")
-    if source is None or source.tenant_id != tenant_id:
+    if source is None or source.tenant_id != tenant_id or source.created_by not in (user.id, None):
         raise TemplateError("No encontramos lo que quieres guardar.", 404)
     template = TeamTemplate(
         tenant_id=tenant_id, created_by=user.id, kind=kind, name=_clean_name(name),

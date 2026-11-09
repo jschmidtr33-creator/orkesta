@@ -82,7 +82,7 @@ type Forecast = {
   won_last_90: Record<string, number>;
 };
 type Attribution = {
-  campaigns: { campaign_id: string; campaign: string; deals: number; won: number; lost: number; won_value: Record<string, number>; pipeline: Record<string, number> }[];
+  campaigns: { campaign_id: string; campaign: string; owner_id?: string | null; deals: number; won: number; lost: number; won_value: Record<string, number>; pipeline: Record<string, number> }[];
 };
 
 const HEALTH = {
@@ -119,6 +119,7 @@ function sumBy(totals: ForecastTotals, field: "weighted" | "commit" | "best"): R
 
 /** Pronóstico de cierre, oportunidades en riesgo y atribución por campaña. */
 function ForecastView({ stages, deals, onOpen }: { stages: Stage[]; deals: Deal[]; onOpen: (id: string) => void }) {
+  const me = useSession().session?.user.id;
   const f = useQuery({ queryKey: ["crm-forecast"], queryFn: () => api<Forecast>("/api/crm/forecast") });
   const a = useQuery({ queryKey: ["crm-attribution"], queryFn: () => api<Attribution>("/api/crm/attribution") });
   const risky = deals.filter((d) => d.health && d.health.label === "fria").sort((x, y) => (x.health!.score - y.health!.score));
@@ -205,9 +206,13 @@ function ForecastView({ stages, deals, onOpen }: { stages: Stage[]; deals: Deal[
                 {a.data!.campaigns.map((c) => (
                   <tr key={c.campaign_id}>
                     <td className="py-2.5">
-                      <Link to={`/campanas/${c.campaign_id}`} className="font-semibold text-ork-blue hover:underline">
-                        {c.campaign}
-                      </Link>
+                      {c.owner_id === me ? (
+                        <Link to={`/campanas/${c.campaign_id}`} className="font-semibold text-ork-blue hover:underline">
+                          {c.campaign}
+                        </Link>
+                      ) : (
+                        <span className="font-semibold text-ork-ink">{c.campaign}</span>
+                      )}
                     </td>
                     <td className="py-2.5">{c.deals}</td>
                     <td className="py-2.5">{c.won}</td>
