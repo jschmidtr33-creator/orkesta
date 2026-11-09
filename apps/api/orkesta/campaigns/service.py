@@ -49,7 +49,7 @@ DEFAULT_SETTINGS = {
     "track_opens": True,
     "track_clicks": True,
     "corporate_mode": False,  # texto plano, sin medición: para bancos y corporativos
-    "per_domain_daily": 3,  # máximo de correos al día a una misma empresa (0 = sin límite)
+    "per_domain_daily": 0,  # en desuso: ya no hay tope por empresa (solo a las que bloquearon)
 }
 # Calentamiento del buzón: límite máximo por día de envío (día 1, día 2, …).
 WARMUP = (20, 30, 45, 65, 90, 125, 170, 230, 310, 420, 560, 750, 1000, 1350, 1800, 2000)
@@ -564,9 +564,8 @@ def waiting_reason(session: Session, c: Campaign, mailbox: Mailbox | None) -> st
             Recipient.next_send_at <= now(),
             func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full)))  # fmt: skip
         if not open_:
-            cap = int(c.settings.get("per_domain_daily", 3) or 0)
-            return (f"Las empresas pendientes ya recibieron hoy su máximo de {cap} correos "
-                    "por empresa: sigue mañana.")  # fmt: skip
+            return ("Las empresas pendientes ya bloquearon antes un correo tuyo: se les escribe "
+                    "uno al día para cuidar tu buzón. Sigue mañana.")  # fmt: skip
     return None
 
 
@@ -887,13 +886,14 @@ def _domain_counts(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> dict[str
 
 
 def _full_domains(session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo) -> set[str]:
-    """Empresas destinatarias que ya recibieron hoy su máximo de correos desde este buzón."""
-    cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
-    if cap <= 0:
+    """Empresas que ya bloquearon un correo de este cliente y hoy ya recibieron el suyo: a ellas
+    se les escribe uno al día, en texto plano. Al resto no se le pone tope por empresa (lo
+    cuidan el calentamiento, el límite diario del buzón y la pausa por rebotes)."""
+    blocked = blocked_domains(session, campaign.tenant_id)
+    if not blocked:
         return set()
     counts = _domain_counts(session, mailbox, tz)
-    blocked = blocked_domains(session, campaign.tenant_id)
-    return {d for d, n in counts.items() if n >= (1 if d in blocked else cap)}
+    return {d for d, n in counts.items() if d in blocked and n >= 1}
 
 
 def _next_recipient(

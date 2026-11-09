@@ -1055,19 +1055,8 @@ function SendingCard({ c }: { c: Campaign }) {
             </label>
           </>
         )}
-        <SelectField
-          label="Máximo de correos al día por empresa"
-          value={String(s.per_domain_daily ?? 3)}
-          onChange={(e) => set({ per_domain_daily: Number(e.target.value) })}
-        >
-          {[1, 2, 3, 5, 10, 0].map((n) => (
-            <option key={n} value={n}>
-              {n === 0 ? "Sin límite" : n}
-            </option>
-          ))}
-        </SelectField>
-        <p className="-mt-2 text-[12px] text-ork-mist">
-          Evita escribir a muchas personas de una misma empresa el mismo día. Las empresas que ya bloquearon un correo reciben uno al día, en texto plano.
+        <p className="text-[12px] text-ork-mist">
+          Si una empresa ya bloqueó un correo tuyo, ORKESTA le escribe uno al día y en texto plano para cuidar tu buzón.
         </p>
         {save.error && <Alert>{save.error.message}</Alert>}
       </div>

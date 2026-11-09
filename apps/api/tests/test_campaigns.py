@@ -582,8 +582,8 @@ def test_warmup_domain_cap_and_corporate_mode(
     )
     client.post(f"/api/campaigns/{campaign['id']}/launch")
     _flush(session_factory, 5)
-    # Los 3 contactos son de bancoandino.co: con tope 2 por empresa, el tercero espera a mañana.
-    assert len(google.sent) == 2
+    # Sin tope por empresa: salen los 3 contactos de bancoandino.co.
+    assert len(google.sent) == 3
     msg = google.sent[0]["msg"]
     assert msg.get_content_type() == "text/plain"  # modo corporativo: solo texto, sin pixel
     assert "/t/o/" not in msg.as_string()
@@ -779,8 +779,8 @@ def test_campaigns_share_the_mailbox_and_full_companies_are_skipped(
     client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # fmt: skip
-    """Dos campañas del mismo buzón se turnan, y una empresa que ya recibió su máximo del día no
-    detiene a las demás aunque tenga más de 40 personas en la fila."""
+    """Dos campañas del mismo buzón se turnan, y no hay tope por empresa: una campaña con
+    muchas personas de la misma empresa avanza sin detenerse."""
     monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
     register(client, "ana@lacteos.co")
     _connect(client)
@@ -800,8 +800,7 @@ def test_campaigns_share_the_mailbox_and_full_companies_are_skipped(
     ]
     first = client.post("/api/campaigns", json={"name": "Banco"}).json()
     client.patch(f"/api/campaigns/{first['id']}",
-                 json={"steps": steps, "audience": {"contact_ids": [*big, other]},
-                       "settings": {"per_domain_daily": 3}})  # fmt: skip
+                 json={"steps": steps, "audience": {"contact_ids": [*big, other]}})  # fmt: skip
     launched = client.post(f"/api/campaigns/{first['id']}/launch")
     assert launched.status_code == 200, launched.text
     second = client.post("/api/campaigns", json={"name": "Segunda"}).json()
@@ -817,7 +816,5 @@ def test_campaigns_share_the_mailbox_and_full_companies_are_skipped(
     }
     # La segunda campaña no espera a que termine la primera.
     assert sent["Segunda"] == 1
-    # Banco Andino: 3 al día; la otra empresa recibe el suyo aunque esté al final de la fila.
-    assert sent["Banco"] == 4
-    detail = client.get(f"/api/campaigns/{first['id']}").json()
-    assert "máximo de 3 correos por empresa" in (detail["waiting"] or "")
+    # Sin tope por empresa: la campaña sigue enviando a Banco Andino (5 de 6 vueltas).
+    assert sent["Banco"] == 5
