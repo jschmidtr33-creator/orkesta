@@ -434,13 +434,14 @@ def _fit_to_plan(
     if room is None or room >= len(items):
         return list(items)  # caben todos: no hace falta revisar cuáles ya existen
     keys = [dedup_key(i.email, i.full_name, i.company_key) for i in items]
-    existing = set(
-        session.scalars(
-            select(Contact.dedup_key).where(
-                Contact.tenant_id == tenant_id, Contact.dedup_key.in_(keys)
+    with unscoped(session):
+        existing = set(
+            session.scalars(
+                select(Contact.dedup_key).where(
+                    Contact.tenant_id == tenant_id, Contact.dedup_key.in_(keys)
+                )
             )
         )
-    )
     kept: list[ProspectRecord] = []
     for item, key in zip(items, keys, strict=True):
         if key in existing:

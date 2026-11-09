@@ -382,29 +382,49 @@ function OptionPicker({
 }
 
 /** Texto libre: escribe y presiona Enter para agregar (Incluir) o usa «Excluir». */
-function TextPicker({ placeholder, onAdd, allowExclude, max }: { placeholder: string; onAdd: (value: string, excluded: boolean) => void; allowExclude?: boolean; max: number }) {
+/** Varios a la vez: separa por coma, punto y coma o salto de línea (también al pegar una lista). */
+function splitList(text: string, max: number): string[] {
+  return text
+    .split(/[,;\n\r\t]+/)
+    .map((v) => v.trim().replace(/\s+/g, " ").slice(0, max))
+    .filter(Boolean);
+}
+
+function TextPicker({ placeholder, onAdd, allowExclude, max }: { placeholder: string; onAdd: (values: string[], excluded: boolean) => void; allowExclude?: boolean; max: number }) {
   const [value, setValue] = useState("");
   const add = (excluded: boolean) => {
-    const clean = value.trim().replace(/\s+/g, " ").slice(0, max);
-    if (!clean) return;
-    onAdd(clean, excluded);
+    const items = splitList(value, max);
+    if (!items.length) return;
+    onAdd(items, excluded);
     setValue("");
   };
   return (
-    <div className="flex items-center gap-2">
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            add(false);
-          }
-        }}
-        placeholder={placeholder}
-        className="ork-focus h-9 min-w-0 flex-1 rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] placeholder:text-ork-mist"
-      />
-      <IncludeExclude label={value || placeholder} onInclude={() => add(false)} onExclude={allowExclude ? () => add(true) : undefined} />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add(false);
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text");
+            if (/[\n\r;\t]/.test(text)) {
+              // Una lista pegada (de Excel, un correo…): se agrega completa de una vez.
+              e.preventDefault();
+              const items = splitList(text, max);
+              if (items.length) onAdd(items, false);
+            }
+          }}
+          placeholder={placeholder}
+          className="ork-focus h-9 min-w-0 flex-1 rounded-xl border border-ork-line bg-ork-card px-3 text-[13px] placeholder:text-ork-mist"
+        />
+        <IncludeExclude label={value || placeholder} onInclude={() => add(false)} onExclude={allowExclude ? () => add(true) : undefined} />
+      </div>
+      <p className="text-[11.5px] text-ork-mist">Puedes escribir varios separados por coma o pegar una lista.</p>
     </div>
   );
 }
@@ -451,10 +471,17 @@ function FilterPanel({
       {exKey && filters[exKey].map((v) => <Pill key={`e${v}`} label={v} excluded onRemove={() => set({ [exKey]: without(filters[exKey], v) })} />)}
     </>
   );
-  const addText = (key: "titles" | "companies" | "cities", exKey: "exclude_titles" | "exclude_companies" | null, top: number) => (value: string, excluded: boolean) => {
+  // Sin tope: se pueden escribir todos los cargos, empresas y ciudades que se quieran.
+  const addText = (key: "titles" | "companies" | "cities", exKey: "exclude_titles" | "exclude_companies" | null) => (values: string[], excluded: boolean) => {
     const target = excluded && exKey ? exKey : key;
-    if (filters[target].some((v) => fold(v) === fold(value)) || filters[target].length >= top) return;
-    set({ [target]: [...filters[target], value] });
+    const seen = new Set(filters[target].map(fold));
+    const fresh = values.filter((v) => {
+      const k = fold(v);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (fresh.length) set({ [target]: [...filters[target], ...fresh] });
   };
   const total =
     filters.cities.length + filters.sectors.length + filters.exclude_sectors.length + filters.sizes.length + filters.seniority.length +
@@ -582,7 +609,7 @@ function FilterPanel({
           <Section title="Características de la empresa">
             {sizesRow("Empleados en la empresa")}
             <FilterRow title="Ubicación de la sede central" count={filters.cities.length} pills={textPills("cities")} hint="El país se elige arriba. Agrega ciudades o regiones para acotar (hasta 5).">
-              <TextPicker placeholder="Ej.: Bogotá" onAdd={addText("cities", null, 5)} max={80} />
+              <TextPicker placeholder="Ej.: Bogotá" onAdd={addText("cities", null)} max={80} />
             </FilterRow>
             {sectorRow("Industria")}
           </Section>
@@ -597,7 +624,7 @@ function FilterPanel({
               pills={textPills("companies", "exclude_companies")}
               hint="Escribe el nombre o el dominio y presiona Enter. Con empresas incluidas se buscan los decisores de esas empresas."
             >
-              <TextPicker placeholder="Ej.: Bancolombia o ecopetrol.com" onAdd={addText("companies", "exclude_companies", 25)} allowExclude max={120} />
+              <TextPicker placeholder="Ej.: Bancolombia o ecopetrol.com" onAdd={addText("companies", "exclude_companies")} allowExclude max={120} />
             </FilterRow>
             <FilterRow
               title="Plantilla de la empresa"
@@ -645,7 +672,7 @@ function FilterPanel({
               pills={textPills("titles", "exclude_titles")}
               hint="Escribe un cargo y presiona Enter. Ej.: Gerente de Compras."
             >
-              <TextPicker placeholder="Agregar cargos" onAdd={addText("titles", "exclude_titles", 10)} allowExclude max={80} />
+              <TextPicker placeholder="Agregar cargos" onAdd={addText("titles", "exclude_titles")} allowExclude max={80} />
             </FilterRow>
             <FilterRow
               title="Nivel de responsabilidad"
@@ -672,7 +699,7 @@ function FilterPanel({
               pills={textPills("cities")}
               hint="El país se elige arriba. Agrega ciudades o regiones para acotar (hasta 5)."
             >
-              <TextPicker placeholder="Ej.: Medellín" onAdd={addText("cities", null, 5)} max={80} />
+              <TextPicker placeholder="Ej.: Medellín" onAdd={addText("cities", null)} max={80} />
             </FilterRow>
             <FilterRow
               title="Sector"

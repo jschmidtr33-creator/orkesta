@@ -16,6 +16,8 @@ import {
   Spinner,
   TextField,
 } from "../components/ui";
+import { AskConcertino } from "../components/Concertino";
+import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
@@ -254,6 +256,7 @@ export function ContactsPage() {
             <Button size="sm" variant="secondary" icon={<MailCheck className="size-3.5" aria-hidden />} onClick={() => setValidateOpen(true)}>
               Validar correos
             </Button>
+            <ReassignButton kind="contact" ids={[...selected]} onDone={() => setSelected(new Set())} />
             {canManage && (
               <Button
                 size="sm"
@@ -501,9 +504,14 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
               <>
                 <div className="mb-5 flex items-center justify-between">
                   <Badge tone={STATUS_TONE[c.status]}>{c.status_label}</Badge>
-                  <Button size="sm" variant="secondary" icon={<Pencil className="size-3.5" aria-hidden />} onClick={() => onEdit(c)}>
-                    Editar
-                  </Button>
+                  <div className="flex gap-2">
+                    <AskConcertino contact_id={c.id} label={c.full_name}>
+                      Concertino
+                    </AskConcertino>
+                    <Button size="sm" variant="secondary" icon={<Pencil className="size-3.5" aria-hidden />} onClick={() => onEdit(c)}>
+                      Editar
+                    </Button>
+                  </div>
                 </div>
                 <dl className="divide-y divide-ork-line">
                   {c.fields.map((f) => (

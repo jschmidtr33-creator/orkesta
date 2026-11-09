@@ -256,22 +256,34 @@ class Lexicon:
         self.known: set[str] = set()
         self._deletes: dict[str, set[str]] = {}
 
-    def fit(self, xs: Sequence[Features], ys: Sequence[str]) -> Lexicon:
+    def fit(
+        self, xs: Sequence[Features], ys: Sequence[str], taught: Sequence[bool] | None = None
+    ) -> Lexicon:
+        """``taught`` marca los ejemplos enseñados a mano (banco curado y correcciones). Lo que
+        ellos dicen de una palabra manda; los ejemplos automáticos (cargos de las bases,
+        etiquetados por las reglas) solo aportan palabras que nadie enseñó. Así, sumar bases
+        nunca borra lo aprendido: solo agrega vocabulario."""
+        flags = list(taught) if taught is not None else [False] * len(ys)
         counts: dict[str, Counter[str]] = defaultdict(Counter)
-        for x, y in zip(xs, ys, strict=True):
+        manual: dict[str, Counter[str]] = defaultdict(Counter)
+        for x, y, is_taught in zip(xs, ys, flags, strict=True):
             for token in x:
-                counts[token][y] += 1
+                (manual if is_taught else counts)[token][y] += 1
         self.labels = sorted(set(ys) | {self.NONE})
         self.table = {}
-        for token, c in counts.items():
-            n = sum(c.values())
-            if n < self.min_support:
-                continue
-            label, top = c.most_common(1)[0]
-            p = top / (n + 1)
-            if p >= self.purity:
-                self.table[token] = (label, round(p, 4), n)
-        self.known = {t for t, c in counts.items() if sum(c.values()) >= 2}
+        for source in (counts,) if taught is None else (counts, manual):
+            for token, c in source.items():
+                if source is counts and token in manual:
+                    continue  # lo enseñado a mano decide esta palabra (aunque sea ambigua)
+                n = sum(c.values())
+                if n < self.min_support:
+                    continue
+                label, top = c.most_common(1)[0]
+                p = top / (n + 1)
+                if p >= self.purity:
+                    self.table[token] = (label, round(p, 4), n)
+        known = {t for t, c in counts.items() if sum(c.values()) >= 2}
+        self.known = known | {t for t, c in manual.items() if sum(c.values()) >= 2}
         self._index()
         return self
 

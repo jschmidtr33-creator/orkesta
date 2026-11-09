@@ -284,3 +284,34 @@ def delete_activity(activity_id: uuid.UUID, principal: Member, db: Db) -> dict[s
 def my_tasks(principal: Member, db: Db, todas: bool = False, equipo: bool = False) -> list[Any]:
     user_id = None if equipo and principal.role != "vendedor" else principal.user.id
     return svc.tasks(db, principal.tenant_id, user_id=user_id, include_done=todas)
+
+
+class ReassignIn(BaseModel):
+    kind: str = Field(pattern="^(contact|deal)$")
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    to_user_id: uuid.UUID
+    reason: str = Field(default="", max_length=300)
+    with_related: bool = True
+
+
+@router.get("/reassign/people")
+def reassign_people(principal: Member, db: Db) -> list[dict[str, Any]]:
+    """A quién se puede pasar una cuenta: las personas activas del equipo."""
+    from orkesta.crm import reassign
+
+    return reassign.candidates(db, principal.tenant_id)
+
+
+@router.post("/reassign")
+def reassign_accounts(body: ReassignIn, principal: Member, db: Db) -> dict[str, Any]:
+    """Pasa contactos u oportunidades (con sus oportunidades y tareas abiertas) a otra persona."""
+    from orkesta.crm import reassign
+
+    try:
+        return reassign.reassign(
+            db, tenant_id=principal.tenant_id, actor=principal.user, role=principal.role,
+            kind=body.kind, ids=body.ids, to_user_id=body.to_user_id, reason=body.reason,
+            with_related=body.with_related,
+        )  # fmt: skip
+    except reassign.ReassignError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc

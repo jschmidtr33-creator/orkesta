@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from orkesta.automation import engine
 from orkesta.automation.models import Rule, Run
@@ -174,6 +174,8 @@ def runs(principal: Member, db: Db, rule_id: uuid.UUID | None = None) -> list[di
         .join(Rule, Rule.id == Run.rule_id)
         .outerjoin(Contact, Contact.id == Run.contact_id)
         .where(Run.tenant_id == principal.tenant_id)
+        # Solo las ejecuciones sobre contactos que esta persona puede ver.
+        .where(or_(Run.contact_id.is_(None), Contact.id.is_not(None)))
         .order_by(Run.created_at.desc())
         .limit(100)
     )

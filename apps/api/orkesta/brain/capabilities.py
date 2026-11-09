@@ -13,7 +13,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orkesta.brain import copywriting as _copy
 from orkesta.brain import ml
+from orkesta.brain import outcomes as _outcomes
+from orkesta.brain import patterns as _patterns
 from orkesta.brain.registry import Task, register
 from orkesta.core.db import set_context
 
@@ -158,6 +161,7 @@ def _title_task(name: str, label: str, description: str, status: Any) -> Task:
         baseline=titles._baseline(name), predictor=titles._predictor(name),
         threshold=titles.THRESHOLD, extras=titles._extras(name),
         on_activate=titles._on_activate(name), test_filter=lambda ex: ex.key[0] in "sf",
+        taught=lambda ex: ex.key[0] in "sf",  # banco curado y correcciones mandan sobre las bases
         min_examples=300,
     )  # fmt: skip
 
@@ -197,15 +201,47 @@ register(Task(
                 "sector, "
                 "tamaño y empresas parecidas.",
     step=4, status=_patterns_status, method="El formato más común del país",
+    build=_patterns.build, make=_patterns.make, baseline=_patterns.baseline,
+    predictor=_patterns.predictor, threshold=0.01, min_examples=40,
 ))  # fmt: skip
 register(Task(
     name="puntaje", label="Puntaje que aprende de resultados",
     description="Aprende en cada empresa qué perfiles responden y compran, y explica cada puntaje.",
     step=5, status=_outcomes_status, method="Parecido con la búsqueda",
+    build=_outcomes.build, make=_outcomes.make, baseline=_outcomes.baseline,
+    threshold=0.5, min_examples=60,
 ))  # fmt: skip
 register(Task(
     name="redaccion", label="Redacción que aprende entre todos",
     description="Ordena aperturas, estructuras y cierres por tasa de respuesta real en todas las "
                 "empresas (solo cifras, nunca contenidos) y estima la probabilidad de respuesta.",
     step=6, status=_copy_status, method="Plantillas y pruebas A/B por empresa",
+    build=_copy.build, make=_copy.make, baseline=_copy.baseline, threshold=0.5,
+    min_examples=200, extras=lambda s, _m, _t: {"ranking": _copy.ranking(s)},
 ))  # fmt: skip
+
+
+def _concertino_tasks() -> None:
+    from orkesta.brain import concertino as _cc
+
+    register(Task(
+        name="concertino_objecion", label="Concertino: tipo de objeción",
+        description="Reconoce qué objeción hay detrás de lo que dijo el cliente, aunque lo "
+                    "diga con "
+                    "otras palabras. Aprende de cada corrección de los vendedores.",
+        step=7, status=lambda s: _cc.status(s, "concertino_objecion"),
+        method="Mapa de objeciones",
+        build=_cc.build_objections, make=_cc.make, baseline=_cc.baseline_objections,
+        min_examples=30, target=0.9,
+    ))  # fmt: skip
+    register(Task(
+        name="concertino_tema", label="Concertino: tema de la pregunta",
+        description="Entiende de qué trata cada consulta a Concertino (objeción, perfil, cuenta, "
+                    "campaña, propuesta, reunión, estrategia o producto).",
+        step=7, status=lambda s: _cc.status(s, "concertino_tema"), method="Palabras clave",
+        build=_cc.build_topics, make=_cc.make, baseline=_cc.baseline_topics,
+        min_examples=30, target=0.9,
+    ))  # fmt: skip
+
+
+_concertino_tasks()

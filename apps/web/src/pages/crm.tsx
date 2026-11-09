@@ -23,6 +23,8 @@ import {
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
+import { AskConcertino } from "../components/Concertino";
+import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
@@ -797,6 +799,12 @@ function DealDrawer({ id, onClose, stages, currencies, onMove }: { id: string | 
                     ))}
                   </select>
                   {d.lost_reason && <span className="text-[12.5px] text-bad">Motivo: {d.lost_reason}</span>}
+                  <span className="ml-auto flex gap-2">
+                    <AskConcertino deal_id={d.id} mode="cuenta" autoAsk label={d.title} prompt="¿Qué hago con esta cuenta?">
+                      ¿Qué hago con esta cuenta?
+                    </AskConcertino>
+                    <ReassignButton kind="deal" ids={[d.id]} />
+                  </span>
                 </div>
                 <form
                   className="grid grid-cols-2 gap-3"

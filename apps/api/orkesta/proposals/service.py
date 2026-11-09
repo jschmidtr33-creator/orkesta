@@ -425,9 +425,14 @@ def _next_number(session: Session, tenant_id: uuid.UUID) -> int:
     session.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"proposal-number:{tenant_id}"}
     )
-    current = session.scalar(
-        select(func.coalesce(func.max(Proposal.number), 0)).where(Proposal.tenant_id == tenant_id)
-    )
+    from orkesta.core.db import unscoped
+
+    with unscoped(session):  # la numeración es de la empresa, no de cada persona
+        current = session.scalar(
+            select(func.coalesce(func.max(Proposal.number), 0)).where(
+                Proposal.tenant_id == tenant_id
+            )
+        )
     return int(current or 0) + 1
 
 

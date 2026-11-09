@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy import select
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -29,6 +29,10 @@ def get_db(request: Request) -> Iterator[Session]:
     try:
         yield session
         session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        # Un registro único que ya existe (a veces de otra persona del equipo, que no se ve).
+        raise HTTPException(409, "Eso ya existe en tu empresa.") from exc
     except (StaleDataError, ProgrammingError) as exc:
         session.rollback()
         # La base rechazó modificar trabajo de otra persona (políticas de supervisión).
