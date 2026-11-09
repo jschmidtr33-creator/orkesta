@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from orkesta.brain import copywriting as _copy
 from orkesta.brain import ml
 from orkesta.brain import outcomes as _outcomes
 from orkesta.brain import patterns as _patterns
@@ -215,4 +216,6 @@ register(Task(
     description="Ordena aperturas, estructuras y cierres por tasa de respuesta real en todas las "
                 "empresas (solo cifras, nunca contenidos) y estima la probabilidad de respuesta.",
     step=6, status=_copy_status, method="Plantillas y pruebas A/B por empresa",
+    build=_copy.build, make=_copy.make, baseline=_copy.baseline, threshold=0.5,
+    min_examples=200, extras=lambda s, _m, _t: {"ranking": _copy.ranking(s)},
 ))  # fmt: skip

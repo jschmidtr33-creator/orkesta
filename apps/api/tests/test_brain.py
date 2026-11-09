@@ -118,8 +118,6 @@ def test_brain_panel(client: TestClient, database: tuple[str, str],
     assert (
         cargos["method"] == "Reglas fijas" and cargos["status"][0]["label"] == "Cargos en el índice"
     )
-    blocked = client.post("/api/admin/brain/redaccion/train")
-    assert blocked.status_code == 409 and "paso 6" in blocked.json()["detail"]
 
     registry.TASKS["prueba"] = _task(_titles(400), baseline=0.4)
     try:

@@ -956,6 +956,11 @@ function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: st
           </p>
         )}
         <p className="mt-2 text-[12px] text-ork-mist">{p?.contact ? `Con los datos de ${p.contact.full_name}, de tu audiencia.` : "Con datos de ejemplo: elige la audiencia para verlo con un contacto real."}</p>
+        <CopyCoach
+          step={selected}
+          subject={shown === "B" ? step?.variant_b?.subject || step?.subject || "" : step?.subject ?? ""}
+          body={shown === "B" ? step?.variant_b?.body || step?.body || "" : step?.body ?? ""}
+        />
       </div>
     </aside>
   );
@@ -1640,6 +1645,41 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
           Guardar firma
         </Button>
       </div>
+    </div>
+  );
+}
+
+type CopyAssess = { ready: boolean; probability?: number; average?: number; tips?: string[] };
+
+/** Probabilidad estimada de respuesta del correo que se escribe, aprendida de los resultados de
+ * todas las empresas (solo estilos y cifras, nunca textos). No aparece hasta que hay modelo. */
+function CopyCoach({ step, subject, body }: { step: number; subject: string; body: string }) {
+  const input = useDebounced({ step, subject, body }, 800);
+  const q = useQuery({
+    queryKey: ["campaign-copy-assess", input],
+    queryFn: () => api<CopyAssess>("/api/campaigns/copy/assess", { method: "POST", json: input }),
+    enabled: input.body.trim().length > 20,
+    placeholderData: (prev) => prev,
+    staleTime: 60_000,
+  });
+  const a = q.data;
+  if (!a?.ready || a.probability == null) return null;
+  const pct = (v: number) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)} %`;
+  const better = a.average != null && a.probability >= a.average;
+  return (
+    <div className="mt-3 rounded-xl border border-ork-line bg-ork-card px-3 py-2.5 text-[12.5px]" aria-live="polite">
+      <p className="text-ork-graphite">
+        Probabilidad estimada de respuesta: <strong className={better ? "text-ok" : "text-ork-ink"}>{pct(a.probability)}</strong>
+        {a.average != null && <span className="text-ork-mist"> · promedio {pct(a.average)}</span>}
+      </p>
+      {a.tips && a.tips.length > 0 && (
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-ork-graphite">
+          {a.tips.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-1.5 text-[11.5px] text-ork-mist">Aprendido de los resultados de todas las empresas en ORKESTA, solo con cifras de estilo.</p>
     </div>
   );
 }

@@ -331,6 +331,32 @@ def _campaign(db: Db, principal: Principal, campaign_id: uuid.UUID) -> Campaign:
         raise _fail(exc) from exc
 
 
+class CopyIn(BaseModel):
+    subject: str = Field(default="", max_length=250)
+    body: str = Field(default="", max_length=100000)
+    step: int = Field(default=0, ge=0, lt=svc.MAX_STEPS)
+
+
+@router.post("/api/campaigns/copy/assess")
+def copy_assess(body: CopyIn, principal: Member, db: Db) -> dict[str, Any]:
+    """Probabilidad estimada de respuesta del correo que se está escribiendo y qué cambio de
+    estilo la subiría (aprendido de todas las empresas, solo con cifras)."""
+    from orkesta.brain import copywriting
+
+    result = copywriting.assess(db, body.subject, body.body, body.step)
+    return {"ready": result is not None, **(result or {})}
+
+
+@router.get("/api/campaigns/copy/ranking")
+def copy_ranking(principal: Member, db: Db) -> dict[str, Any]:
+    """Qué estilos reciben más respuestas en todas las empresas (sin contenidos)."""
+    from orkesta.brain import registry
+
+    row = registry.active_row(db, "redaccion")
+    groups = ((row.metrics or {}).get("extra") or {}).get("ranking", []) if row else []
+    return {"ready": row is not None, "groups": groups}
+
+
 @router.get("/api/campaigns")
 def campaigns(principal: Member, db: Db) -> dict[str, Any]:
     rows = db.scalars(

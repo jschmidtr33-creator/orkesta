@@ -719,6 +719,13 @@ def test_ab_test_sends_both_versions_and_picks_winner(
         assert variant == ("B" if rid.int % 2 else "A") and subject.startswith(f"Versión {variant}")
     data = client.get(f"/api/campaigns/{campaign['id']}").json()
     assert data["ab"][0]["A"]["sent"] + data["ab"][0]["B"]["sent"] == 3
+    # La IA de redacción ve cada envío solo como estilo (sin textos) y sin respuesta aún.
+    from orkesta.brain import copywriting
+
+    with session_factory() as session:
+        examples = copywriting.build(session)
+    assert len(examples) == 3 and {e.y for e in examples} == {"no"}
+    assert all(not any("texto" in f for f in e.x) for e in examples)
 
     # Con suficiente evidencia, gana la versión con más respuestas y se avisa.
     def results(_session: Session, _campaign: Any) -> list[dict[str, Any]]:
