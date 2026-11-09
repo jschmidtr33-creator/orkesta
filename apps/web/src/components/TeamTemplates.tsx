@@ -15,6 +15,7 @@ type TeamTemplate = {
   author: string;
   mine: boolean;
   can_manage: boolean;
+  shared: boolean;
 };
 
 const WORDS: Record<TemplateKind, { one: string; blank: string }> = {
@@ -40,6 +41,10 @@ export function TemplatePicker({ kind, value, onChange }: { kind: TemplateKind; 
       if (value === id) onChange("");
       client.invalidateQueries({ queryKey: ["team-templates", kind] });
     },
+  });
+  const share = useMutation({
+    mutationFn: (v: { id: string; shared: boolean }) => api(`/api/templates/${v.id}`, { method: "PATCH", json: { shared: v.shared } }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["team-templates", kind] }),
   });
   const items = list.data ?? [];
   if (!items.length) return null;
@@ -71,21 +76,36 @@ export function TemplatePicker({ kind, value, onChange }: { kind: TemplateKind; 
           option(
             t.id,
             t.name,
-            [t.description || t.preview, t.summary, `de ${t.mine ? "ti" : t.author}`, t.use_count ? `usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""].filter(Boolean).join(" · "),
-            t.can_manage && (
+            [t.shared ? "Del equipo" : "Solo tú", t.description || t.preview, t.summary, `de ${t.mine ? "ti" : t.author}`, t.use_count ? `usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""].filter(Boolean).join(" · "),
+            <span className="flex shrink-0 items-center gap-1">
+              {t.mine && (
+                <button
+                  type="button"
+                  title={t.shared ? "Dejar de compartir con el equipo" : "Compartir con el equipo"}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    share.mutate({ id: t.id, shared: !t.shared });
+                  }}
+                  className="ork-focus rounded-lg px-2 py-1 text-[11.5px] font-semibold text-ork-blue hover:bg-ork-blue/5"
+                >
+                  {t.shared ? "Dejar de compartir" : "Compartir"}
+                </button>
+              )}
+              {t.can_manage && (
               <button
                 type="button"
                 aria-label={`Borrar la plantilla ${t.name}`}
                 title="Borrar plantilla"
                 onClick={(e) => {
                   e.preventDefault();
-                  if (window.confirm(`¿Borrar la plantilla «${t.name}»? Nadie del equipo podrá usarla.`)) remove.mutate(t.id);
+                  if (window.confirm(t.shared ? `¿Borrar la plantilla «${t.name}»? Nadie del equipo podrá usarla.` : `¿Borrar tu plantilla «${t.name}»?`)) remove.mutate(t.id);
                 }}
                 className="ork-focus rounded-lg p-1 text-ork-mist hover:bg-ork-surface hover:text-red-600"
               >
                 <Trash2 className="size-4" aria-hidden />
               </button>
-            ),
+              )}
+            </span>,
           ),
         )}
       </div>
@@ -93,34 +113,36 @@ export function TemplatePicker({ kind, value, onChange }: { kind: TemplateKind; 
   );
 }
 
-/** Guarda esta campaña o propuesta como plantilla para toda la empresa. */
+/** Guardar como plantilla: personal («Guardar como plantilla») o para toda la empresa
+ * («Compartir con el equipo»). */
 export function SaveTemplateButton({ kind, sourceId, defaultName }: { kind: TemplateKind; sourceId: string; defaultName: string }) {
   const client = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"personal" | "equipo" | null>(null);
   const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState("");
+  const shared = mode === "equipo";
   const save = useMutation({
-    mutationFn: () => api<{ id: string; name: string }>("/api/templates", { method: "POST", json: { kind, source_id: sourceId, name, description } }),
+    mutationFn: () => api<{ id: string; name: string }>("/api/templates", { method: "POST", json: { kind, source_id: sourceId, name, description, shared } }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["team-templates", kind] }),
   });
+  const open = (m: "personal" | "equipo") => {
+    save.reset();
+    setName(defaultName);
+    setDescription("");
+    setMode(m);
+  };
   return (
     <>
-      <Button
-        variant="secondary"
-        icon={<BookmarkPlus className="size-4" aria-hidden />}
-        onClick={() => {
-          save.reset();
-          setName(defaultName);
-          setDescription("");
-          setOpen(true);
-        }}
-      >
+      <Button variant="secondary" icon={<BookmarkPlus className="size-4" aria-hidden />} onClick={() => open("personal")}>
         Guardar como plantilla
       </Button>
+      <Button variant="secondary" icon={<Users className="size-4" aria-hidden />} onClick={() => open("equipo")}>
+        Compartir con el equipo
+      </Button>
       <Modal
-        open={open}
-        onOpenChange={setOpen}
-        title="Plantilla de equipo"
+        open={mode !== null}
+        onOpenChange={(o) => !o && setMode(null)}
+        title={shared ? "Plantilla para el equipo" : "Mi plantilla"}
         description={
           kind === "campaign"
             ? "Se guardan los correos, los tiempos entre pasos y el horario. Nunca los destinatarios ni tu buzón."
@@ -129,8 +151,12 @@ export function SaveTemplateButton({ kind, sourceId, defaultName }: { kind: Temp
       >
         {save.isSuccess ? (
           <div className="flex flex-col gap-4">
-            <Alert tone="ok">Listo: «{save.data.name}» ya aparece para todo tu equipo al crear una {WORDS[kind].one}.</Alert>
-            <Button variant="secondary" onClick={() => setOpen(false)}>
+            <Alert tone="ok">
+              {shared
+                ? `Listo: «${save.data.name}» ya aparece para todo tu equipo al crear una ${WORDS[kind].one}.`
+                : `Listo: «${save.data.name}» quedó en tus plantillas. Solo tú la ves.`}
+            </Alert>
+            <Button variant="secondary" onClick={() => setMode(null)}>
               Cerrar
             </Button>
           </div>
@@ -145,9 +171,13 @@ export function SaveTemplateButton({ kind, sourceId, defaultName }: { kind: Temp
             {save.error && <Alert>{save.error.message}</Alert>}
             <TextField label="Nombre de la plantilla" value={name} onChange={(e) => setName(e.target.value)} autoFocus required />
             <TextField label="Para qué sirve (opcional)" placeholder="Ej.: primer contacto con bancos" value={description} onChange={(e) => setDescription(e.target.value)} />
-            <p className="-mt-2 text-[12.5px] text-ork-mist">La verá toda tu empresa. Cada quien crea su propia {WORDS[kind].one} a partir de ella; tu original no cambia.</p>
+            <p className="-mt-2 text-[12.5px] text-ork-mist">
+              {shared
+                ? `La verá toda tu empresa. Cada quien crea su propia ${WORDS[kind].one} a partir de ella; tu original no cambia.`
+                : "Solo tú la ves. Más adelante puedes compartirla con el equipo desde «Empezar desde»."}
+            </p>
             <Button type="submit" loading={save.isPending} disabled={name.trim().length < 2}>
-              Compartir con el equipo
+              {shared ? "Compartir con el equipo" : "Guardar en mis plantillas"}
             </Button>
           </form>
         )}

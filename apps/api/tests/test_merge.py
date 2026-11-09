@@ -76,7 +76,8 @@ def test_merge_moves_everything_and_keeps_owners(
     _login(client, "ana@americadigital.co", panel=False)
     assert {d["title"] for d in client.get("/api/crm/deals").json()["deals"]} == {
         "Venta Ana", "Venta Luis"}  # fmt: skip
-    assert client.get("/api/contacts").json()["total"] == 3
+    # Los contactos son privados: Ana ve solo los suyos, no los que trajo Luis.
+    assert client.get("/api/contacts").json()["total"] == 1
     team = {m["email"]: m["role"] for m in client.get("/api/team").json()["members"]}
     assert team == {"ana@americadigital.co": "admin", "luis@americadigital.co": "vendedor"}
 

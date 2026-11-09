@@ -153,7 +153,10 @@ def save_brand(body: dict[str, Any], principal: Manager, db: Db) -> dict[str, An
 def proposals(
     principal: Member, db: Db, estado: str = "", oportunidad: uuid.UUID | None = None
 ) -> list[dict[str, Any]]:
-    return svc.list_proposals(db, principal.tenant_id, status=estado, deal_id=oportunidad)
+    return svc.list_proposals(
+        db, principal.tenant_id, status=estado, deal_id=oportunidad,
+        owner=principal.user.id, include_unowned=principal.role == "admin",
+    )  # fmt: skip
 
 
 @router.post("/api/proposals", status_code=201)
@@ -167,7 +170,10 @@ def create(body: CreateIn, request: Request, principal: Member, db: Db) -> dict[
             from orkesta.library import service as templates
 
             templates.apply_to_proposal(
-                proposal, templates.get(db, principal.tenant_id, body.template_id, "proposal")
+                proposal,
+                templates.get(
+                    db, principal.tenant_id, body.template_id, "proposal", principal.user.id
+                ),
             )
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
@@ -182,9 +188,12 @@ def create(body: CreateIn, request: Request, principal: Member, db: Db) -> dict[
 
 def _load(db: Db, principal: Principal, proposal_id: uuid.UUID) -> Any:
     try:
-        return svc.get_proposal(db, principal.tenant_id, proposal_id)
+        proposal = svc.get_proposal(db, principal.tenant_id, proposal_id)
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
+    if not principal.owns(proposal.created_by):
+        raise HTTPException(404, "Esa propuesta no existe o es de otra persona del equipo.")
+    return proposal
 
 
 @router.get("/api/proposals/{proposal_id}")

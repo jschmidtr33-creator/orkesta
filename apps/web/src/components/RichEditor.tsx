@@ -199,7 +199,7 @@ export function RichEditor({ value, onChange, onFocus, minHeight = 180, allowSou
             onClick={() => setSource((s) => !s)}
             className={cx(
               "ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-semibold",
-              source ? "bg-ork-blue text-white" : "text-ork-graphite hover:bg-ork-ink/5",
+              source ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5",
             )}
             title="Ver o pegar el código HTML"
           >
@@ -222,7 +222,7 @@ export function RichEditor({ value, onChange, onFocus, minHeight = 180, allowSou
             placeholder="https://calendly.com/… (selecciona antes el texto del enlace)"
             className="ork-focus h-8 flex-1 rounded-md border border-ork-line px-2 text-[13px]"
           />
-          <button type="button" onClick={applyLink} className="rounded-md bg-ork-blue px-3 text-[12.5px] font-semibold text-white">
+          <button type="button" onClick={applyLink} className="rounded-md bg-ork-blue-solid px-3 text-[12.5px] font-semibold text-white">
             Aplicar
           </button>
         </div>
@@ -232,7 +232,7 @@ export function RichEditor({ value, onChange, onFocus, minHeight = 180, allowSou
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="rounded-md bg-ork-blue px-3 py-1.5 text-[12.5px] font-semibold text-white"
+            className="rounded-md bg-ork-blue-solid px-3 py-1.5 text-[12.5px] font-semibold text-white"
           >
             Subir desde mi computador
           </button>

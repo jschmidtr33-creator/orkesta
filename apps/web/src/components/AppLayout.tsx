@@ -241,7 +241,7 @@ export function AppLayout() {
           </aside>
         </div>
       )}
-      <main className="relative mx-auto max-w-[1240px] px-4 py-6 sm:px-8 sm:py-8 lg:pt-14">
+      <main className="relative mx-auto max-w-[1240px] px-4 pb-24 pt-6 sm:px-8 sm:pt-8 lg:pt-14">
         <div className="absolute right-8 top-4 z-20 hidden lg:block">
           <NotificationBell />
         </div>

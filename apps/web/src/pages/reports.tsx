@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowDownRight, ArrowUpRight, Download, Minus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Alert, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
+import { useSession } from "../lib/session";
 import { api } from "../lib/api";
 
 export type Kpis = {
@@ -25,6 +26,7 @@ export type CampaignRow = {
   id: string;
   name: string;
   status: string;
+  owner_id?: string | null;
   emails_sent: number;
   contacted: number;
   opened: number;
@@ -126,7 +128,7 @@ export function ReportsPage() {
               type="button"
               onClick={() => setPreset(p.key)}
               aria-pressed={preset === p.key}
-              className={cx("shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-semibold", preset === p.key ? "bg-ork-blue text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+              className={cx("shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-semibold", preset === p.key ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
             >
               {p.label}
             </button>
@@ -367,6 +369,8 @@ function csv(name: string, header: string[], rows: (string | number)[][]) {
 }
 
 export function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
+  const { session } = useSession();
+  const me = session?.user.id;
   return (
     <Card className="overflow-x-auto p-0">
       <div className="flex items-start justify-between gap-3 px-5 pt-5">
@@ -409,9 +413,13 @@ export function CampaignsTable({ rows }: { rows: CampaignRow[] }) {
             {rows.map((r) => (
               <tr key={r.id}>
                 <td className="px-5 py-2.5 font-semibold text-ork-ink">
-                  <a href={`/app/campanas/${r.id}`} className="hover:text-ork-blue">
-                    {r.name}
-                  </a>
+                  {r.owner_id === me ? (
+                    <a href={`/app/campanas/${r.id}`} className="hover:text-ork-blue">
+                      {r.name}
+                    </a>
+                  ) : (
+                    r.name
+                  )}
                 </td>
                 <td className="py-2.5 text-right">{n(r.emails_sent)}</td>
                 <td className="py-2.5 text-right">{n(r.contacted)}</td>

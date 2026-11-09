@@ -1,8 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FileUp, ListPlus, MailCheck, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import { Download, ExternalLink, FileUp, ListPlus, Mail, MailCheck, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Avatar,
@@ -508,6 +508,7 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                     <AskConcertino contact_id={c.id} label={c.full_name}>
                       Concertino
                     </AskConcertino>
+                    {c.email && <OneToOneCampaign id={c.id} name={c.full_name} />}
                     <Button size="sm" variant="secondary" icon={<Pencil className="size-3.5" aria-hidden />} onClick={() => onEdit(c)}>
                       Editar
                     </Button>
@@ -867,5 +868,23 @@ function ContactCrm({ contactId, hit }: { contactId: string; hit: { id: string; 
       <Timeline contactId={contactId} />
       <NewDealModal open={creating} onOpenChange={setCreating} stages={stages.data?.stages ?? []} currencies={stages.data?.currencies ?? ["USD"]} contact={hit} />
     </div>
+  );
+}
+
+/** Campaña para un solo contacto: crea la campaña con esa persona como audiencia y la abre. */
+function OneToOneCampaign({ id, name }: { id: string; name: string }) {
+  const navigate = useNavigate();
+  const create = useMutation({
+    mutationFn: async () => {
+      const c = await api<{ id: string }>("/api/campaigns", { method: "POST", json: { name: `Para ${name}`.slice(0, 120) } });
+      await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { audience: { contact_ids: [id], include_estimated: true } } });
+      return c;
+    },
+    onSuccess: (c) => navigate(`/campanas/${c.id}`),
+  });
+  return (
+    <Button size="sm" variant="secondary" icon={<Mail className="size-3.5" aria-hidden />} loading={create.isPending} onClick={() => create.mutate()} title="Campaña personalizada solo para este contacto">
+      Campaña 1 a 1
+    </Button>
   );
 }

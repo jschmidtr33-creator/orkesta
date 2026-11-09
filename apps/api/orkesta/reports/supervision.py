@@ -179,6 +179,8 @@ def person_detail(
             }
             for r in runs
         ],
+        "campaigns": campaign_summary(session, tenant_id, uid),
+        "proposals": proposal_summary(session, tenant_id, uid),
         "timeline": [
             {
                 "id": str(a.id),
@@ -190,3 +192,51 @@ def person_detail(
             for a in log
         ],
     }
+
+
+def campaign_summary(
+    session: Session, tenant_id: uuid.UUID, uid: uuid.UUID
+) -> list[dict[str, Any]]:
+    """Resumen de las campañas de una persona (sin contenido ni destinatarios): lo que la
+    administración y la jefatura ven. Solo quien crea la campaña la abre y la edita."""
+    rows = session.execute(
+        select(Campaign.id, Campaign.name, Campaign.status, Campaign.created_at,
+               func.count(Recipient.id).filter(Recipient.sent_count > 0),
+               func.count(Recipient.opened_at), func.count(Recipient.replied_at),
+               func.count(Recipient.id).filter(Recipient.reply_category.in_(POSITIVE)))
+        .outerjoin(Recipient, Recipient.campaign_id == Campaign.id)
+        .where(Campaign.tenant_id == tenant_id, Campaign.created_by == uid)
+        .group_by(Campaign.id).order_by(Campaign.created_at.desc()).limit(50)
+    ).all()  # fmt: skip
+
+    def rate(part: int, total: int) -> float | None:
+        return round(100 * part / total, 1) if total else None
+
+    return [{"id": str(r[0]), "name": r[1], "status": r[2], "created_at": r[3].isoformat(),
+             "contacted": int(r[4]), "open_rate": rate(int(r[5]), int(r[4])),
+             "reply_rate": rate(int(r[6]), int(r[4])), "positive": int(r[7])}
+            for r in rows]  # fmt: skip
+
+
+def proposal_summary(
+    session: Session, tenant_id: uuid.UUID, uid: uuid.UUID
+) -> list[dict[str, Any]]:
+    """Resumen de las propuestas de una persona: número, título, estado y total."""
+    from orkesta.proposals.models import STATUS_LABELS, Proposal
+    from orkesta.proposals.service import totals
+
+    rows = session.scalars(
+        select(Proposal).where(Proposal.tenant_id == tenant_id, Proposal.created_by == uid)
+        .order_by(Proposal.created_at.desc()).limit(50)
+    ).all()  # fmt: skip
+    out = []
+    for p in rows:
+        try:
+            found = totals(p.items, p.tax_rate, p.pricing_mode, p.chosen_item).get("total")
+            total = float(found) if found is not None else None
+        except (TypeError, ValueError, KeyError):
+            total = None
+        out.append({"id": str(p.id), "number": p.number, "title": p.title, "status": p.status,
+                    "status_label": STATUS_LABELS.get(p.status, p.status), "total": total,
+                    "currency": p.currency, "created_at": p.created_at.isoformat()})  # fmt: skip
+    return out

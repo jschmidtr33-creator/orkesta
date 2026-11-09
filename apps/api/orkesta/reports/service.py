@@ -217,6 +217,7 @@ def by_campaign(session: Session, s: Scope, p: Period) -> list[dict[str, Any]]:
 
         rows.append({
             "id": str(c.id), "name": c.name, "status": c.status, "emails_sent": sent[c.id],
+            "owner_id": str(c.created_by) if c.created_by else None,
             "contacted": base, "opened": opened.get(c.id, 0), "clicked": clicked.get(c.id, 0),
             "replied": replied.get(c.id, 0), "bounced": bounced.get(c.id, 0),
             "open_rate": rate(opened.get(c.id, 0)), "click_rate": rate(clicked.get(c.id, 0)),
