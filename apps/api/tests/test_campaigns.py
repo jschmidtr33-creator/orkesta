@@ -773,3 +773,51 @@ def test_copy_insights_lessons() -> None:
     checks = insights.learned_checks({"lessons": list(lessons.values())},
                                      "Una propuesta muy larga para todo tu equipo comercial", "Hola.")  # fmt: skip
     assert any(c["status"] == "warn" for c in checks)
+
+
+def test_campaigns_share_the_mailbox_and_full_companies_are_skipped(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Dos campañas del mismo buzón se turnan, y una empresa que ya recibió su máximo del día no
+    detiene a las demás aunque tenga más de 40 personas en la fila."""
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    big = []
+    for i in range(45):
+        r = client.post("/api/contacts", json={"first_name": f"P{i}", "last_name": "Banco",
+                        "company": "Banco Andino", "email": f"p{i}@bancoandino.co"})  # fmt: skip
+        big.append(r.json()["id"])
+    other = client.post("/api/contacts", json={"first_name": "Otra", "last_name": "Empresa",
+                        "company": "Otra", "email": "otra@otraempresa.co"}).json()["id"]  # fmt: skip
+    steps = [
+        {
+            "subject": "Hola {{nombre}}",
+            "body": "Hola {{nombre}}, te escribo por una idea para tu equipo.",
+            "delay_days": 0,
+        }
+    ]
+    first = client.post("/api/campaigns", json={"name": "Banco"}).json()
+    client.patch(f"/api/campaigns/{first['id']}",
+                 json={"steps": steps, "audience": {"contact_ids": [*big, other]},
+                       "settings": {"per_domain_daily": 3}})  # fmt: skip
+    launched = client.post(f"/api/campaigns/{first['id']}/launch")
+    assert launched.status_code == 200, launched.text
+    second = client.post("/api/campaigns", json={"name": "Segunda"}).json()
+    solo = client.post("/api/contacts", json={"first_name": "Solo", "last_name": "Uno",
+                       "company": "Tercera", "email": "solo@tercera.co"}).json()["id"]  # fmt: skip
+    client.patch(f"/api/campaigns/{second['id']}",
+                 json={"steps": steps, "audience": {"contact_ids": [solo]}})  # fmt: skip
+    assert client.post(f"/api/campaigns/{second['id']}/launch").status_code == 200
+
+    _flush(session_factory, 6)
+    sent = {
+        c["name"]: c["stats"]["emails_sent"] for c in client.get("/api/campaigns").json()["items"]
+    }
+    # La segunda campaña no espera a que termine la primera.
+    assert sent["Segunda"] == 1
+    # Banco Andino: 3 al día; la otra empresa recibe el suyo aunque esté al final de la fila.
+    assert sent["Banco"] == 4
+    detail = client.get(f"/api/campaigns/{first['id']}").json()
+    assert "máximo de 3 correos por empresa" in (detail["waiting"] or "")

@@ -501,6 +501,7 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
         else None,
         "launched_at": c.launched_at.isoformat() if c.launched_at else None,
         "next_window": _iso(next_window(c.settings)) if c.status == "active" else None,
+        "waiting": waiting_reason(session, c, mailbox) if c.status == "active" else None,
         "created_at": c.created_at.isoformat(),
         "steps_count": len(c.steps),
         "stats": {
@@ -527,6 +528,46 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
         data["learning"] = learning(session, c)
         data["ab"] = ab_results(session, c)
     return data
+
+
+def waiting_reason(session: Session, c: Campaign, mailbox: Mailbox | None) -> str | None:
+    """Por qué una campaña activa no está enviando en este momento (``None`` si está enviando
+    o si ya no le queda nada por enviar)."""
+    due = session.scalar(select(func.count()).where(
+        Recipient.campaign_id == c.id, Recipient.status.in_(("pending", "active"))))  # fmt: skip
+    if not due:
+        return None
+    if mailbox is None:
+        return "No tiene buzón para enviar: elige uno en la campaña."
+    if mailbox.status != "active":
+        return f"El buzón {mailbox.email} perdió la conexión: vuelve a conectarlo en Configuración."
+    if not _in_window(c.settings):
+        return "Fuera del horario de envío: sigue en el próximo horario hábil."
+    tz = _tz(str(c.settings.get("timezone", "America/Bogota")))
+    limit = effective_limit(session, mailbox)[0]
+    if sent_today(session, mailbox.id, tz) >= limit:
+        return (f"El buzón ya envió hoy su máximo ({limit} correos entre todas sus campañas): "
+                "sigue mañana.")  # fmt: skip
+    from orkesta.admin.limits import emails_left_today
+
+    if emails_left_today(session, c.tenant_id, tz) == 0:
+        return "La empresa llegó al límite diario de correos de su plan: sigue mañana."
+    ready = session.scalar(select(func.count()).where(
+        Recipient.campaign_id == c.id, Recipient.status.in_(("pending", "active")),
+        Recipient.next_send_at <= now()))  # fmt: skip
+    if not ready:
+        return "Todos esperan su próximo seguimiento según los días entre correos."
+    full = _full_domains(session, c, mailbox, tz)
+    if full:
+        open_ = session.scalar(select(func.count()).where(
+            Recipient.campaign_id == c.id, Recipient.status.in_(("pending", "active")),
+            Recipient.next_send_at <= now(),
+            func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full)))  # fmt: skip
+        if not open_:
+            cap = int(c.settings.get("per_domain_daily", 3) or 0)
+            return (f"Las empresas pendientes ya recibieron hoy su máximo de {cap} correos "
+                    "por empresa: sigue mañana.")  # fmt: skip
+    return None
 
 
 def reply_breakdown(session: Session, c: Campaign) -> dict[str, int]:
@@ -833,14 +874,7 @@ def blocked_domains(session: Session, tenant_id: uuid.UUID) -> set[str]:
     return set(rows)
 
 
-def _pick(
-    session: Session, campaign: Campaign, mailbox: Mailbox, candidates: list[Recipient],
-    tz: ZoneInfo,
-) -> Recipient | None:  # fmt: skip
-    """El siguiente destinatario respetando el máximo diario por empresa destinataria."""
-    cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
-    if not candidates or cap <= 0:
-        return candidates[0] if candidates else None
+def _domain_counts(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> dict[str, int]:
     domain = func.lower(func.split_part(Recipient.email, "@", 2))
     rows = session.execute(
         select(domain, func.count())
@@ -849,14 +883,35 @@ def _pick(
         .where(Message.mailbox_id == mailbox.id, Message.sent_at >= _day_start(tz))
         .group_by(domain)
     ).all()
-    counts = {str(row[0]): int(row[1]) for row in rows}
+    return {str(row[0]): int(row[1]) for row in rows}
+
+
+def _full_domains(session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo) -> set[str]:
+    """Empresas destinatarias que ya recibieron hoy su máximo de correos desde este buzón."""
+    cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
+    if cap <= 0:
+        return set()
+    counts = _domain_counts(session, mailbox, tz)
     blocked = blocked_domains(session, campaign.tenant_id)
-    for r in candidates:
-        d = r.email.rsplit("@", 1)[-1].lower()
-        limit = 1 if d in blocked else cap  # empresas que ya bloquearon: una al día
-        if counts.get(d, 0) < limit:
-            return r
-    return None
+    return {d for d, n in counts.items() if n >= (1 if d in blocked else cap)}
+
+
+def _next_recipient(
+    session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo
+) -> Recipient | None:
+    """El siguiente destinatario que toca, saltando las empresas que ya llegaron a su máximo
+    diario (antes se miraban solo los 40 primeros y la campaña podía quedarse quieta)."""
+    full = _full_domains(session, campaign, mailbox, tz)
+    query = select(Recipient).where(
+        Recipient.campaign_id == campaign.id,
+        Recipient.status.in_(("pending", "active")),
+        Recipient.next_send_at <= now(),
+    )
+    if full:
+        query = query.where(func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full))
+    return session.scalars(
+        query.order_by(Recipient.next_send_at).limit(1).with_for_update(skip_locked=True)
+    ).first()
 
 
 def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
@@ -868,18 +923,7 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
 
     if emails_left_today(session, campaign.tenant_id, tz) == 0:
         return False  # límite diario del plan: sigue mañana
-    candidates = session.scalars(
-        select(Recipient)
-        .where(
-            Recipient.campaign_id == campaign.id,
-            Recipient.status.in_(("pending", "active")),
-            Recipient.next_send_at <= now(),
-        )
-        .order_by(Recipient.next_send_at)
-        .limit(40)
-        .with_for_update(skip_locked=True)
-    ).all()
-    recipient = _pick(session, campaign, mailbox, list(candidates), tz)
+    recipient = _next_recipient(session, campaign, mailbox, tz)
     if recipient is None:
         return False
     contact = session.get(Contact, recipient.contact_id)
@@ -1255,8 +1299,18 @@ def tick(factory: sessionmaker[Session]) -> int:
             if not got:
                 continue
             set_context(session, tenant_id=tenant_id)
+            last_sent = (
+                select(func.max(Message.sent_at))
+                .where(Message.campaign_id == Campaign.id)
+                .correlate(Campaign)
+                .scalar_subquery()
+            )
+            # Las campañas que comparten buzón se turnan: primero la que envió hace más tiempo
+            # (antes la primera de la lista se llevaba todos los envíos del día).
             campaigns = session.scalars(
-                select(Campaign).where(Campaign.tenant_id == tenant_id, Campaign.status == "active")
+                select(Campaign)
+                .where(Campaign.tenant_id == tenant_id, Campaign.status == "active")
+                .order_by(last_sent.asc().nulls_first(), Campaign.created_at)
             ).all()
             busy: set[uuid.UUID] = set()
             for campaign in campaigns:

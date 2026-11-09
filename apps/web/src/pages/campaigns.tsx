@@ -51,6 +51,7 @@ type Campaign = {
   mailbox: { id: string; email: string; status: string } | null;
   launched_at: string | null;
   next_window: string | null;
+  waiting?: string | null;
   created_at: string;
   steps_count: number;
   stats: Stats;
@@ -264,6 +265,11 @@ export function CampaignsPage() {
                   </td>
                   <td className="py-3">
                     <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
+                    {c.waiting && (
+                      <p className="mt-1 max-w-[220px] text-[11.5px] leading-snug text-ork-mist" title={c.waiting}>
+                        {c.waiting}
+                      </p>
+                    )}
                   </td>
                   <td className="py-3 text-right">{c.stats.recipients}</td>
                   <td className="py-3 text-right">{c.stats.emails_sent}</td>
@@ -444,6 +450,11 @@ export function CampaignDetail() {
             {new Date(c.next_window).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })}
             . Puedes cambiar los días y horas en «Envío».
           </Alert>
+        </div>
+      )}
+      {c.waiting && !c.next_window && c.mailbox?.status !== "error" && (
+        <div className="mb-4">
+          <Alert tone="blue">En pausa por ahora: {c.waiting}</Alert>
         </div>
       )}
       {c.mailbox?.status === "error" && (
