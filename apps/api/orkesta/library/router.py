@@ -40,6 +40,19 @@ def templates(principal: Member, db: Db, tipo: str = "campaign") -> list[dict[st
     return svc.listing(db, principal.tenant_id, tipo, principal.user, principal.role)
 
 
+@router.get("/{template_id}")
+def template_detail(
+    template_id: uuid.UUID, principal: Member, db: Db, tipo: str = "campaign"
+) -> dict[str, Any]:
+    """Contenido de una plantilla para verla antes de usarla (sin cambiarla)."""
+    try:
+        t = svc.get(db, principal.tenant_id, template_id, tipo, principal.user.id)
+    except svc.TemplateError as exc:
+        raise _fail(exc) from exc
+    return {"id": str(t.id), "name": t.name, "description": t.description, "shared": t.shared,
+            "payload": t.payload or {}}  # fmt: skip
+
+
 @router.post("", status_code=201)
 def save(body: SaveIn, principal: Member, db: Db) -> dict[str, Any]:
     try:

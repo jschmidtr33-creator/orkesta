@@ -33,6 +33,10 @@ def test_campaign_and_proposal_templates_are_shared_with_the_company(client: Tes
         "/api/templates", params={"tipo": "campaign"}).json()} == {
         "Solo mía": False, "Secuencia retail": True}  # fmt: skip
 
+    seen = luis.get(f"/api/templates/{saved.json()['id']}", params={"tipo": "campaign"}).json()
+    assert [st["body"] for st in seen["payload"]["steps"]] == ["Hola {{nombre}}", "¿Lo viste?"]
+    assert luis.get(f"/api/templates/{personal.json()['id']}",
+                    params={"tipo": "campaign"}).status_code == 404  # fmt: skip
     # Luis no ve la campaña de Ana, pero sí la plantilla, y crea la suya con ella.
     assert luis.get("/api/campaigns").json()["items"] == []
     listed = luis.get("/api/templates", params={"tipo": "campaign"}).json()
