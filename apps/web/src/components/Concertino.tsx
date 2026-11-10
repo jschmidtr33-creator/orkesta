@@ -33,19 +33,26 @@ type Advice = {
   next_step: string;
   missing: string[];
   sources: string[];
+  suggestions?: string[];
 };
-type Info = { topics: { code: string; label: string }[]; objections: { code: string; label: string }[]; plan: { full: boolean; topics: string[] } };
+type Info = {
+  topics: { code: string; label: string }[];
+  objections: { code: string; label: string }[];
+  plan: { full: boolean; topics: string[] };
+  user_name?: string;
+  welcome?: string;
+  starters?: string[];
+};
 type Turn = { id: number; question: string; advice?: Advice; error?: string };
 
 const QUICK: { label: string; mode?: string; question?: string; needs?: keyof AskContext }[] = [
-  { label: "Manejar una objeción", mode: "objecion" },
   { label: "¿Cómo le hablo?", mode: "perfil", needs: "contact_id" },
   { label: "¿Qué hago con esta cuenta?", mode: "cuenta", needs: "deal_id" },
   { label: "Revisar mi campaña", mode: "campana" },
   { label: "Preparar una reunión", mode: "reunion" },
   { label: "¿A qué sector apunto?", mode: "estrategia" },
-  { label: "¿Cómo presento la propuesta?", mode: "propuesta" },
 ];
+const QUIET_TOPICS = new Set(["charla", "general", "producto"]);
 
 const Ctx = createContext<{ open: (c?: AskContext) => void }>({ open: () => undefined });
 
@@ -90,12 +97,24 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState(initial.question ?? "");
   const [trato, setTrato] = useState<"auto" | "tu" | "usted">("auto");
-  const end = useRef<HTMLDivElement>(null);
   const ask = useMutation({
     mutationFn: (v: { question: string; mode?: string }) =>
       api<Advice>("/api/concertino/ask", {
         method: "POST",
-        json: { question: v.question, mode: v.mode, trato, contact_id: initial.contact_id, deal_id: initial.deal_id, recipient_id: initial.recipient_id, campaign_id: initial.campaign_id },
+        json: {
+          question: v.question,
+          mode: v.mode,
+          trato,
+          contact_id: initial.contact_id,
+          deal_id: initial.deal_id,
+          recipient_id: initial.recipient_id,
+          campaign_id: initial.campaign_id,
+          // Lo conversado hasta ahora: para saludar una sola vez y seguir el hilo.
+          history: turns
+            .filter((x) => x.advice)
+            .slice(-6)
+            .map((x) => ({ question: x.question.slice(0, 1000), topic: x.advice?.topic })),
+        },
       }),
   });
   const send = (question: string, mode?: string, label?: string) => {
@@ -117,9 +136,18 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
     send(initial.question ?? "", initial.mode, initial.prompt || initial.question || initial.label);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Acompaña la conversación hacia abajo mientras Concertino escribe.
+  const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turns]);
+    const box = scroller.current;
+    const inner = box?.firstElementChild;
+    if (!box || !inner || typeof ResizeObserver === "undefined") return;
+    const follow = new ResizeObserver(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+    follow.observe(inner);
+    return () => follow.disconnect();
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -157,41 +185,45 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
             </button>
           </div>
         </header>
-        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
-          {turns.length === 0 && (
-            <div className="space-y-4">
-              <p className="text-[13.5px] text-ork-graphite">
-                Cuéntame el caso: una respuesta que recibiste, una objeción, un perfil, una cuenta, una campaña, una propuesta o una reunión. Te respondo con tu ficha del producto y lo que le ha funcionado a tu empresa.
-              </p>
-              <div className="flex flex-wrap gap-2">
+        <div ref={scroller} className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="space-y-5">
+          <Bubble>
+            <p>{info.data?.welcome ?? "Hola. Soy Concertino, tu asesor de ventas. ¿En qué te ayudo hoy?"}</p>
+            {turns.length === 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(info.data?.starters ?? []).map((q) => (
+                  <button key={q} type="button" className={CHIP} onClick={() => send(q)}>
+                    {q}
+                  </button>
+                ))}
                 {quick
                   .filter((q) => !info.data || info.data.plan.full || info.data.plan.topics.includes(q.mode ?? ""))
-                  .map((q) =>
-                    q.mode === "objecion" ? (
-                      <button key={q.label} type="button" className={CHIP} onClick={() => setText("Me dijo que ")}>
-                        {q.label}
-                      </button>
-                    ) : (
-                      <button key={q.label} type="button" className={CHIP} onClick={() => send(q.question ?? "", q.mode, q.label)}>
-                        {q.label}
-                      </button>
-                    ),
-                  )}
+                  .map((q) => (
+                    <button key={q.label} type="button" className={CHIP} onClick={() => send(q.question ?? "", q.mode, q.label)}>
+                      {q.label}
+                    </button>
+                  ))}
+                {initial.recipient_id && (
+                  <Button size="sm" onClick={() => send("", "respuesta", "Asísteme con esta respuesta")}>
+                    Asísteme con esta respuesta
+                  </Button>
+                )}
               </div>
-              {initial.recipient_id && (
-                <Button size="sm" onClick={() => send("", "respuesta", "Asísteme con esta respuesta")}>
-                  Asísteme con esta respuesta
-                </Button>
-              )}
-            </div>
-          )}
-          {turns.map((t) => (
+            )}
+          </Bubble>
+          {turns.map((t, i) => (
             <div key={t.id} className="space-y-3">
               {t.question && <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-ork-blue-solid px-3.5 py-2 text-[13.5px] text-white">{t.question}</p>}
-              {t.error ? <Alert>{t.error}</Alert> : t.advice ? <AdviceCard advice={t.advice} objections={info.data?.objections ?? []} /> : <Thinking />}
+              {t.error ? (
+                <Alert>{t.error}</Alert>
+              ) : t.advice ? (
+                <AdviceCard advice={t.advice} objections={info.data?.objections ?? []} latest={i === turns.length - 1} onAsk={(q) => send(q)} />
+              ) : (
+                <Thinking />
+              )}
             </div>
           ))}
-          <div ref={end} />
+          </div>
         </div>
         <form
           className="border-t border-ork-line bg-ork-card px-4 py-3"
@@ -212,7 +244,7 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
               }}
               rows={2}
               maxLength={4000}
-              placeholder="Ej.: «Me dijo que ya tienen proveedor»"
+              placeholder={turns.length ? "Escribe tu respuesta o una nueva pregunta…" : "Pregúntame lo que necesites: «¿qué vendo?», «me dijo que es caro»…"}
               aria-label="Tu pregunta para Concertino"
               className="ork-focus min-h-[44px] flex-1 resize-none rounded-xl border border-ork-line bg-ork-surface px-3 py-2 text-[13.5px] text-ork-ink placeholder:text-ork-mist"
             />
@@ -226,81 +258,136 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
   );
 }
 
-function Thinking() {
+function Avatar() {
   return (
-    <div className="flex items-center gap-2 text-[13px] text-ork-mist" role="status">
-      <Music2 className="size-4 animate-pulse" aria-hidden /> Concertino está pensando…
+    <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-ork-blue-solid text-white" aria-hidden>
+      <Music2 className="size-3.5" />
+    </span>
+  );
+}
+
+/** Mensaje de Concertino: avatar y globo de conversación. */
+function Bubble({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Avatar />
+      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-ork-line bg-ork-card px-4 py-3 text-[14px] leading-relaxed text-ork-ink">{children}</div>
     </div>
   );
 }
 
-function AdviceCard({ advice, objections }: { advice: Advice; objections: { code: string; label: string }[] }) {
+function Thinking() {
+  return (
+    <div className="flex items-center gap-2.5" role="status" aria-label="Concertino está escribiendo">
+      <Avatar />
+      <span className="flex gap-1 rounded-2xl rounded-tl-md border border-ork-line bg-ork-card px-4 py-3.5">
+        {[0, 150, 300].map((d) => (
+          <span key={d} className="size-1.5 animate-bounce rounded-full bg-ork-mist" style={{ animationDelay: `${d}ms` }} />
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** Escribe el texto de a poco, como en una conversación (respeta «reducir movimiento»). */
+function useTyping(text: string, active: boolean) {
+  const calm = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const [shown, setShown] = useState(active && !calm ? 0 : text.length);
+  useEffect(() => {
+    if (shown >= text.length) return;
+    const step = Math.max(2, Math.ceil(text.length / 90));
+    const id = window.setTimeout(() => setShown((n) => Math.min(text.length, n + step)), 14);
+    return () => window.clearTimeout(id);
+  }, [shown, text]);
+  return { typed: text.slice(0, shown), done: shown >= text.length };
+}
+
+function AdviceCard({ advice, objections, latest, onAsk }: { advice: Advice; objections: { code: string; label: string }[]; latest: boolean; onAsk: (q: string) => void }) {
   const [fixed, setFixed] = useState(false);
   const fix = useMutation({
     mutationFn: (objection: string) => api(`/api/concertino/cases/${advice.case_id}`, { method: "POST", json: { objection } }),
     onSuccess: () => setFixed(true),
   });
+  const { typed, done } = useTyping(advice.summary, latest);
+  const showLabel = !QUIET_TOPICS.has(advice.topic) && advice.topic_label;
   return (
-    <div className="space-y-3 rounded-2xl border border-ork-line bg-ork-card p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="blue">{advice.topic_label}</Badge>
-        {advice.objection_label && <Badge tone="warn">{advice.objection_label}</Badge>}
-      </div>
-      <p className="text-[14px] font-semibold text-ork-ink">{advice.summary}</p>
-      {advice.objection && advice.case_id && (
-        <label className="flex items-center gap-2 text-[12px] text-ork-mist">
-          {fixed ? "Gracias, aprendo de la corrección." : "¿No es esta objeción?"}
-          {!fixed && (
-            <select className="rounded-md border border-ork-line bg-ork-card px-1.5 py-0.5 text-[12px]" defaultValue="" onChange={(e) => e.target.value && fix.mutate(e.target.value)} aria-label="Corregir el tipo de objeción">
-              <option value="">Elegir la correcta…</option>
-              {objections
-                .filter((o) => o.code !== advice.objection)
-                .map((o) => (
-                  <option key={o.code} value={o.code}>
-                    {o.label}
-                  </option>
-                ))}
-            </select>
+    <Bubble>
+      {(showLabel || advice.objection_label) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {showLabel && <Badge tone="blue">{advice.topic_label}</Badge>}
+          {advice.objection_label && <Badge tone="warn">{advice.objection_label}</Badge>}
+        </div>
+      )}
+      <p className="whitespace-pre-line" aria-live={latest ? "polite" : undefined}>
+        {typed}
+      </p>
+      {done && (
+        <div className="mt-3 space-y-3 animate-[fadeIn_.25s_ease-out]">
+          {advice.objection && advice.case_id && (
+            <label className="flex items-center gap-2 text-[12px] text-ork-mist">
+              {fixed ? "Gracias, aprendo de la corrección." : "¿No es esta objeción?"}
+              {!fixed && (
+                <select className="rounded-md border border-ork-line bg-ork-card px-1.5 py-0.5 text-[12px]" defaultValue="" onChange={(e) => e.target.value && fix.mutate(e.target.value)} aria-label="Corregir el tipo de objeción">
+                  <option value="">Elegir la correcta…</option>
+                  {objections
+                    .filter((o) => o.code !== advice.objection)
+                    .map((o) => (
+                      <option key={o.code} value={o.code}>
+                        {o.label}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </label>
           )}
-        </label>
-      )}
-      {advice.options.map((o) => (
-        <OptionBox key={o.code} option={o} caseId={advice.case_id} />
-      ))}
-      {advice.sections.map((s) => (
-        <div key={s.title}>
-          <p className="text-[12px] font-bold uppercase tracking-wide text-ork-mist">{s.title}</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-[13.5px] text-ork-graphite">
-            {s.items.map((i) => (
-              <li key={i}>{i}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {advice.tips.length > 0 && (
-        <div className="rounded-xl bg-ork-surface px-3 py-2.5 text-[13px] text-ork-graphite">
-          {advice.tips.map((t) => (
-            <p key={t}>{t}</p>
+          {advice.options.map((o) => (
+            <OptionBox key={o.code} option={o} caseId={advice.case_id} />
           ))}
-        </div>
-      )}
-      {advice.next_step && (
-        <p className="text-[13px] text-ork-graphite">
-          <strong>Siguiente paso:</strong> {advice.next_step}
-        </p>
-      )}
-      {advice.missing.length > 0 && (
-        <div className="rounded-xl border border-warn/30 bg-warn/5 px-3 py-2 text-[12.5px] text-ork-graphite">
-          {advice.missing.map((m) => (
-            <p key={m}>{m}</p>
+          {advice.sections.map((s) => (
+            <div key={s.title}>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-ork-mist">{s.title}</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-[13.5px] text-ork-graphite">
+                {s.items.map((i) => (
+                  <li key={i}>{i}</li>
+                ))}
+              </ul>
+            </div>
           ))}
-          <Link to="/producto" className="font-semibold text-ork-blue hover:underline">
-            Abrir la ficha del producto
-          </Link>
+          {advice.tips.length > 0 && (
+            <div className="rounded-xl bg-ork-surface px-3 py-2.5 text-[13px] text-ork-graphite">
+              {advice.tips.map((t) => (
+                <p key={t}>{t}</p>
+              ))}
+            </div>
+          )}
+          {advice.next_step && (
+            <p className="text-[13px] text-ork-graphite">
+              <strong>Siguiente paso:</strong> {advice.next_step}
+            </p>
+          )}
+          {advice.missing.length > 0 && (
+            <div className="rounded-xl border border-warn/30 bg-warn/5 px-3 py-2 text-[12.5px] text-ork-graphite">
+              {advice.missing.map((m) => (
+                <p key={m}>{m}</p>
+              ))}
+              <Link to="/producto" className="font-semibold text-ork-blue hover:underline">
+                Abrir la ficha del producto
+              </Link>
+            </div>
+          )}
+          {advice.sources.length > 0 && <p className="text-[11.5px] text-ork-mist">Basado en: {advice.sources.join(" · ")}</p>}
+          {latest && (advice.suggestions?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-2 border-t border-ork-line pt-3">
+              {advice.suggestions!.map((q) => (
+                <button key={q} type="button" className={CHIP} onClick={() => onAsk(q)}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {advice.sources.length > 0 && <p className="text-[11.5px] text-ork-mist">Basado en: {advice.sources.join(" · ")}</p>}
-    </div>
+    </Bubble>
   );
 }
 

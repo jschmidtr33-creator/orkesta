@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orkesta.concertino import engine
+from orkesta.concertino import chat, engine
 from orkesta.concertino import playbook as pb
 from orkesta.concertino.models import FACT_KINDS, AdviceCase, ProductFact
 from orkesta.core.db import unscoped
@@ -129,11 +129,26 @@ def ask(
     mode: str | None = None, contact_id: uuid.UUID | None = None,
     deal_id: uuid.UUID | None = None, recipient_id: uuid.UUID | None = None,
     campaign_id: uuid.UUID | None = None, trato: str = "auto",
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:  # fmt: skip
     question = (question or "").strip()[:4000]
+    history = (history or [])[-6:]
     ctx = _context(session, tenant_id=tenant_id, user=user, contact_id=contact_id,
                    deal_id=deal_id, recipient_id=recipient_id, campaign_id=campaign_id,
                    trato=trato)  # fmt: skip
+    name, turn = chat.user_name(user), len(history)
+    # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
+    quick = chat.small_talk(question, ctx, name) if question and mode is None else None
+    if quick is None and question and mode in (None, "producto", "general"):
+        quick = chat.catalog(question, ctx)
+        if quick is not None:
+            quick["summary"] = chat.greet(quick["summary"], name, turn)
+    if quick is not None:
+        topic_code = "producto" if quick["sections"] else "charla"
+        return {"case_id": None, "topic": topic_code,
+                "topic_label": pb.TOPICS["producto"] if topic_code == "producto" else "",
+                "objection": None, "objection_label": None, "formal": ctx.formal, **quick,
+                "sources": ["Ficha del producto"] if quick["sections"] else []}  # fmt: skip
     reply_text = (ctx.recipient.reply_snippet or "") if ctx.recipient is not None else ""
     if not question and not reply_text and mode not in ("cuenta", "campana", "reunion",
                                                          "estrategia", "perfil", "propuesta"):  # fmt: skip
@@ -148,6 +163,10 @@ def ask(
         topic = engine.classify_topic(session, text, objection=objection, has={
             "recipient": ctx.recipient is not None, "deal": ctx.deal is not None,
             "campaign": ctx.campaign is not None, "contact": ctx.contact is not None})  # fmt: skip
+    # «¿Tienen descuento para universidades?» es una duda del producto, no una objeción.
+    if (topic == "objecion" and question and mode is None and chat.is_question(question)
+            and engine.advise_product(session, ctx, question).get("_hits")):  # fmt: skip
+        topic, objection = "producto", None
     if topic == "objecion" and objection is None:
         objection = engine.objection_rules(text)[0]
     if not allowed(session, tenant_id, topic if topic != "respuesta" else "objecion"):
@@ -164,6 +183,9 @@ def ask(
             advice = engine.advise_objection(session, ctx, objection)
     elif topic == "perfil":
         advice = engine.advise_profile(session, ctx, text)
+        sheet = chat.from_sheet(text, ctx) if question else None
+        if sheet:
+            advice["sections"] = [sheet, *advice["sections"]]
     elif topic == "cuenta":
         advice = engine.advise_account(session, ctx)
     elif topic == "campana":
@@ -174,10 +196,14 @@ def ask(
         advice = engine.advise_meeting(session, ctx)
     elif topic == "estrategia":
         advice = engine.advise_strategy(session, ctx)
-    elif topic == "producto":
-        advice = engine.advise_product(session, ctx, text)
-    else:
-        advice = engine.advise_general(session, ctx, text)
+    elif topic in ("producto", "general"):
+        # Sigue el hilo: «¿y en Miami?» se entiende con la pregunta anterior.
+        previous = chat.follow_up(text, history) if question else ""
+        advice = engine.advise_product(session, ctx, text, previous)
+        if advice.get("_hits"):
+            advice = chat.product_reply(advice, text, ctx)
+        elif not advice.get("_pitch") and (topic == "general" or question):
+            advice = chat.fallback(text, ctx)
     case = AdviceCase(
         tenant_id=tenant_id, user_id=user.id, topic=topic, objection=objection,
         question=question or reply_text[:2000],
@@ -191,6 +217,11 @@ def ask(
     )  # fmt: skip
     session.add(case)
     session.flush()
+    advice.pop("_hits", None)
+    advice.pop("_pitch", None)
+    advice["summary"] = chat.greet(advice["summary"], name, turn)
+    if not advice.get("suggestions"):
+        advice["suggestions"] = chat.suggestions_for(topic, ctx, question or text, [])
     sources = []
     if any(o["code"].startswith("ficha:") for o in advice["options"]) or ctx.facts:
         sources.append("Ficha del producto")
@@ -202,6 +233,17 @@ def ask(
     return {"case_id": str(case.id), "topic": topic, "topic_label": pb.TOPICS[topic],
             "objection": objection, "objection_label": obj.label if obj else None,
             "formal": ctx.formal, **advice, "sources": sources}  # fmt: skip
+
+
+def welcome(session: Session, tenant_id: uuid.UUID, user: User) -> dict[str, Any]:
+    """Saludo al abrir Concertino, con el nombre de la persona y preguntas para empezar."""
+    ctx = engine.Context(tenant_id=tenant_id, user_id=user.id, formal=False,
+                         facts=engine.load_facts(session, tenant_id))  # fmt: skip
+    name = chat.user_name(user)
+    text = (f"Hola, {name}. Soy Concertino, tu asesor de ventas. "
+            + ("Conozco tu producto y lo que le funciona a tu empresa. ¿En qué te ayudo hoy?"
+               if ctx.facts else "Cuéntame el caso y te ayudo a resolverlo."))  # fmt: skip
+    return {"user_name": name, "welcome": text, "starters": chat.starters(ctx)}
 
 
 def _own_case(session: Session, tenant_id: uuid.UUID, user: User, case_id: uuid.UUID) -> AdviceCase:

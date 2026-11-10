@@ -19,6 +19,11 @@ def _fail(exc: svc.ConcertinoError) -> HTTPException:
     return HTTPException(exc.status, str(exc))
 
 
+class TurnIn(BaseModel):
+    question: str = Field(default="", max_length=1000)
+    topic: str | None = Field(default=None, max_length=20)
+
+
 class AskIn(BaseModel):
     question: str = Field(default="", max_length=4000)
     mode: str | None = Field(default=None, max_length=20)
@@ -27,6 +32,7 @@ class AskIn(BaseModel):
     recipient_id: uuid.UUID | None = None
     campaign_id: uuid.UUID | None = None
     trato: str = Field(default="auto", pattern="^(auto|tu|usted)$")
+    history: list[TurnIn] = Field(default_factory=list, max_length=20)
 
 
 class FeedbackIn(BaseModel):
@@ -65,6 +71,7 @@ def info(principal: Member, db: Db) -> dict[str, Any]:
         "objections": [{"code": o.code, "label": o.label} for o in OBJECTIONS],
         "plan": svc.plan_features(db, principal.tenant_id),
         "can_curate": svc.can_curate(principal.role),
+        **svc.welcome(db, principal.tenant_id, principal.user),
     }
 
 
@@ -76,6 +83,7 @@ def ask(body: AskIn, principal: Member, db: Db) -> dict[str, Any]:
             db, tenant_id=principal.tenant_id, user=principal.user, question=body.question,
             mode=body.mode, contact_id=body.contact_id, deal_id=body.deal_id,
             recipient_id=body.recipient_id, campaign_id=body.campaign_id, trato=body.trato,
+            history=[t.model_dump() for t in body.history],
         )  # fmt: skip
     except svc.ConcertinoError as exc:
         raise _fail(exc) from exc

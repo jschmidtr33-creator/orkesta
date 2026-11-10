@@ -157,3 +157,9 @@ html:not(.dark) body.ork-app .bg-ork-sidebar {
 .ork-rich a { color: var(--p, #1a56db); text-decoration: underline; font-weight: 600; }
 .ork-rich img { max-width: 100%; height: auto; border-radius: 8px; margin: 6px 0; }
 .ork-rich h2, .ork-rich h3 { font-weight: 700; margin: 6px 0 4px; }
+
+/* Concertino: lo que aparece después de escribir la respuesta. */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}

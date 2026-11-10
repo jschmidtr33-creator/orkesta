@@ -253,7 +253,7 @@ def test_bulk_package_stays_in_its_company(
     assert "núcleo de 3 a 5 personas" in " ".join(o["text"] for o in advice["options"])
     product = luis.post("/api/concertino/ask", json={"question": "¿Cuánto vale la entrada?",
                                                      "mode": "producto"}).json()  # fmt: skip
-    joined = " ".join(i for s in product["sections"] for i in s["items"])
+    joined = product["summary"] + " ".join(i for s in product["sections"] for i in s["items"])
     assert "US$740" in joined and "US$100" not in joined
     shared = luis.get("/api/templates?tipo=campaign").json()
     assert any(t["name"] == "Respuesta a cuánto cuesta" for t in shared)
@@ -263,3 +263,47 @@ def test_bulk_package_stays_in_its_company(
     register(other, "eva@otra.co")
     assert other.get("/api/concertino/facts").json()["items"] == []
     assert other.get("/api/templates?tipo=campaign").json() == []
+
+
+def test_converses_by_name_with_catalog_follow_ups_and_suggestions(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Concertino conversa: saluda por el nombre, responde «¿qué vendo?» con la ficha, sigue el
+    hilo de la pregunta anterior y propone cómo continuar."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    client.post("/api/concertino/facts/bulk", json={"facts": [
+        {"kind": "producto", "title": "Congresos de IA y negocios para C-Levels", "prioridad": 3},
+        {"kind": "precio", "title": "Full Pass: US$740 en Chile y US$1.470 en Miami", "prioridad": 3},
+        {"kind": "precio", "title": "Delegación Silver: 7 accesos por US$2.590"},
+        {"kind": "pregunta", "title": "¿Hay entrada de un solo día?",
+         "answer": "No existe pase de un solo día: el acceso cubre los 2 días."},
+    ]})  # fmt: skip
+    info = client.get("/api/concertino/info").json()
+    name = info["user_name"]
+    assert (
+        name and info["welcome"].startswith(f"Hola, {name}.") and "¿Qué vendo?" in info["starters"]
+    )
+
+    def ask(question: str, history: list[dict[str, str]]) -> dict[str, object]:
+        r = client.post("/api/concertino/ask", json={"question": question, "history": history})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    hello = ask("Hola", [])
+    assert hello["topic"] == "charla" and hello["summary"].startswith(f"Hola, {name}.")
+    assert hello["case_id"] is None and hello["suggestions"]
+    sold = ask("Qué vendo", [{"question": "Hola", "topic": "charla"}])
+    assert f", {name}." in sold["summary"] and "congresos de IA" in sold["summary"]
+    assert "Delegación Silver" in sold["sections"][0]["items"]
+    price = ask("¿Cuánto cuesta la delegación silver?", [])
+    assert "US$2.590" in price["summary"] and price["suggestions"]
+    follow = ask("¿y en Miami?", [{"question": "¿Cuánto cuesta la delegación silver?",
+                                   "topic": "general"}])  # fmt: skip
+    assert "US$1.470" in follow["summary"]
+    faq = ask("¿Hay entrada de un solo día?", [])
+    assert "No existe pase de un solo día" in faq["summary"]
+    who = ask("¿Qué puedes hacer?", [])
+    assert "IA de ventas propia" in who["summary"]
+    lost = ask("asdf qwer zxcv", [])
+    assert lost["suggestions"]
