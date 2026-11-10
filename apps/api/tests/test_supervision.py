@@ -228,3 +228,33 @@ def test_campaigns_and_proposals_are_only_their_owners(
         detail = who.get(f"/api/reports/team/{uid}").json()
         assert [c["name"] for c in detail["campaigns"]] == ["Nueva"]
         assert [p["id"] for p in detail["proposals"]] == [proposal["id"]]
+
+
+def test_each_person_sees_and_edits_only_their_own_mailbox(  # type: ignore[no-untyped-def]
+    client: TestClient, session_factory: sessionmaker[Session], monkeypatch
+) -> None:
+    """Integraciones: cada quien ve y configura su buzón y su firma; ni la administración ve
+    ni cambia los del resto del equipo."""
+    import imaplib
+    import smtplib
+
+    from tests.test_mail_providers import FakeIMAP, FakeSMTP
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAP)
+    FakeSMTP.sent, FakeSMTP.fail = [], False
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    for who, email in ((client, "ana@lacteos.co"), (luis, "luis@lacteos.co")):
+        r = who.post("/api/mailboxes/smtp", json={"email": email, "password": "clave-app",
+                                                  "smtp_host": "smtp.lacteos.co"})  # fmt: skip
+        assert r.status_code == 201, r.text
+    mine = client.get("/api/mailboxes").json()["items"]
+    assert [m["email"] for m in mine] == ["ana@lacteos.co"]
+    his = luis.get("/api/mailboxes").json()["items"]
+    assert [m["email"] for m in his] == ["luis@lacteos.co"]
+    denied = client.patch(f"/api/mailboxes/{his[0]['id']}", json={"signature": "<p>Ana</p>"})
+    assert denied.status_code == 404
+    ok = luis.patch(f"/api/mailboxes/{his[0]['id']}", json={"signature": "<p>Luis</p>"})
+    assert ok.status_code == 200

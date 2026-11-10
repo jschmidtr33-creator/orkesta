@@ -206,15 +206,18 @@ def _mailbox(db: Db, principal: Principal, mailbox_id: uuid.UUID) -> Mailbox:
     mailbox = db.get(Mailbox, mailbox_id)
     if mailbox is None or mailbox.tenant_id != principal.tenant_id:
         raise HTTPException(404, "Ese buzón no existe.")
-    if not principal.can_modify(mailbox.user_id):
-        raise HTTPException(403, "Solo puedes cambiar tu propio buzón.")
+    # Cada persona configura solo su buzón y su firma (ni la administración edita los ajenos).
+    if mailbox.user_id not in (principal.user.id, None):
+        raise HTTPException(404, "Ese buzón no existe.")
     return mailbox
 
 
 @router.get("/api/mailboxes")
 def mailboxes(principal: Member, db: Db) -> dict[str, Any]:
     rows = db.scalars(
-        select(Mailbox).where(Mailbox.tenant_id == principal.tenant_id).order_by(Mailbox.created_at)
+        select(Mailbox)
+        .where(Mailbox.tenant_id == principal.tenant_id, Mailbox.user_id == principal.user.id)
+        .order_by(Mailbox.created_at)
     ).all()
     tz = svc._tz("America/Bogota")
     from orkesta.campaigns import microsoft
