@@ -754,6 +754,9 @@ def advise_strategy(session: Session, ctx: Context) -> dict[str, Any]:
 _STOP = frozenset(
     ["como", "cual", "cuales", "cuanto", "cuanta", "cuantos", "cuesta", "cuestan", "nuestro", "nuestra", "nuestros", "nuestras", "producto", "productos", "para", "esta", "este", "estos", "estas", "tiene", "tienen", "puedo", "puede", "sobre", "entre", "donde", "cuando", "quien", "porque", "desde", "hasta", "tambien", "solo", "algo", "alguna", "algun", "hacer", "decir", "dice", "saber", "quiero", "necesito", "ellos", "ustedes", "tengo", "tenemos", "estan", "hay", "que", "los", "las", "una", "uno", "del", "por", "con", "sus", "mas", "les", "le"]
 )  # fmt: skip
+_PRICE = re.compile(
+    r"\b(cuesta|cuestan|costo|precio|precios|vale|valen|valor|cuanto|tarifa|inversion)\b"
+)
 _PITCH = re.compile(r"\b(presento|presentar|presentacion|pitch|explico|explicar|resumo|resumir)\b")
 
 
@@ -781,17 +784,24 @@ KIND_LABELS = {"producto": "Qué es", "publico": "Para quién", "problema": "Pro
                "pregunta": "Pregunta frecuente"}  # fmt: skip
 
 
-def advise_product(session: Session, ctx: Context, question: str) -> dict[str, Any]:
+def advise_product(
+    session: Session, ctx: Context, question: str, previous: str = ""
+) -> dict[str, Any]:
     all_facts = [f for items in ctx.facts.values() for f in items]
     # «¿Cómo presento el producto?» pide el discurso armado, no datos sueltos.
     pitch_only = (
         bool(_PITCH.search(fold(question))) and len(_terms(_PITCH.sub(" ", fold(question)))) <= 1
     )
+    # En un seguimiento («¿y en Miami?») manda la pregunta nueva; la anterior solo desempata.
     scored = [] if pitch_only else [(f, _overlap(question, f)) for f in all_facts]
+    # Si se habla de precio (ahora o en la pregunta anterior), los precios van primero.
+    price = bool(_PRICE.search(fold(f"{question} {previous}")))
+    scored = [(f, 3 * cur + (_overlap(previous, f) if previous else 0)
+               + (4 if price and f.kind == "precio" else 0))
+              for f, cur in scored if cur > 0]  # fmt: skip
     best = max((sc for _, sc in scored), default=0)
-    hits = [
-        f for f, sc in sorted(scored, key=lambda x: x[1], reverse=True) if sc >= max(2, best / 3)
-    ]
+    hits = [f for f, sc in sorted(scored, key=lambda x: x[1], reverse=True)
+            if sc >= max(6, best / 3)]  # fmt: skip
     if hits:
         items = [f"{KIND_LABELS.get(f.kind, f.kind)}: {f.title}" + (f" — {f.answer or f.detail}" if (f.answer or f.detail) else "")
                  for f in hits[:5]]  # fmt: skip
@@ -802,6 +812,7 @@ def advise_product(session: Session, ctx: Context, question: str) -> dict[str, A
             "sections": [{"title": "De la ficha", "items": items}],
             "next_step": "",
             "missing": [],
+            "_hits": hits[:5],
         }
     values = slots(ctx)
     pitch = ("{producto}.", "Es para {publico}.", "Resuelve {problema}.", "Lo que más valoran nuestros clientes: {valor}.",
@@ -813,7 +824,9 @@ def advise_product(session: Session, ctx: Context, question: str) -> dict[str, A
         return _ask_more("No encuentro eso en la ficha del producto. Agrégalo en la página Producto "
                          "y desde ese momento lo uso en mis respuestas.")  # fmt: skip
     text = " ".join(k[0].upper() + k[1:] for k in kept)
-    return {"summary": "No encontré ese dato exacto en la ficha. Así presentaría el producto con lo que sé:",
+    return {"summary": "Así lo presentaría en 30 segundos:" if pitch_only else
+            "No encontré ese dato exacto en la ficha. Así presentaría el producto con lo que sé:",
+            "_pitch": pitch_only,
             "options": [{"code": "pitch", "name": "Presentación en 30 segundos",
                          "why": "Problema, resultado y prueba: en ese orden.", "text": text, "record": None}],
             "tips": [], "sections": [], "next_step": "",
