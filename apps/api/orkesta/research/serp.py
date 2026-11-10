@@ -273,16 +273,42 @@ def same_employer(employer: str, company: str, domain: str) -> bool:
     return bool(label) and any(w in label or label in w for w in said if len(w) > 3)
 
 
+_LEGAL = re.compile(
+    r"\b(s\.?\s?a\.?\s?s?\.?|ltda\.?|s\.?a\.?\s?de\s?c\.?v\.?|inc\.?|corp\.?)$", re.I
+)
+_PREFIXES = ("banco", "corporacion", "fundacion", "universidad", "secretaria", "ministerio")
+
+
+def company_variants(company: str, domain: str = "") -> list[str]:
+    """Cómo puede aparecer la empresa en un perfil: «Banco Occidente» y «Banco de Occidente»,
+    sin «S.A.», etc. Google busca la frase exacta, así que una variante mal escrita da cero."""
+    name = " ".join(_LEGAL.sub("", company.strip()).split()).strip(" ,.-")
+    variants = [name or company.strip()]
+    words = name.split()
+    if len(words) >= 2 and fold(words[0]) in {fold(p) for p in _PREFIXES}:
+        if fold(words[1]) in ("de", "del", "la"):
+            variants.append(" ".join([words[0], *words[2:]]))
+        else:
+            variants.append(" ".join([words[0], "de", *words[1:]]))
+    label = domain.split(".")[0].replace("-", " ") if domain else ""
+    seen = {fold(v).replace(" ", "") for v in variants}
+    if label and len(label) > 3 and fold(label).replace(" ", "") not in seen:
+        variants.append(label)
+    return list(dict.fromkeys(v for v in variants if len(v) > 2))[:3]
+
+
 def xray_queries(company: str, levels: list[str], areas: list[str]) -> list[str]:
-    roles = [t for lv in (levels or ["c_level", "vp", "director", "gerente"]) for t in
-             LEVEL_TERMS.get(lv, [])]  # fmt: skip
-    roles = list(dict.fromkeys(roles))[:10]
-    queries = [f'site:linkedin.com/in "{company}" ({" OR ".join(roles)})']
+    """Una consulta por nivel (y otra por área): así ningún cargo queda fuera por el largo."""
+    queries = []
     if areas:
         terms = list(dict.fromkeys(t for a in areas for t in AREA_TERMS.get(a, [])))[:6]
         if terms:
-            queries.insert(0, f'site:linkedin.com/in "{company}" ({" OR ".join(terms)})')
-    return queries
+            queries.append(f'site:linkedin.com/in "{company}" ({" OR ".join(terms)})')
+    for level in levels or ["c_level", "vp", "director", "gerente"]:
+        terms = LEVEL_TERMS.get(level, [])[:8]
+        if terms:
+            queries.append(f'site:linkedin.com/in "{company}" ({" OR ".join(terms)})')
+    return list(dict.fromkeys(queries))
 
 
 def decision_makers(
@@ -294,30 +320,38 @@ def decision_makers(
     country: str,
     levels: list[str],
     areas: list[str],
+    pages: int = 1,
+    cap: int = 25,
 ) -> list[ProfileHit]:
+    """Perfiles públicos de quienes trabajan hoy en la empresa. Prueba variantes del nombre y,
+    si con los cargos pedidos no aparece nadie, busca a cualquiera con cargo en esa empresa."""
     found: dict[str, ProfileHit] = {}
     gl = COUNTRY_GL.get(country, "")
-    for query in xray_queries(company, levels, areas):
-        payload: dict[str, Any] = {"q": query, "num": 20, "hl": "es"}
+
+    def read(query: str, page: int) -> int:
+        payload: dict[str, Any] = {"q": query, "num": 10 if page > 1 else 20, "hl": "es"}
+        if page > 1:
+            payload["page"] = page
         if gl:
             payload["gl"] = gl
         data = call(fetcher, "search", payload, stats)
         if data is None:
-            break
-        for row in data.get("organic", []) or []:
+            return -1
+        rows = data.get("organic", []) or []
+        for row in rows:
             if not isinstance(row, dict):
                 continue
             link = str(row.get("link", ""))
             if "linkedin.com/in/" not in link:
                 continue
-            name, role, employer = parse_profile(str(row.get("title", "")),
-                                                 str(row.get("snippet", "")))  # fmt: skip
+            snippet = str(row.get("snippet", ""))
+            name, role, employer = parse_profile(str(row.get("title", "")), snippet)
             person = make_person(name, role) if looks_like_person(name, strict=False) else None
             ok = (
                 person is not None
                 and bool(role)
                 and looks_like_title(role)
-                and same_employer(employer or str(row.get("snippet", "")), company, domain)
+                and same_employer(employer or snippet, company, domain)
             )
             if not ok or person is None:
                 with stats.lock:
@@ -335,9 +369,30 @@ def decision_makers(
                                         person.title, link, employer)  # fmt: skip
                 with stats.lock:
                     stats.accepted += 1
-        if len(found) >= 8:
+        return len(rows)
+
+    def sweep(queries: list[str]) -> bool:
+        for query in queries:
+            for page in range(1, pages + 1):
+                got = read(query, page)
+                if got < 0 or stats.fatal:
+                    return False
+                if got < 10 or len(found) >= cap:
+                    break
+            if len(found) >= cap:
+                return False
+        return True
+
+    variants = company_variants(company, domain)
+    for variant in variants:
+        if not sweep(xray_queries(variant, levels, areas)):
             break
-    return list(found.values())
+        if len(found) >= min(cap, 5):
+            break  # con el nombre principal ya basta
+    if not found and not stats.fatal:
+        # Nadie con esos cargos: cualquier persona que hoy trabaje ahí (el filtro decide luego).
+        sweep([f'site:linkedin.com/in "{v}"' for v in variants])
+    return list(found.values())[:cap]
 
 
 # --- 2. Empresas en Google Maps -------------------------------------------------------------

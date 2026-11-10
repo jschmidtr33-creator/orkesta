@@ -753,9 +753,12 @@ def _serp_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candi
     def one(company: Candidate) -> int:
         if run.expired() or run.serp.fatal:
             return 0
+        # Pocas empresas escritas por el usuario: se busca a fondo (varias páginas por cargo).
+        deep = bool(filters.companies) and len(batch) <= 5
         hits = serp.decision_makers(
             fetcher, run.serp, company=company.name, domain=company.domain,
             country=filters.country, levels=filters.levels, areas=filters.areas,
+            pages=3 if deep else 1, cap=max(25, filters.limit) if deep else 12,
         )  # fmt: skip
         for hit in hits:
             source = {"type": "perfil", "label": "Perfil público · Google", "url": hit.url}
