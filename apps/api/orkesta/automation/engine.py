@@ -513,6 +513,19 @@ def execute(
             )
             session.add(run)
             return run
+    # Si la persona dueña del contacto u oportunidad apagó la regla para sí, no corre.
+    muted = set(rule.muted_users or [])
+    if muted:
+        deal = _open_deal(session, contact_id, ctx.get("deal_id"))
+        owners = {str(x) for x in (deal.owner_user_id if deal else None, ctx.get("user_id"),
+                                   contact.owner_user_id if contact else None) if x}  # fmt: skip
+        if owners & muted:
+            detail = "La persona a cargo la desactivó para sí"
+            run = Run(tenant_id=rule.tenant_id, rule_id=rule.id, trigger=trigger,
+                      contact_id=contact_id, status="skipped",
+                      results=[{"ok": True, "detail": detail}])  # fmt: skip
+            session.add(run)
+            return run
     results, failed = [], False
     for action in rule.actions:
         try:
