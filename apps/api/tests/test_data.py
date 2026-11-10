@@ -306,3 +306,33 @@ def test_manual_contact_goes_to_existing_and_new_lists(client: TestClient) -> No
     assert dup.status_code >= 400
     people = client.get("/api/contacts", params={"q": "Marta"}).json()
     assert people["total"] == 0
+
+
+def test_each_person_sees_only_their_own_contacts_and_imports(
+    client: TestClient, session_factory: sessionmaker[Session], database: tuple[str, str]
+) -> None:
+    from tests.test_supervision import _join, _pro
+
+    register(client, "ana@lacteos.mx")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.mx", "vendedor", "Luis")
+    sara = _join(client, "sara@lacteos.mx", "supervisor", "Sara")
+    done = _import(luis, session_factory, BASE, "luis.csv")
+    assert luis.get("/api/contacts").json()["total"] == 3
+    sara.post("/api/contacts", json={"first_name": "Mario", "email": "mario@retail.mx"})
+
+    # Ni la administración ni la jefatura ven los contactos ni los archivos de otros.
+    for other in (client, sara):
+        assert all(c["first_name"] != "Ana" for c in other.get("/api/contacts").json()["items"])
+        assert other.get("/api/imports").json() == []
+        assert other.get(f"/api/imports/{done['id']}").status_code == 404
+    assert client.get("/api/contacts").json()["total"] == 0
+    assert [c["first_name"] for c in sara.get("/api/contacts").json()["items"]] == ["Mario"]
+    assert [i["filename"] for i in luis.get("/api/imports").json()] == ["luis.csv"]
+
+    # Un contacto antiguo sin dueño pasa a quien lo vuelve a importar.
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET owner_user_id = NULL WHERE first_name <> 'Mario'")
+    _import(sara, session_factory, BASE, "sara.csv")
+    assert sara.get("/api/contacts").json()["total"] == 4
+    assert luis.get("/api/contacts").json()["total"] == 0
