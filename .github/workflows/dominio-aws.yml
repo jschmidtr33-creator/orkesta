@@ -1,0 +1,98 @@
+# Cambia ORKESTA a su dominio propio sin tocar los datos: HTTPS automático para el dominio,
+# y la dirección anterior (y www) redirigen al dominio nuevo para que ningún enlace se rompa.
+# Se ejecuta a mano: Actions → dominio-aws → Run workflow.
+name: dominio-aws
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Dominio nuevo (sin https://)"
+        default: "orkestaapp.com"
+        required: true
+      anterior:
+        description: "Dirección anterior que debe redirigir al dominio nuevo"
+        default: "3-130-137-39.sslip.io"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aws  # nunca al mismo tiempo que un despliegue
+  cancel-in-progress: false
+
+jobs:
+  dominio:
+    runs-on: ubuntu-latest
+    env:
+      HOST: ${{ secrets.AWS_HOST }}
+      KEY: ${{ secrets.AWS_SSH_KEY }}
+      DOMAIN: ${{ inputs.domain }}
+      OLD: ${{ inputs.anterior }}
+    steps:
+      - name: Revisar que el dominio ya apunte al servidor
+        run: |
+          [ -n "$HOST" ] && [ -n "$KEY" ] || { echo "::error::Faltan los secretos AWS_HOST o AWS_SSH_KEY"; exit 1; }
+          echo "$DOMAIN" | grep -Eq '^[a-z0-9.-]+\.[a-z]{2,}$' || { echo "::error::Dominio no válido: $DOMAIN"; exit 1; }
+          server=$(getent ahostsv4 "$HOST" | awk 'NR==1{print $1}')
+          for name in "$DOMAIN" "www.$DOMAIN"; do
+            ip=$(getent ahostsv4 "$name" | awk 'NR==1{print $1}')
+            if [ "$ip" != "$server" ]; then
+              echo "::error::$name todavía no apunta al servidor (apunta a '${ip:-nada}'). Revisa los registros DNS en GoDaddy y vuelve a intentar en unos minutos."
+              exit 1
+            fi
+            echo "$name apunta al servidor ✔"
+          done
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 ubuntu@$HOST" >> "$GITHUB_ENV"
+
+      - name: Configurar el dominio en el servidor
+        run: |
+          $SSH "sudo DOMAIN='$DOMAIN' OLD='$OLD' bash -s" <<'REMOTE'
+          set -e
+          cd /opt/orkesta
+          cp Caddyfile "Caddyfile.$(date +%Y%m%d%H%M%S).bak"
+          cat > Caddyfile <<CADDY
+          # HTTPS automático (Let's Encrypt) para el dominio de ORKESTA.
+          {\$DOMAIN} {
+          	encode zstd gzip
+          	reverse_proxy app:8000
+          	request_body {
+          		max_size 70MB
+          	}
+          }
+
+          # www y la dirección anterior llevan al dominio, con la misma ruta (enlaces ya enviados).
+          www.$DOMAIN, $OLD {
+          	redir https://$DOMAIN{uri} permanent
+          }
+          CADDY
+          for line in "DOMAIN=$DOMAIN" "PUBLIC_BASE_URL=https://$DOMAIN"; do
+            key="${line%%=*}"
+            grep -v "^${key}=" .env > .env.tmp || true
+            printf '%s\n' "$line" >> .env.tmp
+            mv .env.tmp .env
+          done
+          chmod 600 .env
+          docker compose up -d --force-recreate app caddy
+          echo "Dominio configurado: https://$DOMAIN"
+          REMOTE
+
+      - name: Esperar el certificado HTTPS
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "https://$DOMAIN/api/health" >/dev/null; then
+              echo "ORKESTA responde en https://$DOMAIN ✔"
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$OLD/app" || true)
+              echo "La dirección anterior responde con $code (redirección al dominio)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::El dominio todavía no responde por HTTPS. Revisa el DNS y vuelve a ejecutar."
+          exit 1
+
+      - name: Limpiar
+        if: always()
+        run: rm -f key.pem
