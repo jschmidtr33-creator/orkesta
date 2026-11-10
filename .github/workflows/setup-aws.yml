@@ -13,7 +13,7 @@ on:
     inputs:
       domain:
         description: "Dominio de ORKESTA en AWS"
-        default: "3-130-137-39.sslip.io"
+        default: "orkestaapp.com"
         required: true
       copiar_datos:
         description: "Copiar la base de datos desde Render (reemplaza lo que haya en AWS)"
