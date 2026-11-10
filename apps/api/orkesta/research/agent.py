@@ -1035,6 +1035,10 @@ def assign_emails(
     return counts
 
 
+def _q(term: str) -> str:
+    return '"' + term.replace('"', "") + '"'
+
+
 def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
     """Motor v2: cargos reales → abanico de consultas → cuentas del sector → dominio → correo."""
     country_name = COUNTRIES.get(filters.country, (filters.country,))[0]
@@ -1105,6 +1109,26 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
         phrases=phrases, sector_terms=sector_terms, keywords=filters.keywords,
         companies=filters.companies, exclude=exclude, first_last=name,
     )  # fmt: skip
+    # Una palabra clave corta suele ser una empresa («BBVA»): como en «Empresa actual» de Sales
+    # Navigator, primero se buscan a fondo las personas que hoy trabajan ahí.
+    kw = filters.keywords.strip()
+    if kw and len(kw.split()) <= 4 and not any(c in kw for c in '"()') and " OR " not in kw:
+        run.log(f"Buscando a fondo a quienes trabajan en «{kw}»…", done=found)
+        wanted = phrases or [t.strip('"') for lv in DECISION_LEVELS for t in
+                             serp.LEVEL_TERMS.get(lv, [])]  # fmt: skip
+        chunks = [wanted[i : i + 3] for i in range(0, len(wanted), 3)][:12]
+        deep_tasks = [
+            (f'site:linkedin.com/in "{variant}" ({" OR ".join(_q(t) for t in chunk)})', variant)
+            for variant in serp.company_variants(kw)
+            for chunk in chunks
+        ]
+
+        def deep(task: tuple[str, str]) -> None:
+            if not collector.full():
+                collector.run_query(task[0], max_pages=5, company=task[1])
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(deep, deep_tasks))
     collector.run_all(plan)
 
     # Cuentas → personas: empresas del sector y sus decisores, una por una.

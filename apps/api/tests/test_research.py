@@ -589,3 +589,19 @@ def test_company_name_variants_find_people(
     assert {h.full_name for h in hits} == {"Laura Gómez", "Mario Paz"}
     assert any('"Banco Occidente"' in q for q in asked)  # primero, como lo escribió
     assert any("(gerente OR manager)" in q for q in asked)  # ningún nivel queda fuera
+
+
+def test_keyword_that_is_a_company_searches_its_people(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    """Escribir «Banco Andino» como palabra clave funciona como «Empresa actual»."""
+    register(client, "ana@lacteos.co")
+    run = _run(client, session_factory, keywords="Banco Andino")
+    assert run["status"] == "completed", run
+    names = {p["data"]["full_name"] for p in run["people"]}
+    assert {"Carlos Ruiz Pardo", "Lucía Méndez"} <= names
+    assert "Pedro Otro" not in names  # trabaja en otra empresa
+    deep = [
+        a for a in with_serper if a.get("q", "").startswith('site:linkedin.com/in "Banco Andino"')
+    ]
+    assert len(deep) >= 3
