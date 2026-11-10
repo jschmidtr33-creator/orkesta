@@ -17,26 +17,35 @@ const tour = [
 ];
 const flow = [
   ["Prospecta", "Define tu cliente ideal y ORKESTA encuentra a los decisores con correo verificado."],
-  ["Contacta", "Lanza secuencias personalizadas desde tu Gmail o Microsoft 365, al ritmo correcto."],
-  ["Responden", "Cada respuesta se clasifica sola y crea la oportunidad con su tarea."],
+  ["Contacta", "Concertino redacta la secuencia por cargo e industria y la lanzas desde tu Gmail o Microsoft 365, a un equipo entero o a un solo contacto."],
+  ["Responden", "Cada respuesta se clasifica sola y crea la oportunidad con su tarea. ¿Objeción? Concertino te dice cómo responderla."],
   ["Da seguimiento", "El CRM te dice qué oportunidades están frías y qué hacer hoy."],
-  ["Propone", "Propuestas con tu marca en minutos; ves cuándo la abren."],
+  ["Propone", "Propuestas con tu logo y tus plantillas en minutos; ves cuándo la abren."],
   ["Cierra", "Firma electrónica, pronóstico y atribución: sabes qué campaña te trajo cada venta."],
 ];
 const modules = [
+  { title: "Concertino, tu asesor de ventas", text: "Un vendedor senior con IA propia: conversa, redacta correos y secuencias, maneja objeciones y conoce tu producto.", icon: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>' },
   { title: "Prospección con IA propia", text: "Directorio de empresas, índice de decisores y correos que aprenden de cada campaña.", icon: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 2"/>' },
   { title: "Correos que no rebotan", text: "Formato por empresa y por país, verificación previa y aprendizaje de rebotes.", icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
-  { title: "Campañas que aprenden", text: "Pruebas A/B con ganadora automática y asistente de redacción que mejora con tus respuestas.", icon: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>' },
+  { title: "Campañas que aprenden", text: "Pruebas A/B con ganadora automática, campañas a un solo contacto y envío parejo para que ninguna se detenga.", icon: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>' },
+  { title: "Plantillas tuyas y del equipo", text: "Guarda campañas y propuestas solo para ti o compártelas: el equipo las elige de una galería y las ajusta.", icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/>' },
   { title: "CRM inteligente", text: "Salud de cada oportunidad, tareas, pronóstico de cierre y atribución por campaña.", icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v8M12 7v5M16 7v10"/>' },
-  { title: "Propuestas y firma", text: "Propuestas con tu marca, seguimiento de lectura y firma electrónica con constancia PDF.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
+  { title: "Propuestas con tu marca", text: "Tu logo en cada propuesta y en ORKESTA, seguimiento de lectura y firma electrónica con constancia PDF.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
+  { title: "Equipos con jefaturas", text: "Cada vendedor trabaja lo suyo; la jefatura ve el resumen de su equipo sin tocar nada.", icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.5a5 5 0 0 1 5.5 5"/>' },
   { title: "Automatizaciones", text: "Recetas listas y reglas propias que trabajan en segundo plano por tu equipo.", icon: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>' },
 ];
-const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo", "Pruebas A/B", "Firma electrónica", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
+const ribbon = ["Concertino", "Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo", "Pruebas A/B", "Plantillas de equipo", "Campañas 1 a 1", "Firma electrónica", "Contactos privados", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
+const concertino = [
+  ["Conversa contigo", "Te saluda por tu nombre, sigue el hilo y te propone cómo seguir. Pregúntale como le preguntarías a un colega."],
+  ["Redacta por ti", "Correos y secuencias por cargo e industria, mensajes de WhatsApp y LinkedIn, asuntos, resumen ejecutivo y guion de llamada."],
+  ["Maneja objeciones", "Reconoce la objeción real detrás de lo que dijo el cliente y te da la respuesta de tu equipo y otros enfoques."],
+  ["Conoce tu producto", "Aprende de la ficha de tu empresa y de tus campañas. Nunca inventa precios ni clientes."],
+];
 ---
 
 <Base
   title="ORKESTA · Conecta. Enriquece. Conquista."
-  description="Plataforma de automatización comercial B2B: prospección, campañas, CRM, propuestas con firma electrónica y automatizaciones en un solo sistema."
+  description="Plataforma de automatización comercial B2B: prospección, campañas, CRM, propuestas con firma electrónica y Concertino, un asesor de ventas con IA propia que redacta y aconseja."
 >
   <header class="sticky top-0 z-30 border-b border-white/5 bg-ork-ink/70 backdrop-blur-xl">
     <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
@@ -44,6 +53,7 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
       <nav class="hidden items-center gap-7 text-[14px] text-ork-mist md:flex" aria-label="Secciones">
         <a href="#recorrido" class="hover:text-white">Recorrido</a>
         <a href="#proceso" class="hover:text-white">Tu proceso</a>
+        <a href="#concertino" class="hover:text-white">Concertino</a>
         <a href="#modulos" class="hover:text-white">Producto</a>
         <a href="#seguridad" class="hover:text-white">Seguridad</a>
       </nav>
@@ -69,7 +79,7 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
             Tu proceso comercial,<br /><span class="shine">de la prospección a la firma.</span>
           </h1>
           <p class="mx-auto mt-6 max-w-2xl text-[17.5px] leading-relaxed text-white/75">
-            Encuentra decisores, contáctalos desde tu correo, deja que la IA lea sus respuestas, haz seguimiento en el CRM y cierra con propuestas firmadas. Todo en ORKESTA.
+            Encuentra decisores, contáctalos desde tu correo, deja que la IA lea sus respuestas, haz seguimiento en el CRM y cierra con propuestas firmadas. Con Concertino, un asesor de ventas con IA propia que redacta y te aconseja en cada paso.
           </p>
           <div class="mt-9 flex flex-wrap justify-center gap-3">
             <a href="#demo" class="ork-gradient rounded-xl px-6 py-3 text-[15px] font-semibold text-white shadow-[0_8px_28px_rgb(79_70_229/0.45)] transition hover:-translate-y-0.5 hover:brightness-110">Solicitar demo</a>
@@ -201,10 +211,59 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
       </div>
     </section>
 
+    <section id="concertino" class="relative overflow-hidden py-24">
+      <div class="mx-auto grid max-w-6xl items-center gap-12 px-5 lg:grid-cols-[1fr_1.05fr]">
+        <div data-reveal>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Nuevo · Concertino</p>
+          <h2 class="mt-3 text-[34px] font-bold leading-tight tracking-tight sm:text-[42px]">Un vendedor senior a tu lado, siempre disponible</h2>
+          <p class="mt-3 text-[16px] text-white/70">Como el concertino de una orquesta, el músico más experimentado, acompaña a cada vendedor. Usa IA propia: tus datos no salen de ORKESTA y solo actúa cuando se lo pides.</p>
+          <ul class="mt-8 grid gap-4 sm:grid-cols-2">
+            {concertino.map(([t, d], i) => (
+              <li class="rounded-2xl border border-white/10 bg-white/[0.03] p-4" data-reveal style={`--delay: ${70 * i}ms`}>
+                <h3 class="text-[15.5px] font-semibold">{t}</h3>
+                <p class="mt-1 text-[14px] leading-relaxed text-white/65">{d}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="glow-frame" data-reveal style="--delay: 120ms">
+          <div class="overflow-hidden rounded-[20px] bg-ork-night" role="img" aria-label="Ejemplo de conversación con Concertino: pide una secuencia de 3 correos para un CEO de banca y Concertino la redacta">
+            <div class="flex items-center gap-3 border-b border-white/5 bg-[#0B1020] px-5 py-3.5">
+              <span class="ork-gradient flex size-9 items-center justify-center rounded-xl">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              </span>
+              <div>
+                <p class="text-[14.5px] font-semibold">Concertino</p>
+                <p class="text-[12px] text-white/50">Tu asesor de ventas</p>
+              </div>
+            </div>
+            <div class="space-y-4 px-5 py-5 text-[13.5px] leading-relaxed">
+              <p class="rounded-2xl rounded-tl-md border border-white/10 bg-white/[0.04] px-4 py-3 text-white/85">Hola, Valentina. Conozco tu producto y lo que le funciona a tu empresa. ¿En qué te ayudo hoy?</p>
+              <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-[#2563EB] px-4 py-2.5 text-white">Crea la secuencia de 3 correos para un CEO de banca</p>
+              <div class="rounded-2xl rounded-tl-md border border-white/10 bg-white/[0.04] px-4 py-3">
+                <p class="text-white/85">Claro, Valentina. Te armé una secuencia de 3 correos para un CEO del sector financiero, con trato de usted.</p>
+                <div class="mt-3 rounded-xl border border-ork-violet/30 bg-ork-violet/[0.06] p-3">
+                  <p class="text-[12px] font-semibold text-white">Correo 1 · se envía primero</p>
+                  <p class="mt-1 text-[12.5px] text-white/65">Buen día, Andrés: hablo seguido con líderes del sector financiero y hay un tema que se repite: integrar a nuevos proveedores sin frenar la operación…</p>
+                </div>
+                <p class="mt-2 text-[12px] text-white/45">+ correo 2 (3 días después) y correo 3 (4 días después)</p>
+                <span class="ork-gradient mt-3 inline-flex rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-white">Crear campaña con esta secuencia</span>
+                <div class="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
+                  {["Hazlo más corto", "Ahora para un CFO", "Pásalo a WhatsApp"].map((c) => <span class="rounded-full border border-white/15 px-3 py-1 text-[12px] font-semibold text-white/75">{c}</span>)}
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="mt-3 text-center text-[12px] text-white/40">Conversación de ejemplo con datos ficticios.</p>
+        </div>
+      </div>
+    </section>
+
     <section id="modulos" class="py-24">
       <div class="mx-auto max-w-6xl px-5">
         <div class="max-w-2xl" data-reveal>
-          <h2 class="text-[34px] font-bold leading-tight tracking-tight">Lo que hoy contratas por separado, conectado</h2>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Producto</p>
+          <h2 class="mt-3 text-[34px] font-bold leading-tight tracking-tight">Lo que hoy contratas por separado, conectado</h2>
           <p class="mt-3 text-[16px] text-white/70">Sin duplicar registros ni saltar entre herramientas.</p>
         </div>
         <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -231,7 +290,9 @@ const ribbon = ["Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo
         <ul class="grid gap-4 sm:grid-cols-2">
           {[
             ["Aislamiento por empresa", "Cada espacio de trabajo está separado a nivel de base de datos."],
-            ["Procedencia de cada dato", "Fuente y nivel de confianza de cada correo, siempre visibles."],
+            ["Contactos privados", "Los contactos de cada vendedor solo los ve su dueño, y cada quien configura su correo y su firma."],
+            ["IA propia, sin terceros", "Los modelos corren en ORKESTA: tus datos y los de tus clientes no viajan a otros proveedores."],
+            ["Respaldos y monitoreo", "Respaldo diario fuera del servidor y alertas si el servicio deja de responder."],
             ["Bajas respetadas", "Lista de supresión automática y baja con un clic."],
             ["Ley 1581 y RGPD", "Consentimiento, oposición y salida del índice cuando se pide."],
           ].map(([t, d], i) => (
