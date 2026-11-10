@@ -335,3 +335,26 @@ def test_writes_sequences_and_adjusts_with_the_sheet(
         *history, {"question": "Ahora para un CEO de banca", "topic": "redactar"}]}).json()  # fmt: skip
     assert whatsapp["topic"] == "redactar" and "WhatsApp" in whatsapp["summary"]
     assert "CEO" in whatsapp["summary"]
+
+
+def test_concertino_teaches_the_sales_craft(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    from tests.test_supervision import _pro
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+
+    def ask(q: str) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": q})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    cold = ask("¿Cómo escribo un correo en frío?")
+    assert cold["topic_label"] == "Oficio de ventas" and cold["lesson"]["code"] == "correo_frio"
+    assert any("Estructura" in s["title"] for s in cold["sections"])
+    assert ask("cuantos seguimientos debo hacer si no responde")["lesson"]["code"] == "secuencia"
+    assert ask("que es meddicc")["lesson"]["code"] == "calificacion"
+    assert ask("debo tratar de tu o usted en colombia")["lesson"]["code"] == "latam"
+    # Una objeción concreta sigue yendo al mapa de objeciones.
+    assert "lesson" not in ask("¿cómo respondo si me dicen que es muy caro?")
