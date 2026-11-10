@@ -25,6 +25,7 @@ TOPICS: dict[str, str] = {
     "estrategia": "Estrategia",
     "producto": "Producto",
     "general": "Consulta general",
+    "redactar": "Redacción",
 }
 
 # Palabras que indican el tema (sobre el texto sin tildes y en minúsculas).

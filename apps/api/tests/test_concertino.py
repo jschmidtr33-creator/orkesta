@@ -307,3 +307,31 @@ def test_converses_by_name_with_catalog_follow_ups_and_suggestions(
     assert "IA de ventas propia" in who["summary"]
     lost = ask("asdf qwer zxcv", [])
     assert lost["suggestions"]
+
+
+def test_writes_sequences_and_adjusts_with_the_sheet(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """«Crea la secuencia de 3 correos» redacta con la ficha; «más corto» o «ahora para un CEO de
+    banca» ajustan lo último; la campaña no se crea sola."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    first = client.post(
+        "/api/concertino/ask", json={"question": "Crea la secuencia de 3 correos"}
+    ).json()
+    assert first["topic"] == "redactar" and len(first["options"]) == 3
+    assert first["options"][0]["text"].startswith("Asunto:")
+    assert "triplicar las reuniones" in first["options"][0]["text"]
+    assert first["actions"][0]["kind"] == "campana" and len(first["actions"][0]["steps"]) == 3
+    # Nada se crea solo: la campaña existe solo si la persona toca el botón.
+    assert first["actions"][0]["name"] not in client.get("/api/campaigns").text
+    history = [{"question": "Crea la secuencia de 3 correos", "topic": "redactar"}]
+    ceo = client.post("/api/concertino/ask", json={"question": "Ahora para un CEO de banca",
+                                                    "history": history}).json()  # fmt: skip
+    assert ceo["topic"] == "redactar" and "CEO del sector financiero" in ceo["summary"]
+    assert "Buen día" in ceo["options"][0]["text"] and len(ceo["options"]) == 3
+    whatsapp = client.post("/api/concertino/ask", json={"question": "Pásalo a WhatsApp", "history": [
+        *history, {"question": "Ahora para un CEO de banca", "topic": "redactar"}]}).json()  # fmt: skip
+    assert whatsapp["topic"] == "redactar" and "WhatsApp" in whatsapp["summary"]
+    assert "CEO" in whatsapp["summary"]

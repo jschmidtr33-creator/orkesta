@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Copy, Music2, Send, ThumbsDown, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { Alert, Badge, Button, cx } from "./ui";
 
@@ -34,6 +34,7 @@ type Advice = {
   missing: string[];
   sources: string[];
   suggestions?: string[];
+  actions?: { kind: "campana"; label: string; name: string; steps: { subject: string; body: string; delay_days: number }[] }[];
 };
 type Info = {
   topics: { code: string; label: string }[];
@@ -217,7 +218,7 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
               {t.error ? (
                 <Alert>{t.error}</Alert>
               ) : t.advice ? (
-                <AdviceCard advice={t.advice} objections={info.data?.objections ?? []} latest={i === turns.length - 1} onAsk={(q) => send(q)} />
+                <AdviceCard advice={t.advice} objections={info.data?.objections ?? []} latest={i === turns.length - 1} onAsk={(q) => send(q)} onDone={onClose} />
               ) : (
                 <Thinking />
               )}
@@ -302,7 +303,7 @@ function useTyping(text: string, active: boolean) {
   return { typed: text.slice(0, shown), done: shown >= text.length };
 }
 
-function AdviceCard({ advice, objections, latest, onAsk }: { advice: Advice; objections: { code: string; label: string }[]; latest: boolean; onAsk: (q: string) => void }) {
+function AdviceCard({ advice, objections, latest, onAsk, onDone }: { advice: Advice; objections: { code: string; label: string }[]; latest: boolean; onAsk: (q: string) => void; onDone: () => void }) {
   const [fixed, setFixed] = useState(false);
   const fix = useMutation({
     mutationFn: (objection: string) => api(`/api/concertino/cases/${advice.case_id}`, { method: "POST", json: { objection } }),
@@ -375,6 +376,9 @@ function AdviceCard({ advice, objections, latest, onAsk }: { advice: Advice; obj
               </Link>
             </div>
           )}
+          {(advice.actions ?? []).map((a) => (
+            <CreateCampaign key={a.label} action={a} onDone={onDone} />
+          ))}
           {advice.sources.length > 0 && <p className="text-[11.5px] text-ork-mist">Basado en: {advice.sources.join(" · ")}</p>}
           {latest && (advice.suggestions?.length ?? 0) > 0 && (
             <div className="flex flex-wrap gap-2 border-t border-ork-line pt-3">
@@ -388,6 +392,32 @@ function AdviceCard({ advice, objections, latest, onAsk }: { advice: Advice; obj
         </div>
       )}
     </Bubble>
+  );
+}
+
+/** Crea un borrador de campaña con lo que redactó Concertino. Solo al tocar el botón: queda en
+ * borrador, sin audiencia ni envíos, para revisarla en el editor. */
+function CreateCampaign({ action, onDone }: { action: NonNullable<Advice["actions"]>[number]; onDone: () => void }) {
+  const navigate = useNavigate();
+  const create = useMutation({
+    mutationFn: async () => {
+      const c = await api<{ id: string }>("/api/campaigns", { method: "POST", json: { name: action.name } });
+      await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { steps: action.steps } });
+      return c;
+    },
+    onSuccess: (c) => {
+      onDone();
+      navigate(`/campanas/${c.id}`);
+    },
+  });
+  return (
+    <div className="rounded-xl border border-ork-line bg-ork-surface px-3 py-2.5">
+      {create.error && <Alert>{create.error.message}</Alert>}
+      <Button size="sm" icon={<Send className="size-3.5" aria-hidden />} loading={create.isPending} onClick={() => create.mutate()}>
+        {action.label}
+      </Button>
+      <p className="mt-1.5 text-[12px] text-ork-mist">Queda como borrador en Campañas: eliges a quién enviarla y nada sale sin tu confirmación.</p>
+    </div>
   );
 }
 

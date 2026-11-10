@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orkesta.concertino import chat, engine
+from orkesta.concertino import chat, engine, intent, writer
 from orkesta.concertino import playbook as pb
 from orkesta.concertino.models import FACT_KINDS, AdviceCase, ProductFact
 from orkesta.core.db import unscoped
@@ -139,6 +139,12 @@ def ask(
     name, turn = chat.user_name(user), len(history)
     # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
+    # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).
+    if quick is None and question and mode in (None, "redactar"):
+        wanted = _writing_intent(question, history)
+        if wanted is not None:
+            return _write(session, ctx, user=user, tenant_id=tenant_id, question=question,
+                          wanted=wanted, history=history, name=name, turn=turn)  # fmt: skip
     if quick is None and question and mode in (None, "producto", "general"):
         quick = chat.catalog(question, ctx)
         if quick is not None:
@@ -233,6 +239,53 @@ def ask(
     return {"case_id": str(case.id), "topic": topic, "topic_label": pb.TOPICS[topic],
             "objection": objection, "objection_label": obj.label if obj else None,
             "formal": ctx.formal, **advice, "sources": sources}  # fmt: skip
+
+
+def _writing_intent(question: str, history: list[dict[str, Any]]) -> intent.Intent | None:
+    """Qué hay que redactar. Un ajuste («más corto», «ahora para un CFO») se suma a lo pedido
+    en los mensajes anteriores de la misma redacción."""
+    last = history[-1].get("topic") if history else None
+    now = intent.understand(question, last_topic=last)
+    if now.action is None:
+        return None
+    if last != "redactar" or (now.action == "redactar" and len(question.split()) > 10):
+        return now
+    chain: list[str] = []
+    for turn in reversed(history):
+        if turn.get("topic") != "redactar":
+            break
+        chain.insert(0, str(turn.get("question") or ""))
+    merged = intent.details(chain[0]) if chain else now
+    for q in [*chain[1:], question]:
+        merged = intent.merge(merged, intent.details(q))
+    merged.action = "redactar"
+    merged.piece = merged.piece or "correo"
+    return merged
+
+
+def _write(session: Session, ctx: engine.Context, *, user: User, tenant_id: uuid.UUID,
+           question: str, wanted: intent.Intent, history: list[dict[str, Any]], name: str,
+           turn: int) -> dict[str, Any]:  # fmt: skip
+    from orkesta.platform.models import Tenant
+
+    if not allowed(session, tenant_id, "redactar"):
+        return {"case_id": None, "topic": "redactar", "topic_label": pb.TOPICS["redactar"],
+                "objection": None, "objection_label": None, **engine._ask_more(UPGRADE),
+                "sources": [], "suggestions": []}  # fmt: skip
+    tenant = session.get(Tenant, tenant_id)
+    context_text = " ".join(str(t.get("question") or "") for t in history[-3:]) + " " + question
+    advice = writer.write(session, ctx, wanted, context_text, tenant.name if tenant else "")
+    case = AdviceCase(tenant_id=tenant_id, user_id=user.id, topic="redactar", objection=None,
+                      question=question[:2000],
+                      context={k: str(v) for k, v in (("pieza", wanted.piece), ("cargo", wanted.cargo),
+                                                       ("industry", wanted.industry)) if v},
+                      shown=[o["code"] for o in advice["options"]])  # fmt: skip
+    session.add(case)
+    session.flush()
+    advice["summary"] = chat.greet(advice["summary"], name, turn)
+    return {"case_id": str(case.id), "topic": "redactar", "topic_label": pb.TOPICS["redactar"],
+            "objection": None, "objection_label": None, "formal": ctx.formal, **advice,
+            "sources": ["Ficha del producto"] if ctx.facts else []}  # fmt: skip
 
 
 def welcome(session: Session, tenant_id: uuid.UUID, user: User) -> dict[str, Any]:
