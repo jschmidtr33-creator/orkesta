@@ -63,9 +63,7 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
   return (
     <Menu.Root>
       <Menu.Trigger className="ork-focus flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07]">
-        <span className="ork-gradient flex size-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white">
-          {(current?.name ?? "?").slice(0, 1).toUpperCase()}
-        </span>
+        <WorkspaceMark name={current?.name ?? "?"} logo={current?.logo_url} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] font-semibold text-white">{current?.name}</span>
           <span className="block text-[12px] text-ork-mist">{current?.role_label}</span>
@@ -87,6 +85,7 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
               onSelect={() => w.id !== current?.id && switchTo.mutate(w.id)}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] text-ork-ink outline-none data-[highlighted]:bg-ork-surface"
             >
+              <WorkspaceMark name={w.name} logo={w.logo_url} small />
               <span className="flex-1 truncate">{w.name}</span>
               {w.id === current?.id && <Check className="size-4 text-ork-blue" aria-hidden />}
             </Menu.Item>
@@ -317,5 +316,23 @@ function NewVersionBanner() {
         Recargar
       </button>
     </div>
+  );
+}
+
+/** Logo de la empresa (el de su marca de propuestas) o, si no tiene, su inicial. */
+function WorkspaceMark({ name, logo, small }: { name: string; logo?: string; small?: boolean }) {
+  const size = small ? "size-6 rounded-md" : "size-8 rounded-lg";
+  if (logo) {
+    // Los logos suelen ser horizontales: más ancho que alto para que se lean.
+    return (
+      <span className={`flex shrink-0 items-center justify-center overflow-hidden bg-white p-1 ${small ? "h-6 w-10 rounded-md" : "h-9 w-16 rounded-lg"}`}>
+        <img src={logo} alt={`Logo de ${name}`} className="size-full object-contain" />
+      </span>
+    );
+  }
+  return (
+    <span className={`ork-gradient flex shrink-0 items-center justify-center font-bold text-white ${size} ${small ? "text-[11px]" : "text-[13px]"}`} aria-hidden>
+      {name.slice(0, 1).toUpperCase()}
+    </span>
   );
 }

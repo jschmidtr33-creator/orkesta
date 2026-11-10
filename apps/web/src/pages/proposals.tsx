@@ -4,7 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
-import { SaveTemplateButton, TemplatePicker } from "../components/TeamTemplates";
+import { SaveTemplateButton, TemplatePicker, useTeamTemplates } from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { RichEditor } from "../components/RichEditor";
 import type { Editor } from "@tiptap/react";
@@ -86,9 +86,11 @@ function useProducts() {
 
 export function ProposalsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("vista") === "catalogo" ? "catalogo" : params.get("vista") === "marca" ? "marca" : "propuestas";
+  const view = params.get("vista");
+  const tab = view === "catalogo" || view === "marca" || view === "plantillas" ? view : "propuestas";
   const [status, setStatus] = useState("");
   const [creating, setCreating] = useState(false);
+  const [fromTemplate, setFromTemplate] = useState("");
   const list = useQuery({ queryKey: ["proposals", status], queryFn: () => api<ProposalRow[]>(`/api/proposals?estado=${status}`) });
   return (
     <>
@@ -105,6 +107,7 @@ export function ProposalsPage() {
         {(
           [
             ["propuestas", "Propuestas", <Files key="f" className="size-4" aria-hidden />],
+            ["plantillas", "Plantillas", <LayoutTemplate key="t" className="size-4" aria-hidden />],
             ["catalogo", "Catálogo", <Package key="p" className="size-4" aria-hidden />],
             ["marca", "Marca y diseño", <Palette key="m" className="size-4" aria-hidden />],
           ] as const
@@ -121,7 +124,14 @@ export function ProposalsPage() {
           </button>
         ))}
       </div>
-      {tab === "catalogo" ? (
+      {tab === "plantillas" ? (
+        <ProposalTemplates
+          onUse={(id) => {
+            setFromTemplate(id);
+            setCreating(true);
+          }}
+        />
+      ) : tab === "catalogo" ? (
         <Catalog />
       ) : tab === "marca" ? (
         <BrandSettings />
@@ -194,12 +204,73 @@ export function ProposalsPage() {
           )}
         </Card>
       )}
-      <NewProposalModal open={creating} onOpenChange={setCreating} />
+      <NewProposalModal
+        open={creating}
+        onOpenChange={(o) => {
+          setCreating(o);
+          if (!o) setFromTemplate("");
+        }}
+        initialTemplate={fromTemplate}
+      />
     </>
   );
 }
 
-export function NewProposalModal({ open, onOpenChange, dealId }: { open: boolean; onOpenChange: (o: boolean) => void; dealId?: string }) {
+/** Plantillas de propuestas: las tuyas y las que compartió el equipo, listas para usar. */
+function ProposalTemplates({ onUse }: { onUse: (id: string) => void }) {
+  const list = useTeamTemplates("proposal");
+  if (list.isLoading) return <Spinner label="Cargando plantillas" />;
+  const items = list.data ?? [];
+  const groups = [
+    { title: "Mis plantillas", hint: "Solo las ves tú.", items: items.filter((t) => t.mine && !t.shared) },
+    { title: "Del equipo", hint: "Compartidas con toda la empresa.", items: items.filter((t) => t.shared) },
+  ];
+  if (!items.length) {
+    return (
+      <Card>
+        <p className="text-[14px] font-semibold text-ork-ink">Aún no hay plantillas de propuestas.</p>
+        <p className="mt-1 text-[13px] text-ork-mist">
+          Abre una propuesta y usa «Guardar como plantilla» (solo para ti) o «Compartir con el equipo». Aparecerán aquí para crear propuestas nuevas en un clic.
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <section key={g.title}>
+          <h2 className="text-[15px] font-bold text-ork-ink">{g.title}</h2>
+          <p className="text-[12.5px] text-ork-mist">{g.hint}</p>
+          {g.items.length === 0 ? (
+            <p className="mt-2 text-[13px] text-ork-mist">Todavía no hay plantillas aquí.</p>
+          ) : (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {g.items.map((t) => (
+                <Card key={t.id} className="flex flex-col gap-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[14px] font-semibold text-ork-ink">{t.name}</p>
+                    <Badge tone={t.shared ? "blue" : "neutral"}>{t.shared ? "Del equipo" : "Solo tú"}</Badge>
+                  </div>
+                  {(t.description || t.preview) && <p className="line-clamp-3 text-[12.5px] text-ork-graphite">{t.description || t.preview}</p>}
+                  <p className="text-[12px] text-ork-mist">
+                    {[t.summary, `de ${t.mine ? "ti" : t.author}`, t.use_count ? `usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""].filter(Boolean).join(" · ")}
+                  </p>
+                  <div className="mt-auto pt-1">
+                    <Button size="sm" onClick={() => onUse(t.id)}>
+                      Usar plantilla
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate = "" }: { open: boolean; onOpenChange: (o: boolean) => void; dealId?: string; initialTemplate?: string }) {
   const navigate = useNavigate();
   const client = useQueryClient();
   const products = useProducts();
@@ -211,9 +282,9 @@ export function NewProposalModal({ open, onOpenChange, dealId }: { open: boolean
     if (open) {
       setDeal(dealId ?? "");
       setPicked([]);
-      setTemplate("");
+      setTemplate(initialTemplate);
     }
-  }, [open, dealId]);
+  }, [open, dealId, initialTemplate]);
   const create = useMutation({
     mutationFn: () => api<Proposal>("/api/proposals", { method: "POST", json: { deal_id: deal || null, product_ids: template ? [] : picked, template_id: template || null } }),
     onSuccess: (p) => {
@@ -573,7 +644,7 @@ export function ProposalEditor() {
           <Button variant="secondary" icon={copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />} onClick={copyLink}>
             {copied ? "Enlace copiado" : "Copiar enlace"}
           </Button>
-          {!dirty && <SaveTemplateButton kind="proposal" sourceId={p.id} defaultName={p.title} />}
+          <SaveTemplateButton kind="proposal" sourceId={p.id} defaultName={p.title} beforeSave={dirty && !locked ? () => save.mutateAsync() : undefined} />
           {locked ? (
             <Button variant="secondary" loading={dup.isPending} icon={<Files className="size-4" aria-hidden />} onClick={() => dup.mutate()}>
               Duplicar

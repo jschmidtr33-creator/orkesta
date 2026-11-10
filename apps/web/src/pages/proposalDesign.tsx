@@ -280,6 +280,8 @@ export function DesignPanel({
   const setEx = (patch: Partial<Look["executive"]>) => onChange({ ...design, executive: { ...ex, ...patch } });
   const custom = Boolean(design.primary || design.accent);
   return (
+    <div className="flex flex-col gap-5">
+    <CompanyLogo />
     <fieldset disabled={locked} className="flex flex-col gap-5">
       <Card>
         <CardHeader title="Plantilla" description={TEMPLATE_INFO[look.template]} />
@@ -361,6 +363,7 @@ export function DesignPanel({
         </div>
       </Card>
     </fieldset>
+    </div>
   );
 }
 
@@ -386,6 +389,43 @@ const SAMPLE: Omit<DocData, "look"> = {
   issuer: "",
   created_at: new Date().toISOString(),
 };
+
+/** Logo de la empresa: se sube una vez y queda como predeterminado en todas las propuestas y en
+ * el menú de ORKESTA. Lo cambian administración o jefatura. */
+function CompanyLogo() {
+  const client = useQueryClient();
+  const b = useBrand();
+  const save = useMutation({
+    mutationFn: (logo_url: string) => api("/api/proposal-brand", { method: "PUT", json: { logo_url } }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["proposal-brand"] });
+      client.invalidateQueries({ queryKey: ["session"] });
+    },
+  });
+  if (!b.data) return null;
+  const { brand, can_edit } = b.data;
+  return (
+    <Card>
+      <CardHeader
+        title="Logo de tu empresa"
+        description={
+          can_edit
+            ? "Queda guardado como predeterminado: aparece en todas las propuestas del equipo y en el menú de ORKESTA."
+            : "Es el logo de tu empresa en todas las propuestas. Lo cambian administración o jefatura."
+        }
+      />
+      {save.error && <Alert>{save.error.message}</Alert>}
+      {save.isSuccess && <Alert tone="ok">Logo guardado para toda la empresa.</Alert>}
+      {can_edit ? (
+        <ImageField label="Logo" value={brand.logo_url} onChange={(v) => save.mutate(v)} hint="PNG con fondo transparente, horizontal. Hasta 3 MB." />
+      ) : brand.logo_url ? (
+        <img src={brand.logo_url} alt="Logo de tu empresa" className="h-16 w-auto max-w-[220px] rounded-lg bg-white object-contain p-1" />
+      ) : (
+        <p className="text-[13px] text-ork-mist">Tu empresa aún no tiene logo. Pídeselo a administración o jefatura.</p>
+      )}
+    </Card>
+  );
+}
 
 export function BrandSettings() {
   const client = useQueryClient();
