@@ -1,20 +1,81 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Brush, Check, Copy, Eye, FilePlus2, Files, LayoutTemplate, Mail, Package, Palette, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField } from "../components/ui";
+import {
+  ArrowLeft,
+  Brush,
+  Check,
+  Copy,
+  Eye,
+  FilePlus2,
+  Files,
+  LayoutTemplate,
+  Mail,
+  Package,
+  Palette,
+  Plus,
+  RefreshCw,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  cx,
+  Modal,
+  PageHeader,
+  SelectField,
+  Spinner,
+  TextField,
+} from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
-import { SaveTemplateButton, TemplatePicker, useTeamTemplates } from "../components/TeamTemplates";
+import {
+  SaveTemplateButton,
+  TemplatePicker,
+  useTeamTemplates,
+} from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { RichEditor } from "../components/RichEditor";
 import type { Editor } from "@tiptap/react";
 import { useMailboxes } from "./campaigns";
-import { BrandSettings, DesignPanel, ImageField, lookFrom, useBrand, type Design } from "./proposalDesign";
+import {
+  BrandSettings,
+  DesignPanel,
+  ImageField,
+  lookFrom,
+  useBrand,
+  type Design,
+} from "./proposalDesign";
 import { useSession } from "../lib/session";
 import { money, type Deal } from "./crm";
 import { formatWhen } from "./dashboard";
 
-type Item = { name: string; description: string; quantity: number; unit: string; unit_price: number; discount: number; image_url?: string; payment_url?: string };
+type Item = {
+  name: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  discount: number;
+  image_url?: string;
+  payment_url?: string;
+};
 type Section = { key: string; title: string; body: string };
 type Totals = {
   subtotal: number | null;
@@ -22,7 +83,12 @@ type Totals = {
   tax: number | null;
   total: number | null;
   mode?: "total" | "opciones";
-  options?: { subtotal: number; discounts: number; tax: number; total: number }[];
+  options?: {
+    subtotal: number;
+    discounts: number;
+    tax: number;
+    total: number;
+  }[];
   chosen?: number | null;
   from?: number;
   to?: number;
@@ -32,7 +98,10 @@ type PricingMode = "total" | "opciones";
 /** Valor para listas: el total, o «Desde X» si son opciones y el cliente aún no elige. */
 function totalLabel(t: Totals, currency: string): string {
   if (t.total != null) return money(t.total, currency);
-  if (t.mode === "opciones") return t.from === t.to ? money(t.from ?? 0, currency) : `Desde ${money(t.from ?? 0, currency)}`;
+  if (t.mode === "opciones")
+    return t.from === t.to
+      ? money(t.from ?? 0, currency)
+      : `Desde ${money(t.from ?? 0, currency)}`;
   return money(0, currency);
 }
 type ProposalRow = {
@@ -55,23 +124,62 @@ type ProposalRow = {
   sent_at: string | null;
   decided_at: string | null;
   decided_by: string | null;
-  signature?: { name: string; email: string; signed_at: string; doc_hash: string } | null;
+  signature?: {
+    name: string;
+    email: string;
+    signed_at: string;
+    doc_hash: string;
+  } | null;
   decision_note: string | null;
   created_at: string;
 };
-type Proposal = ProposalRow & { items: Item[]; sections: Section[]; tax_rate: number; design: Design; variables: Record<string, string>; values: Record<string, string> };
+type Proposal = ProposalRow & {
+  items: Item[];
+  sections: Section[];
+  tax_rate: number;
+  design: Design;
+  variables: Record<string, string>;
+  values: Record<string, string>;
+};
 
 /** Reemplaza {{variable|alternativo}} con los datos del cliente (igual que el servidor). */
-function fill(text: string, values: Record<string, string>, escape = false): string {
-  return text.replace(/\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g, (_, name: string, fallback?: string) => {
-    const v = values[name] ?? "";
-    if (v) return escape ? v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : v;
-    return fallback !== undefined ? fallback.trim() : "";
-  });
+function fill(
+  text: string,
+  values: Record<string, string>,
+  escape = false,
+): string {
+  return text.replace(
+    /\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g,
+    (_, name: string, fallback?: string) => {
+      const v = values[name] ?? "";
+      if (v)
+        return escape
+          ? v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          : v;
+      return fallback !== undefined ? fallback.trim() : "";
+    },
+  );
 }
-type Product = { id: string; name: string; description: string; unit_price: number; currency: string; unit: string; active: boolean; image_url: string; payment_url: string };
+type Product = {
+  id: string;
+  name: string;
+  description: string;
+  unit_price: number;
+  currency: string;
+  unit: string;
+  active: boolean;
+  image_url: string;
+  payment_url: string;
+  created_by?: string | null;
+};
 
-const STATUS_TONE = { draft: "neutral", sent: "blue", viewed: "violet", accepted: "ok", rejected: "bad" } as const;
+const STATUS_TONE = {
+  draft: "neutral",
+  sent: "blue",
+  viewed: "violet",
+  accepted: "ok",
+  rejected: "bad",
+} as const;
 const CURRENCIES = ["USD", "COP", "MXN", "PEN", "CLP", "CRC", "EUR"];
 
 export function publicLink(publicId: string): string {
@@ -79,7 +187,10 @@ export function publicLink(publicId: string): string {
 }
 
 function useProducts() {
-  return useQuery({ queryKey: ["products"], queryFn: () => api<Product[]>("/api/products") });
+  return useQuery({
+    queryKey: ["products"],
+    queryFn: () => api<Product[]>("/api/products"),
+  });
 }
 
 // --- Listado y catálogo -------------------------------------------------------------------
@@ -87,29 +198,57 @@ function useProducts() {
 export function ProposalsPage() {
   const [params, setParams] = useSearchParams();
   const view = params.get("vista");
-  const tab = view === "catalogo" || view === "marca" || view === "plantillas" ? view : "propuestas";
+  const tab =
+    view === "catalogo" || view === "marca" || view === "plantillas"
+      ? view
+      : "propuestas";
   const [status, setStatus] = useState("");
   const [creating, setCreating] = useState(false);
   const [fromTemplate, setFromTemplate] = useState("");
-  const list = useQuery({ queryKey: ["proposals", status], queryFn: () => api<ProposalRow[]>(`/api/proposals?estado=${status}`) });
+  const list = useQuery({
+    queryKey: ["proposals", status],
+    queryFn: () => api<ProposalRow[]>(`/api/proposals?estado=${status}`),
+  });
   return (
     <>
       <PageHeader
         title="Propuestas comerciales"
         description="Crea propuestas desde tus oportunidades, compártelas con un enlace y sabe cuándo el cliente las abre, acepta o rechaza."
         action={
-          <Button icon={<FilePlus2 className="size-4" aria-hidden />} onClick={() => setCreating(true)}>
+          <Button
+            icon={<FilePlus2 className="size-4" aria-hidden />}
+            onClick={() => setCreating(true)}
+          >
             Nueva propuesta
           </Button>
         }
       />
-      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5" role="tablist">
+      <div
+        className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5"
+        role="tablist"
+      >
         {(
           [
-            ["propuestas", "Propuestas", <Files key="f" className="size-4" aria-hidden />],
-            ["plantillas", "Plantillas", <LayoutTemplate key="t" className="size-4" aria-hidden />],
-            ["catalogo", "Catálogo", <Package key="p" className="size-4" aria-hidden />],
-            ["marca", "Marca y diseño", <Palette key="m" className="size-4" aria-hidden />],
+            [
+              "propuestas",
+              "Propuestas",
+              <Files key="f" className="size-4" aria-hidden />,
+            ],
+            [
+              "plantillas",
+              "Plantillas",
+              <LayoutTemplate key="t" className="size-4" aria-hidden />,
+            ],
+            [
+              "catalogo",
+              "Catálogo",
+              <Package key="p" className="size-4" aria-hidden />,
+            ],
+            [
+              "marca",
+              "Marca y diseño",
+              <Palette key="m" className="size-4" aria-hidden />,
+            ],
           ] as const
         ).map(([value, label, icon]) => (
           <button
@@ -117,7 +256,10 @@ export function ProposalsPage() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setParams({ vista: value })}
-            className={cx("ork-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold", tab === value ? "ork-gradient text-white" : "text-ork-graphite")}
+            className={cx(
+              "ork-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold",
+              tab === value ? "ork-gradient text-white" : "text-ork-graphite",
+            )}
           >
             {icon}
             {label}
@@ -149,7 +291,12 @@ export function ProposalsPage() {
               <button
                 key={value}
                 onClick={() => setStatus(value)}
-                className={cx("ork-focus -mb-px border-b-2 px-3 pb-2.5 text-[13.5px] font-semibold", status === value ? "border-ork-blue text-ork-blue" : "border-transparent text-ork-mist hover:text-ork-ink")}
+                className={cx(
+                  "ork-focus -mb-px border-b-2 px-3 pb-2.5 text-[13.5px] font-semibold",
+                  status === value
+                    ? "border-ork-blue text-ork-blue"
+                    : "border-transparent text-ork-mist hover:text-ork-ink",
+                )}
               >
                 {label}
               </button>
@@ -158,7 +305,10 @@ export function ProposalsPage() {
           {list.isLoading ? (
             <Spinner />
           ) : !list.data?.length ? (
-            <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">Aún no hay propuestas. Crea la primera desde una oportunidad del CRM.</p>
+            <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">
+              Aún no hay propuestas. Crea la primera desde una oportunidad del
+              CRM.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left text-[13.5px]">
@@ -167,7 +317,9 @@ export function ProposalsPage() {
                     <th className="px-4 py-3 font-semibold">N.º</th>
                     <th className="px-3 py-3 font-semibold">Propuesta</th>
                     <th className="px-3 py-3 font-semibold">Cliente</th>
-                    <th className="px-3 py-3 text-right font-semibold">Total</th>
+                    <th className="px-3 py-3 text-right font-semibold">
+                      Total
+                    </th>
                     <th className="px-3 py-3 font-semibold">Estado</th>
                     <th className="px-4 py-3 font-semibold">Actividad</th>
                   </tr>
@@ -175,17 +327,34 @@ export function ProposalsPage() {
                 <tbody className="divide-y divide-ork-line">
                   {list.data.map((p) => (
                     <tr key={p.id} className="hover:bg-ork-ink/[0.02]">
-                      <td className="px-4 py-3 font-semibold text-ork-mist">#{p.number}</td>
+                      <td className="px-4 py-3 font-semibold text-ork-mist">
+                        #{p.number}
+                      </td>
                       <td className="px-3 py-3">
-                        <Link to={`/propuestas/${p.id}`} className="font-semibold text-ork-ink hover:text-ork-blue">
+                        <Link
+                          to={`/propuestas/${p.id}`}
+                          className="font-semibold text-ork-ink hover:text-ork-blue"
+                        >
                           {p.title}
                         </Link>
-                        {p.deal && <p className="text-[12px] text-ork-mist">{p.deal.title}</p>}
+                        {p.deal && (
+                          <p className="text-[12px] text-ork-mist">
+                            {p.deal.title}
+                          </p>
+                        )}
                       </td>
-                      <td className="px-3 py-3 text-ork-graphite">{[p.contact?.full_name, p.company].filter(Boolean).join(" · ") || "—"}</td>
-                      <td className="px-3 py-3 text-right font-semibold text-ork-graphite">{totalLabel(p.totals, p.currency)}</td>
+                      <td className="px-3 py-3 text-ork-graphite">
+                        {[p.contact?.full_name, p.company]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-semibold text-ork-graphite">
+                        {totalLabel(p.totals, p.currency)}
+                      </td>
                       <td className="px-3 py-3">
-                        <Badge tone={STATUS_TONE[p.status]}>{p.status_label}</Badge>
+                        <Badge tone={STATUS_TONE[p.status]}>
+                          {p.status_label}
+                        </Badge>
                       </td>
                       <td className="px-4 py-3 text-[12.5px] text-ork-mist">
                         {p.decided_at
@@ -222,15 +391,27 @@ function ProposalTemplates({ onUse }: { onUse: (id: string) => void }) {
   if (list.isLoading) return <Spinner label="Cargando plantillas" />;
   const items = list.data ?? [];
   const groups = [
-    { title: "Mis plantillas", hint: "Solo las ves tú.", items: items.filter((t) => t.mine && !t.shared) },
-    { title: "Del equipo", hint: "Compartidas con toda la empresa.", items: items.filter((t) => t.shared) },
+    {
+      title: "Mis plantillas",
+      hint: "Solo las ves tú.",
+      items: items.filter((t) => t.mine && !t.shared),
+    },
+    {
+      title: "Del equipo",
+      hint: "Compartidas con toda la empresa.",
+      items: items.filter((t) => t.shared),
+    },
   ];
   if (!items.length) {
     return (
       <Card>
-        <p className="text-[14px] font-semibold text-ork-ink">Aún no hay plantillas de propuestas.</p>
+        <p className="text-[14px] font-semibold text-ork-ink">
+          Aún no hay plantillas de propuestas.
+        </p>
         <p className="mt-1 text-[13px] text-ork-mist">
-          Abre una propuesta y usa «Guardar como plantilla» (solo para ti) o «Compartir con el equipo». Aparecerán aquí para crear propuestas nuevas en un clic.
+          Abre una propuesta y usa «Guardar como plantilla» (solo para ti) o
+          «Compartir con el equipo». Aparecerán aquí para crear propuestas
+          nuevas en un clic.
         </p>
       </Card>
     );
@@ -242,18 +423,36 @@ function ProposalTemplates({ onUse }: { onUse: (id: string) => void }) {
           <h2 className="text-[15px] font-bold text-ork-ink">{g.title}</h2>
           <p className="text-[12.5px] text-ork-mist">{g.hint}</p>
           {g.items.length === 0 ? (
-            <p className="mt-2 text-[13px] text-ork-mist">Todavía no hay plantillas aquí.</p>
+            <p className="mt-2 text-[13px] text-ork-mist">
+              Todavía no hay plantillas aquí.
+            </p>
           ) : (
             <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {g.items.map((t) => (
                 <Card key={t.id} className="flex flex-col gap-2 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-[14px] font-semibold text-ork-ink">{t.name}</p>
-                    <Badge tone={t.shared ? "blue" : "neutral"}>{t.shared ? "Del equipo" : "Solo tú"}</Badge>
+                    <p className="text-[14px] font-semibold text-ork-ink">
+                      {t.name}
+                    </p>
+                    <Badge tone={t.shared ? "blue" : "neutral"}>
+                      {t.shared ? "Del equipo" : "Solo tú"}
+                    </Badge>
                   </div>
-                  {(t.description || t.preview) && <p className="line-clamp-3 text-[12.5px] text-ork-graphite">{t.description || t.preview}</p>}
+                  {(t.description || t.preview) && (
+                    <p className="line-clamp-3 text-[12.5px] text-ork-graphite">
+                      {t.description || t.preview}
+                    </p>
+                  )}
                   <p className="text-[12px] text-ork-mist">
-                    {[t.summary, `de ${t.mine ? "ti" : t.author}`, t.use_count ? `usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""].filter(Boolean).join(" · ")}
+                    {[
+                      t.summary,
+                      `de ${t.mine ? "ti" : t.author}`,
+                      t.use_count
+                        ? `usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                   <div className="mt-auto pt-1">
                     <Button size="sm" onClick={() => onUse(t.id)}>
@@ -270,11 +469,25 @@ function ProposalTemplates({ onUse }: { onUse: (id: string) => void }) {
   );
 }
 
-export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate = "" }: { open: boolean; onOpenChange: (o: boolean) => void; dealId?: string; initialTemplate?: string }) {
+export function NewProposalModal({
+  open,
+  onOpenChange,
+  dealId,
+  initialTemplate = "",
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  dealId?: string;
+  initialTemplate?: string;
+}) {
   const navigate = useNavigate();
   const client = useQueryClient();
   const products = useProducts();
-  const deals = useQuery({ queryKey: ["crm-deals", "open-for-proposals"], queryFn: () => api<{ deals: Deal[] }>("/api/crm/deals?estado=open"), enabled: open && !dealId });
+  const deals = useQuery({
+    queryKey: ["crm-deals", "open-for-proposals"],
+    queryFn: () => api<{ deals: Deal[] }>("/api/crm/deals?estado=open"),
+    enabled: open && !dealId,
+  });
   const [deal, setDeal] = useState(dealId ?? "");
   const [picked, setPicked] = useState<string[]>([]);
   const [template, setTemplate] = useState("");
@@ -286,7 +499,15 @@ export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate =
     }
   }, [open, dealId, initialTemplate]);
   const create = useMutation({
-    mutationFn: () => api<Proposal>("/api/proposals", { method: "POST", json: { deal_id: deal || null, product_ids: template ? [] : picked, template_id: template || null } }),
+    mutationFn: () =>
+      api<Proposal>("/api/proposals", {
+        method: "POST",
+        json: {
+          deal_id: deal || null,
+          product_ids: template ? [] : picked,
+          template_id: template || null,
+        },
+      }),
     onSuccess: (p) => {
       client.invalidateQueries({ queryKey: ["proposals"] });
       onOpenChange(false);
@@ -295,7 +516,12 @@ export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate =
   });
   const active = products.data?.filter((p) => p.active) ?? [];
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Nueva propuesta" description="ORKESTA arma el borrador con los datos de la oportunidad, el contacto y lo conversado. Luego lo ajustas.">
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Nueva propuesta"
+      description="ORKESTA arma el borrador con los datos de la oportunidad, el contacto y lo conversado. Luego lo ajustas."
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -305,7 +531,11 @@ export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate =
       >
         {create.error && <Alert>{create.error.message}</Alert>}
         {!dealId && (
-          <SelectField label="Oportunidad" value={deal} onChange={(e) => setDeal(e.target.value)}>
+          <SelectField
+            label="Oportunidad"
+            value={deal}
+            onChange={(e) => setDeal(e.target.value)}
+          >
             <option value="">Sin oportunidad (propuesta en blanco)</option>
             {deals.data?.deals.map((d) => (
               <option key={d.id} value={d.id}>
@@ -315,33 +545,51 @@ export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate =
             ))}
           </SelectField>
         )}
-        <TemplatePicker kind="proposal" value={template} onChange={setTemplate} />
+        <TemplatePicker
+          kind="proposal"
+          value={template}
+          onChange={setTemplate}
+        />
         {!template && (
-        <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ork-ink">Productos o servicios del catálogo (opcional)</p>
-          {active.length === 0 ? (
-            <p className="text-[12.5px] text-ork-mist">
-              Tu catálogo está vacío: se usará el valor de la oportunidad. Puedes cargar productos en la pestaña Catálogo.
+          <div>
+            <p className="mb-1.5 text-[13px] font-semibold text-ork-ink">
+              Productos o servicios del catálogo (opcional)
             </p>
-          ) : (
-            <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
-              {active.map((p) => (
-                <label key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-ork-line px-3 py-2 text-[13px]">
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-ork-blue"
-                      checked={picked.includes(p.id)}
-                      onChange={() => setPicked(picked.includes(p.id) ? picked.filter((x) => x !== p.id) : [...picked, p.id])}
-                    />
-                    {p.name}
-                  </span>
-                  <span className="text-ork-mist">{money(p.unit_price, p.currency)}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
+            {active.length === 0 ? (
+              <p className="text-[12.5px] text-ork-mist">
+                Tu catálogo está vacío: se usará el valor de la oportunidad.
+                Puedes cargar productos en la pestaña Catálogo.
+              </p>
+            ) : (
+              <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
+                {active.map((p) => (
+                  <label
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-ork-line px-3 py-2 text-[13px]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-ork-blue"
+                        checked={picked.includes(p.id)}
+                        onChange={() =>
+                          setPicked(
+                            picked.includes(p.id)
+                              ? picked.filter((x) => x !== p.id)
+                              : [...picked, p.id],
+                          )
+                        }
+                      />
+                      {p.name}
+                    </span>
+                    <span className="text-ork-mist">
+                      {money(p.unit_price, p.currency)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <Button type="submit" loading={create.isPending}>
           Crear borrador
@@ -354,9 +602,21 @@ export function NewProposalModal({ open, onOpenChange, dealId, initialTemplate =
 function Catalog() {
   const { session } = useSession();
   const isManager = session?.workspace?.role !== "vendedor";
+  const me = session?.user.id;
+  // Cada persona edita lo que agregó; lo anterior sin dueño, la administración o la jefatura.
+  const canEdit = (p: Product) =>
+    p.created_by ? p.created_by === me : isManager;
   const client = useQueryClient();
   const products = useProducts();
-  const empty = { name: "", description: "", unit_price: "", currency: "USD", unit: "unidad", image_url: "", payment_url: "" };
+  const empty = {
+    name: "",
+    description: "",
+    unit_price: "",
+    currency: "USD",
+    unit: "unidad",
+    image_url: "",
+    payment_url: "",
+  };
   const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState<string | null>(null);
   const save = useMutation({
@@ -371,25 +631,48 @@ function Catalog() {
       client.invalidateQueries({ queryKey: ["products"] });
     },
   });
-  const remove = useMutation({ mutationFn: (id: string) => api(`/api/products/${id}`, { method: "DELETE" }), onSuccess: () => client.invalidateQueries({ queryKey: ["products"] }) });
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      api(`/api/products/${id}`, { method: "DELETE" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["products"] }),
+  });
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,480px)]">
       <Card className="overflow-hidden p-0">
         {products.isLoading ? (
           <Spinner />
         ) : !products.data?.length ? (
-          <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">Carga tus productos y servicios para armar propuestas en segundos.</p>
+          <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">
+            Carga tus productos y servicios para armar propuestas en segundos.
+          </p>
         ) : (
           <ul className="divide-y divide-ork-line">
             {products.data.map((p) => (
-              <li key={p.id} className="flex items-start justify-between gap-3 px-5 py-4">
+              <li
+                key={p.id}
+                className="flex items-start justify-between gap-3 px-5 py-4"
+              >
                 <div className="flex min-w-0 flex-1 gap-3">
-                  {p.image_url && <img src={p.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                  {p.image_url && (
+                    <img
+                      src={p.image_url}
+                      alt=""
+                      className="size-16 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
                   <div className="min-w-0">
                     <p className="font-semibold text-ork-ink">{p.name}</p>
-                    <RichText value={p.description} className="mt-1 text-[13px] leading-relaxed text-ork-graphite" />
+                    <RichText
+                      value={p.description}
+                      className="mt-1 text-[13px] leading-relaxed text-ork-graphite"
+                    />
                     {p.payment_url && (
-                      <a href={p.payment_url} target="_blank" rel="noreferrer" className="mt-1.5 inline-block text-[12.5px] font-semibold text-ork-blue hover:underline">
+                      <a
+                        href={p.payment_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1.5 inline-block text-[12.5px] font-semibold text-ork-blue hover:underline"
+                      >
                         Link de pago ↗
                       </a>
                     )}
@@ -399,19 +682,38 @@ function Catalog() {
                   <span className="text-[13.5px] font-semibold text-ork-graphite">
                     {money(p.unit_price, p.currency)} / {p.unit}
                   </span>
-                  {isManager && (
+                  {canEdit(p) && (
                     <>
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => {
                           setEditing(p.id);
-                          setForm({ name: p.name, description: p.description, unit_price: String(p.unit_price), currency: p.currency, unit: p.unit, image_url: p.image_url, payment_url: p.payment_url });
+                          document
+                            .getElementById("catalog-form")
+                            ?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "start",
+                            });
+                          setForm({
+                            name: p.name,
+                            description: p.description,
+                            unit_price: String(p.unit_price),
+                            currency: p.currency,
+                            unit: p.unit,
+                            image_url: p.image_url,
+                            payment_url: p.payment_url,
+                          });
                         }}
                       >
                         Editar
                       </Button>
-                      <button type="button" aria-label={`Eliminar ${p.name}`} onClick={() => remove.mutate(p.id)} className="ork-focus rounded p-1 text-ork-mist hover:text-bad">
+                      <button
+                        type="button"
+                        aria-label={`Eliminar ${p.name}`}
+                        onClick={() => remove.mutate(p.id)}
+                        className="ork-focus rounded p-1 text-ork-mist hover:text-bad"
+                      >
                         <Trash2 className="size-4" />
                       </button>
                     </>
@@ -422,9 +724,16 @@ function Catalog() {
           </ul>
         )}
       </Card>
-      {isManager && (
+      <div id="catalog-form" className="scroll-mt-24">
         <Card>
-          <CardHeader title={editing ? "Editar producto" : "Agregar producto o servicio"} />
+          <CardHeader
+            title={editing ? "Editar producto" : "Agregar producto o servicio"}
+            description={
+              editing
+                ? undefined
+                : "Queda en el catálogo de toda la empresa. Solo tú podrás editarlo o eliminarlo."
+            }
+          />
           <form
             className="flex flex-col gap-3"
             onSubmit={(e) => {
@@ -433,26 +742,79 @@ function Catalog() {
             }}
           >
             {save.error && <Alert>{save.error.message}</Alert>}
-            <TextField label="Nombre" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <TextField
+              label="Nombre"
+              required
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
             <div className="flex flex-col gap-1.5">
-              <span className="text-[13px] font-semibold text-ork-ink">Descripción</span>
-              <RichEditor key={editing ?? "nuevo"} value={form.description} onChange={(html) => setForm((f) => ({ ...f, description: html }))} minHeight={140} />
-              <span className="text-[12px] text-ork-mist">Enter: nuevo párrafo · Shift + Enter: salto de línea. Puedes usar negrita, listas, enlaces e imágenes.</span>
+              <span className="text-[13px] font-semibold text-ork-ink">
+                Descripción
+              </span>
+              <RichEditor
+                key={editing ?? "nuevo"}
+                value={form.description}
+                onChange={(html) =>
+                  setForm((f) => ({ ...f, description: html }))
+                }
+                minHeight={140}
+              />
+              <span className="text-[12px] text-ork-mist">
+                Enter: nuevo párrafo · Shift + Enter: salto de línea. Puedes
+                usar negrita, listas, enlaces e imágenes.
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <TextField label="Precio" inputMode="decimal" value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: e.target.value.replace(/[^\d.]/g, "") })} />
-              <SelectField label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+              <TextField
+                label="Precio"
+                inputMode="decimal"
+                value={form.unit_price}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    unit_price: e.target.value.replace(/[^\d.]/g, ""),
+                  })
+                }
+              />
+              <SelectField
+                label="Moneda"
+                value={form.currency}
+                onChange={(e) => setForm({ ...form, currency: e.target.value })}
+              >
                 {CURRENCIES.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </SelectField>
             </div>
-            <TextField label="Unidad" placeholder="usuario, mes, proyecto…" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            <ImageField label="Imagen del producto (opcional)" value={form.image_url} onChange={(v) => setForm((f) => ({ ...f, image_url: v }))} hint="Aparece junto al producto en la propuesta." />
-            <TextField label="Link de pago (opcional)" placeholder="https://… (Stripe, PayPal, Mercado Pago, Wompi…)" value={form.payment_url} onChange={(e) => setForm({ ...form, payment_url: e.target.value })} hint="En la propuesta aparece el botón «Pagar en línea»." />
+            <TextField
+              label="Unidad"
+              placeholder="usuario, mes, proyecto…"
+              value={form.unit}
+              onChange={(e) => setForm({ ...form, unit: e.target.value })}
+            />
+            <ImageField
+              label="Imagen del producto (opcional)"
+              value={form.image_url}
+              onChange={(v) => setForm((f) => ({ ...f, image_url: v }))}
+              hint="Aparece junto al producto en la propuesta."
+            />
+            <TextField
+              label="Link de pago (opcional)"
+              placeholder="https://… (Stripe, PayPal, Mercado Pago, Wompi…)"
+              value={form.payment_url}
+              onChange={(e) =>
+                setForm({ ...form, payment_url: e.target.value })
+              }
+              hint="En la propuesta aparece el botón «Pagar en línea»."
+            />
             <div className="flex justify-end gap-2">
               {editing && (
-                <Button type="button" variant="ghost" onClick={() => (setEditing(null), setForm(empty))}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => (setEditing(null), setForm(empty))}
+                >
                   Cancelar
                 </Button>
               )}
@@ -462,18 +824,27 @@ function Catalog() {
             </div>
           </form>
         </Card>
-      )}
+      </div>
     </div>
   );
 }
 
 // --- Editor ---------------------------------------------------------------------------------
 
-function computeTotals(items: Item[], tax: number, mode: PricingMode = "total"): Totals {
+function computeTotals(
+  items: Item[],
+  tax: number,
+  mode: PricingMode = "total",
+): Totals {
   if (mode === "opciones") {
     const options = items.map((i) => {
       const o = computeTotals([i], tax);
-      return { subtotal: o.subtotal ?? 0, discounts: o.discounts ?? 0, tax: o.tax ?? 0, total: o.total ?? 0 };
+      return {
+        subtotal: o.subtotal ?? 0,
+        discounts: o.discounts ?? 0,
+        tax: o.tax ?? 0,
+        total: o.total ?? 0,
+      };
     });
     const prices = options.map((o) => o.total);
     return {
@@ -498,7 +869,13 @@ function computeTotals(items: Item[], tax: number, mode: PricingMode = "total"):
   }
   const t = (subtotal * (Number(tax) || 0)) / 100;
   const r = (v: number) => Math.round(v * 100) / 100;
-  return { mode: "total", subtotal: r(subtotal), discounts: r(discounts), tax: r(t), total: r(subtotal + t) };
+  return {
+    mode: "total",
+    subtotal: r(subtotal),
+    discounts: r(discounts),
+    tax: r(t),
+    total: r(subtotal + t),
+  };
 }
 
 export function ProposalEditor() {
@@ -506,16 +883,34 @@ export function ProposalEditor() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const products = useProducts();
-  const query = useQuery({ queryKey: ["proposal", id], queryFn: () => api<Proposal>(`/api/proposals/${id}`) });
+  const query = useQuery({
+    queryKey: ["proposal", id],
+    queryFn: () => api<Proposal>(`/api/proposals/${id}`),
+  });
   const p = query.data;
   const [draft, setDraft] = useState<
-    (Pick<Proposal, "title" | "currency" | "items" | "sections" | "tax_rate" | "valid_until" | "design"> & { pricing_mode: PricingMode }) | null
+    | (Pick<
+        Proposal,
+        | "title"
+        | "currency"
+        | "items"
+        | "sections"
+        | "tax_rate"
+        | "valid_until"
+        | "design"
+      > & { pricing_mode: PricingMode })
+    | null
   >(null);
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<"contenido" | "diseno" | "vista">("contenido");
+  const [mode, setMode] = useState<"contenido" | "diseno" | "vista">(
+    "contenido",
+  );
   const [openItem, setOpenItem] = useState<number | null>(null);
   const [emailing, setEmailing] = useState(false);
-  const caret = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; pos: number } | null>(null);
+  const caret = useRef<{
+    el: HTMLInputElement | HTMLTextAreaElement;
+    pos: number;
+  } | null>(null);
   useLayoutEffect(() => {
     // Tras insertar un dato, el cursor queda justo después de la variable.
     const c = caret.current;
@@ -524,9 +919,13 @@ export function ProposalEditor() {
     c.el.focus();
     c.el.setSelectionRange(c.pos, c.pos);
   });
-  const focused = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; apply: (v: string) => void } | null>(null);
+  const focused = useRef<{
+    el: HTMLInputElement | HTMLTextAreaElement;
+    apply: (v: string) => void;
+  } | null>(null);
   const track = (apply: (v: string) => void) => ({
-    onFocus: (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) => (focused.current = { el: e.currentTarget, apply }),
+    onFocus: (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) =>
+      (focused.current = { el: e.currentTarget, apply }),
   });
   const insertVar = (name: string) => {
     const f = focused.current;
@@ -553,17 +952,25 @@ export function ProposalEditor() {
   }, [p]);
   const locked = p?.status === "accepted" || p?.status === "rejected";
   const dirty = useMemo(
-    () => Boolean(p && draft && JSON.stringify(draft) !== JSON.stringify(snapshot(p))),
+    () =>
+      Boolean(
+        p && draft && JSON.stringify(draft) !== JSON.stringify(snapshot(p)),
+      ),
     [p, draft],
   );
   const refresh = (data: Proposal) => {
     client.setQueryData(["proposal", id], data);
     client.invalidateQueries({ queryKey: ["proposals"] });
   };
-  const save = useMutation({ mutationFn: () => api<Proposal>(`/api/proposals/${id}`, { method: "PATCH", json: draft }), onSuccess: refresh });
+  const save = useMutation({
+    mutationFn: () =>
+      api<Proposal>(`/api/proposals/${id}`, { method: "PATCH", json: draft }),
+    onSuccess: refresh,
+  });
   const send = useMutation({
     mutationFn: async () => {
-      if (dirty) await api(`/api/proposals/${id}`, { method: "PATCH", json: draft });
+      if (dirty)
+        await api(`/api/proposals/${id}`, { method: "PATCH", json: draft });
       return api<Proposal>(`/api/proposals/${id}/send`, { method: "POST" });
     },
     onSuccess: (data) => {
@@ -573,13 +980,17 @@ export function ProposalEditor() {
   });
   const regen = useMutation({
     mutationFn: async () => {
-      if (dirty) await api(`/api/proposals/${id}`, { method: "PATCH", json: draft });
-      return api<Proposal>(`/api/proposals/${id}/regenerate`, { method: "POST" });
+      if (dirty)
+        await api(`/api/proposals/${id}`, { method: "PATCH", json: draft });
+      return api<Proposal>(`/api/proposals/${id}/regenerate`, {
+        method: "POST",
+      });
     },
     onSuccess: refresh,
   });
   const dup = useMutation({
-    mutationFn: () => api<Proposal>(`/api/proposals/${id}/duplicate`, { method: "POST" }),
+    mutationFn: () =>
+      api<Proposal>(`/api/proposals/${id}/duplicate`, { method: "POST" }),
     onSuccess: (data) => {
       client.invalidateQueries({ queryKey: ["proposals"] });
       navigate(`/propuestas/${data.id}`);
@@ -593,11 +1004,22 @@ export function ProposalEditor() {
     },
   });
 
-  if (query.isLoading || !draft) return query.error ? <Alert>{query.error.message}</Alert> : <Spinner />;
+  if (query.isLoading || !draft)
+    return query.error ? <Alert>{query.error.message}</Alert> : <Spinner />;
   if (!p) return null;
   const t = computeTotals(draft.items, draft.tax_rate, draft.pricing_mode);
-  const setItem = (i: number, patch: Partial<Item>) => setDraft({ ...draft, items: draft.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
-  const setSection = (i: number, patch: Partial<Section>) => setDraft({ ...draft, sections: draft.sections.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  const setItem = (i: number, patch: Partial<Item>) =>
+    setDraft({
+      ...draft,
+      items: draft.items.map((it, j) => (j === i ? { ...it, ...patch } : it)),
+    });
+  const setSection = (i: number, patch: Partial<Section>) =>
+    setDraft({
+      ...draft,
+      sections: draft.sections.map((s, j) =>
+        j === i ? { ...s, ...patch } : s,
+      ),
+    });
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(publicLink(p.public_id));
@@ -607,16 +1029,22 @@ export function ProposalEditor() {
       /* sin permiso para copiar */
     }
   };
-  const error = save.error ?? send.error ?? regen.error ?? dup.error ?? remove.error;
+  const error =
+    save.error ?? send.error ?? regen.error ?? dup.error ?? remove.error;
 
   return (
     <>
-      <Link to="/propuestas" className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ork-mist hover:text-ork-ink">
+      <Link
+        to="/propuestas"
+        className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ork-mist hover:text-ork-ink"
+      >
         <ArrowLeft className="size-4" aria-hidden /> Propuestas
       </Link>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[12.5px] font-semibold text-ork-mist">Propuesta #{p.number}</p>
+          <p className="text-[12.5px] font-semibold text-ork-mist">
+            Propuesta #{p.number}
+          </p>
           <input
             aria-label="Título de la propuesta"
             disabled={locked}
@@ -630,31 +1058,74 @@ export function ProposalEditor() {
             {p.contact && <span>{p.contact.full_name}</span>}
             {p.company && <span>· {p.company}</span>}
             {p.deal && (
-              <Link to={`/crm?oportunidad=${p.deal.id}`} className="font-semibold text-ork-blue hover:underline">
+              <Link
+                to={`/crm?oportunidad=${p.deal.id}`}
+                className="font-semibold text-ork-blue hover:underline"
+              >
                 · {p.deal.title}
               </Link>
             )}
-            {p.view_count > 0 && <span>· Vista {p.view_count} vez/veces, última {formatWhen(p.last_viewed_at!)}</span>}
+            {p.view_count > 0 && (
+              <span>
+                · Vista {p.view_count} vez/veces, última{" "}
+                {formatWhen(p.last_viewed_at!)}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a href={`/app/p/${p.public_id}?vista_previa=1`} target="_blank" rel="noreferrer" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-3 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
+          <a
+            href={`/app/p/${p.public_id}?vista_previa=1`}
+            target="_blank"
+            rel="noreferrer"
+            className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-3 text-sm font-semibold text-ork-ink hover:border-ork-blue/40"
+          >
             <Eye className="size-4" aria-hidden /> Vista previa / PDF
           </a>
-          <Button variant="secondary" icon={copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />} onClick={copyLink}>
+          <Button
+            variant="secondary"
+            icon={
+              copied ? (
+                <Check className="size-4" aria-hidden />
+              ) : (
+                <Copy className="size-4" aria-hidden />
+              )
+            }
+            onClick={copyLink}
+          >
             {copied ? "Enlace copiado" : "Copiar enlace"}
           </Button>
-          <SaveTemplateButton kind="proposal" sourceId={p.id} defaultName={p.title} beforeSave={dirty && !locked ? () => save.mutateAsync() : undefined} />
+          <SaveTemplateButton
+            kind="proposal"
+            sourceId={p.id}
+            defaultName={p.title}
+            beforeSave={dirty && !locked ? () => save.mutateAsync() : undefined}
+          />
           {locked ? (
-            <Button variant="secondary" loading={dup.isPending} icon={<Files className="size-4" aria-hidden />} onClick={() => dup.mutate()}>
+            <Button
+              variant="secondary"
+              loading={dup.isPending}
+              icon={<Files className="size-4" aria-hidden />}
+              onClick={() => dup.mutate()}
+            >
               Duplicar
             </Button>
           ) : (
             <>
-              <Button variant="secondary" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate()}>
+              <Button
+                variant="secondary"
+                disabled={!dirty}
+                loading={save.isPending}
+                onClick={() => save.mutate()}
+              >
                 Guardar
               </Button>
-              <Button variant="secondary" loading={send.isPending} onClick={() => send.mutate()} title="Si la enviaste por otro medio">
+              <Button
+                variant="secondary"
+                loading={send.isPending}
+                onClick={() => send.mutate()}
+                title="Si la enviaste por otro medio"
+              >
                 {p.status === "draft" ? "Marcar como enviada" : "Guardar"}
               </Button>
               <Button
@@ -671,23 +1142,37 @@ export function ProposalEditor() {
           )}
         </div>
       </div>
-      {error && <div className="mb-4"><Alert>{error.message}</Alert></div>}
+      {error && (
+        <div className="mb-4">
+          <Alert>{error.message}</Alert>
+        </div>
+      )}
       {p.status === "draft" && (
         <div className="mb-4">
           <Alert tone="blue">
-            Personaliza plantilla, colores, idioma y tus datos en «Diseño». Luego copia el enlace y envíalo a tu cliente; al marcarla como enviada, la oportunidad pasa a «Propuesta enviada» y verás cuándo la abre.
+            Personaliza plantilla, colores, idioma y tus datos en «Diseño».
+            Luego copia el enlace y envíalo a tu cliente; al marcarla como
+            enviada, la oportunidad pasa a «Propuesta enviada» y verás cuándo la
+            abre.
           </Alert>
         </div>
       )}
       {p.decided_at && (
         <div className="mb-4">
           <Alert tone={p.status === "accepted" ? "ok" : "bad"}>
-            {p.decided_by ?? "El cliente"} {p.status === "accepted" ? "aceptó" : "rechazó"} esta propuesta el {formatWhen(p.decided_at)}.
+            {p.decided_by ?? "El cliente"}{" "}
+            {p.status === "accepted" ? "aceptó" : "rechazó"} esta propuesta el{" "}
+            {formatWhen(p.decided_at)}.
             {p.decision_note ? ` Comentario: «${p.decision_note}»` : ""}
             {p.signature && (
               <span className="mt-1 block">
                 Firma electrónica de {p.signature.name} ({p.signature.email}).{" "}
-                <a href={`/api/proposals/${p.id}/constancia.pdf`} target="_blank" rel="noreferrer" className="font-semibold underline">
+                <a
+                  href={`/api/proposals/${p.id}/constancia.pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline"
+                >
                   Descargar constancia de firma (PDF)
                 </a>
               </span>
@@ -696,12 +1181,28 @@ export function ProposalEditor() {
         </div>
       )}
 
-      <div className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5" role="tablist" aria-label="Editor">
+      <div
+        className="mb-4 inline-flex rounded-xl border border-ork-line bg-ork-card p-0.5"
+        role="tablist"
+        aria-label="Editor"
+      >
         {(
           [
-            ["contenido", "Contenido", <LayoutTemplate key="c" className="size-4" aria-hidden />],
-            ["diseno", "Diseño", <Brush key="d" className="size-4" aria-hidden />],
-            ["vista", "Vista previa", <Eye key="v" className="size-4" aria-hidden />],
+            [
+              "contenido",
+              "Contenido",
+              <LayoutTemplate key="c" className="size-4" aria-hidden />,
+            ],
+            [
+              "diseno",
+              "Diseño",
+              <Brush key="d" className="size-4" aria-hidden />,
+            ],
+            [
+              "vista",
+              "Vista previa",
+              <Eye key="v" className="size-4" aria-hidden />,
+            ],
           ] as const
         ).map(([value, label, icon]) => (
           <button
@@ -709,7 +1210,10 @@ export function ProposalEditor() {
             role="tab"
             aria-selected={mode === value}
             onClick={() => setMode(value)}
-            className={cx("ork-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold", mode === value ? "ork-gradient text-white" : "text-ork-graphite")}
+            className={cx(
+              "ork-focus inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold",
+              mode === value ? "ork-gradient text-white" : "text-ork-graphite",
+            )}
           >
             {icon}
             {label}
@@ -724,7 +1228,11 @@ export function ProposalEditor() {
             locked={locked}
             onChange={(design) => setDraft({ ...draft, design })}
             translating={regen.isPending}
-            onTranslate={() => window.confirm("¿Rehacer los textos en el idioma elegido? Se reemplaza el contenido actual.") && regen.mutate()}
+            onTranslate={() =>
+              window.confirm(
+                "¿Rehacer los textos en el idioma elegido? Se reemplaza el contenido actual.",
+              ) && regen.mutate()
+            }
           />
         ) : mode === "vista" ? (
           brand.data ? (
@@ -734,8 +1242,20 @@ export function ProposalEditor() {
                   number: p.number,
                   title: fill(draft.title, p.values ?? {}),
                   currency: draft.currency,
-                  items: draft.items.map((it) => ({ ...it, name: fill(it.name, p.values ?? {}), description: fill(it.description, p.values ?? {}, /</.test(it.description)) })),
-                  sections: draft.sections.map((x) => ({ ...x, title: fill(x.title, p.values ?? {}), body: fill(x.body, p.values ?? {}) })),
+                  items: draft.items.map((it) => ({
+                    ...it,
+                    name: fill(it.name, p.values ?? {}),
+                    description: fill(
+                      it.description,
+                      p.values ?? {},
+                      /</.test(it.description),
+                    ),
+                  })),
+                  sections: draft.sections.map((x) => ({
+                    ...x,
+                    title: fill(x.title, p.values ?? {}),
+                    body: fill(x.body, p.values ?? {}),
+                  })),
                   tax_rate: draft.tax_rate,
                   totals: t,
                   pricing_mode: draft.pricing_mode,
@@ -753,196 +1273,460 @@ export function ProposalEditor() {
             <Spinner />
           )
         ) : (
-        <div className="flex flex-col gap-5">
-          <Card>
-            <CardHeader
-              title="Contenido"
-              description="Generado con los datos de la oportunidad y lo conversado. Edítalo libremente."
-              action={
-                !locked && (
-                  <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" aria-hidden />} loading={regen.isPending} onClick={() => window.confirm("¿Regenerar las secciones? Se reemplazará el texto actual.") && regen.mutate()}>
-                    Regenerar borrador
-                  </Button>
-                )
-              }
-            />
-            {!locked && (
-              <div className="mb-4 rounded-xl bg-ork-surface p-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">Insertar dato del cliente:</span>
-                  {Object.entries(p.variables ?? {}).map(([k, label]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => insertVar(k)}
-                      title={p.values?.[k] ? `Para este cliente: ${p.values[k]}` : "Sin dato para este cliente"}
-                      className={cx(
-                        "ork-focus rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
-                        p.values?.[k] ? "border-ork-line bg-ork-card text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue" : "border-dashed border-ork-line text-ork-mist",
-                      )}
+          <div className="flex flex-col gap-5">
+            <Card>
+              <CardHeader
+                title="Contenido"
+                description="Generado con los datos de la oportunidad y lo conversado. Edítalo libremente."
+                action={
+                  !locked && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<RefreshCw className="size-3.5" aria-hidden />}
+                      loading={regen.isPending}
+                      onClick={() =>
+                        window.confirm(
+                          "¿Regenerar las secciones? Se reemplazará el texto actual.",
+                        ) && regen.mutate()
+                      }
                     >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-[12px] text-ork-mist">
-                  Haz clic en un campo (título, sección o texto) y luego en el dato. El cliente verá su valor real; usa <code className="rounded bg-ork-card px-1">{"{{cargo|equipo directivo}}"}</code> para un texto alterno si falta.
-                </p>
-              </div>
-            )}
-            <div className="flex flex-col gap-4">
-              {draft.sections.map((s, i) => (
-                <div key={s.key + i} className="rounded-xl border border-ork-line p-3">
-                  <div className="mb-2 flex items-center gap-2">
-                    <input
-                      aria-label="Título de la sección"
-                      disabled={locked}
-                      value={s.title}
-                      onChange={(e) => setSection(i, { title: e.target.value })}
-                      {...track((v) => setDraft((d) => (d ? { ...d, sections: d.sections.map((x, j) => (j === i ? { ...x, title: v } : x)) } : d)))}
-                      className="ork-focus min-w-0 flex-1 rounded-md px-1 text-[14.5px] font-bold text-ork-ink hover:bg-ork-ink/[0.03]"
-                    />
-                    {!locked && (
-                      <button type="button" aria-label="Quitar sección" onClick={() => setDraft({ ...draft, sections: draft.sections.filter((_, j) => j !== i) })} className="ork-focus rounded p-1 text-ork-mist hover:text-bad">
-                        <X className="size-4" />
-                      </button>
-                    )}
-                  </div>
-                  <textarea
-                    aria-label={`Texto de ${s.title}`}
-                    disabled={locked}
-                    value={s.body}
-                    onChange={(e) => setSection(i, { body: e.target.value })}
-                    {...track((v) => setDraft((d) => (d ? { ...d, sections: d.sections.map((x, j) => (j === i ? { ...x, body: v } : x)) } : d)))}
-                    rows={Math.min(14, Math.max(3, s.body.split("\n").length + 1))}
-                    className="ork-focus w-full resize-y rounded-lg border border-ork-line px-3 py-2 text-[13.5px] leading-relaxed text-ork-graphite"
-                  />
-                </div>
-              ))}
+                      Regenerar borrador
+                    </Button>
+                  )
+                }
+              />
               {!locked && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Plus className="size-3.5" aria-hidden />}
-                  onClick={() => setDraft({ ...draft, sections: [...draft.sections, { key: `s${Date.now()}`, title: "Nueva sección", body: "" }] })}
-                >
-                  Agregar sección
-                </Button>
-              )}
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader title="Inversión" />
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-[13px]">
-                <thead className="text-[12px] text-ork-mist">
-                  <tr>
-                    <th className="pb-2 font-semibold">Concepto</th>
-                    <th className="w-20 pb-2 font-semibold">Cant.</th>
-                    <th className="w-32 pb-2 font-semibold">Precio unit.</th>
-                    <th className="w-20 pb-2 font-semibold">Desc. %</th>
-                    <th className="w-28 pb-2 text-right font-semibold">Total</th>
-                    <th className="w-8" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.items.map((it, i) => {
-                    const line = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0) * (1 - (Number(it.discount) || 0) / 100);
-                    const cell = "ork-focus h-9 w-full rounded-lg border border-ork-line px-2";
-                    const extras = [it.description && "descripción", it.image_url && "imagen", it.payment_url && "link de pago"].filter(Boolean).join(" · ");
-                    return (
-                      <Fragment key={i}>
-                      <tr className="align-top">
-                        <td className="py-1 pr-2">
-                          <input aria-label="Concepto" disabled={locked} value={it.name} onChange={(e) => setItem(i, { name: e.target.value })} className={cell} />
-                          <button type="button" onClick={() => setOpenItem(openItem === i ? null : i)} className="mt-1 text-left text-[12px] font-semibold text-ork-blue hover:underline">
-                            {openItem === i ? "Ocultar detalle" : extras ? `Detalle: ${extras}` : "＋ Descripción, imagen o link de pago"}
-                          </button>
-                        </td>
-                        <td className="py-1 pr-2">
-                          <input aria-label="Cantidad" disabled={locked} inputMode="decimal" value={it.quantity} onChange={(e) => setItem(i, { quantity: Number(e.target.value.replace(/[^\d.]/g, "")) })} className={cell} />
-                        </td>
-                        <td className="py-1 pr-2">
-                          <input aria-label="Precio unitario" disabled={locked} inputMode="decimal" value={it.unit_price} onChange={(e) => setItem(i, { unit_price: Number(e.target.value.replace(/[^\d.]/g, "")) })} className={cell} />
-                        </td>
-                        <td className="py-1 pr-2">
-                          <input aria-label="Descuento" disabled={locked} inputMode="decimal" value={it.discount} onChange={(e) => setItem(i, { discount: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, ""))) })} className={cell} />
-                        </td>
-                        <td className="py-2.5 text-right font-semibold text-ork-graphite">{money(line, draft.currency)}</td>
-                        <td className="py-1 pl-1">
-                          {!locked && (
-                            <button type="button" aria-label="Quitar línea" onClick={() => setDraft({ ...draft, items: draft.items.filter((_, j) => j !== i) })} className="ork-focus mt-1.5 rounded p-1 text-ork-mist hover:text-bad">
-                              <Trash2 className="size-4" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {openItem === i && (
-                        <tr>
-                          <td colSpan={6} className="pb-4 pt-1">
-                            <div className="grid gap-3 rounded-xl border border-ork-line bg-ork-surface/60 p-3 lg:grid-cols-[minmax(0,1fr)_240px]">
-                              <div className="flex flex-col gap-1.5">
-                                <span className="text-[12.5px] font-semibold text-ork-ink">Descripción</span>
-                                {locked ? <RichText value={it.description} className="text-[13px]" /> : <RichEditor value={it.description} onChange={(html) => setItem(i, { description: html })} minHeight={110} />}
-                              </div>
-                              <div className="flex flex-col gap-3">
-                                <ImageField label="Imagen" value={it.image_url ?? ""} onChange={(v) => setItem(i, { image_url: v })} />
-                                <TextField label="Link de pago" disabled={locked} placeholder="https://…" value={it.payment_url ?? ""} onChange={(e) => setItem(i, { payment_url: e.target.value })} />
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {!locked && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setDraft({ ...draft, items: [...draft.items, { name: "", description: "", quantity: 1, unit: "", unit_price: 0, discount: 0 }] })}>
-                  Agregar línea
-                </Button>
-                {!!products.data?.length && (
-                  <select
-                    aria-label="Agregar desde el catálogo"
-                    value=""
-                    onChange={(e) => {
-                      const prod = products.data?.find((x) => x.id === e.target.value);
-                      if (prod) setDraft({ ...draft, items: [...draft.items, { name: prod.name, description: prod.description, quantity: 1, unit: prod.unit, unit_price: prod.unit_price, discount: 0, image_url: prod.image_url, payment_url: prod.payment_url }] });
-                    }}
-                    className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
-                  >
-                    <option value="">＋ Desde el catálogo…</option>
-                    {products.data.filter((x) => x.active).map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name} · {money(x.unit_price, x.currency)}
-                      </option>
+                <div className="mb-4 rounded-xl bg-ork-surface p-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">
+                      Insertar dato del cliente:
+                    </span>
+                    {Object.entries(p.variables ?? {}).map(([k, label]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => insertVar(k)}
+                        title={
+                          p.values?.[k]
+                            ? `Para este cliente: ${p.values[k]}`
+                            : "Sin dato para este cliente"
+                        }
+                        className={cx(
+                          "ork-focus rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
+                          p.values?.[k]
+                            ? "border-ork-line bg-ork-card text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue"
+                            : "border-dashed border-ork-line text-ork-mist",
+                        )}
+                      >
+                        {label}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                  <p className="mt-1.5 text-[12px] text-ork-mist">
+                    Haz clic en un campo (título, sección o texto) y luego en el
+                    dato. El cliente verá su valor real; usa{" "}
+                    <code className="rounded bg-ork-card px-1">
+                      {"{{cargo|equipo directivo}}"}
+                    </code>{" "}
+                    para un texto alterno si falta.
+                  </p>
+                </div>
+              )}
+              <div className="flex flex-col gap-4">
+                {draft.sections.map((s, i) => (
+                  <div
+                    key={s.key + i}
+                    className="rounded-xl border border-ork-line p-3"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <input
+                        aria-label="Título de la sección"
+                        disabled={locked}
+                        value={s.title}
+                        onChange={(e) =>
+                          setSection(i, { title: e.target.value })
+                        }
+                        {...track((v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  sections: d.sections.map((x, j) =>
+                                    j === i ? { ...x, title: v } : x,
+                                  ),
+                                }
+                              : d,
+                          ),
+                        )}
+                        className="ork-focus min-w-0 flex-1 rounded-md px-1 text-[14.5px] font-bold text-ork-ink hover:bg-ork-ink/[0.03]"
+                      />
+                      {!locked && (
+                        <button
+                          type="button"
+                          aria-label="Quitar sección"
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              sections: draft.sections.filter(
+                                (_, j) => j !== i,
+                              ),
+                            })
+                          }
+                          className="ork-focus rounded p-1 text-ork-mist hover:text-bad"
+                        >
+                          <X className="size-4" />
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      aria-label={`Texto de ${s.title}`}
+                      disabled={locked}
+                      value={s.body}
+                      onChange={(e) => setSection(i, { body: e.target.value })}
+                      {...track((v) =>
+                        setDraft((d) =>
+                          d
+                            ? {
+                                ...d,
+                                sections: d.sections.map((x, j) =>
+                                  j === i ? { ...x, body: v } : x,
+                                ),
+                              }
+                            : d,
+                        ),
+                      )}
+                      rows={Math.min(
+                        14,
+                        Math.max(3, s.body.split("\n").length + 1),
+                      )}
+                      className="ork-focus w-full resize-y rounded-lg border border-ork-line px-3 py-2 text-[13.5px] leading-relaxed text-ork-graphite"
+                    />
+                  </div>
+                ))}
+                {!locked && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Plus className="size-3.5" aria-hidden />}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        sections: [
+                          ...draft.sections,
+                          {
+                            key: `s${Date.now()}`,
+                            title: "Nueva sección",
+                            body: "",
+                          },
+                        ],
+                      })
+                    }
+                  >
+                    Agregar sección
+                  </Button>
                 )}
               </div>
-            )}
-          </Card>
-        </div>
+            </Card>
+
+            <Card>
+              <CardHeader title="Inversión" />
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-[13px]">
+                  <thead className="text-[12px] text-ork-mist">
+                    <tr>
+                      <th className="pb-2 font-semibold">Concepto</th>
+                      <th className="w-20 pb-2 font-semibold">Cant.</th>
+                      <th className="w-32 pb-2 font-semibold">Precio unit.</th>
+                      <th className="w-20 pb-2 font-semibold">Desc. %</th>
+                      <th className="w-28 pb-2 text-right font-semibold">
+                        Total
+                      </th>
+                      <th className="w-8" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draft.items.map((it, i) => {
+                      const line =
+                        (Number(it.quantity) || 0) *
+                        (Number(it.unit_price) || 0) *
+                        (1 - (Number(it.discount) || 0) / 100);
+                      const cell =
+                        "ork-focus h-9 w-full rounded-lg border border-ork-line px-2";
+                      const extras = [
+                        it.description && "descripción",
+                        it.image_url && "imagen",
+                        it.payment_url && "link de pago",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
+                      return (
+                        <Fragment key={i}>
+                          <tr className="align-top">
+                            <td className="py-1 pr-2">
+                              <input
+                                aria-label="Concepto"
+                                disabled={locked}
+                                value={it.name}
+                                onChange={(e) =>
+                                  setItem(i, { name: e.target.value })
+                                }
+                                className={cell}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenItem(openItem === i ? null : i)
+                                }
+                                className="mt-1 text-left text-[12px] font-semibold text-ork-blue hover:underline"
+                              >
+                                {openItem === i
+                                  ? "Ocultar detalle"
+                                  : extras
+                                    ? `Detalle: ${extras}`
+                                    : "＋ Descripción, imagen o link de pago"}
+                              </button>
+                            </td>
+                            <td className="py-1 pr-2">
+                              <input
+                                aria-label="Cantidad"
+                                disabled={locked}
+                                inputMode="decimal"
+                                value={it.quantity}
+                                onChange={(e) =>
+                                  setItem(i, {
+                                    quantity: Number(
+                                      e.target.value.replace(/[^\d.]/g, ""),
+                                    ),
+                                  })
+                                }
+                                className={cell}
+                              />
+                            </td>
+                            <td className="py-1 pr-2">
+                              <input
+                                aria-label="Precio unitario"
+                                disabled={locked}
+                                inputMode="decimal"
+                                value={it.unit_price}
+                                onChange={(e) =>
+                                  setItem(i, {
+                                    unit_price: Number(
+                                      e.target.value.replace(/[^\d.]/g, ""),
+                                    ),
+                                  })
+                                }
+                                className={cell}
+                              />
+                            </td>
+                            <td className="py-1 pr-2">
+                              <input
+                                aria-label="Descuento"
+                                disabled={locked}
+                                inputMode="decimal"
+                                value={it.discount}
+                                onChange={(e) =>
+                                  setItem(i, {
+                                    discount: Math.min(
+                                      100,
+                                      Number(
+                                        e.target.value.replace(/[^\d.]/g, ""),
+                                      ),
+                                    ),
+                                  })
+                                }
+                                className={cell}
+                              />
+                            </td>
+                            <td className="py-2.5 text-right font-semibold text-ork-graphite">
+                              {money(line, draft.currency)}
+                            </td>
+                            <td className="py-1 pl-1">
+                              {!locked && (
+                                <button
+                                  type="button"
+                                  aria-label="Quitar línea"
+                                  onClick={() =>
+                                    setDraft({
+                                      ...draft,
+                                      items: draft.items.filter(
+                                        (_, j) => j !== i,
+                                      ),
+                                    })
+                                  }
+                                  className="ork-focus mt-1.5 rounded p-1 text-ork-mist hover:text-bad"
+                                >
+                                  <Trash2 className="size-4" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                          {openItem === i && (
+                            <tr>
+                              <td colSpan={6} className="pb-4 pt-1">
+                                <div className="grid gap-3 rounded-xl border border-ork-line bg-ork-surface/60 p-3 lg:grid-cols-[minmax(0,1fr)_240px]">
+                                  <div className="flex flex-col gap-1.5">
+                                    <span className="text-[12.5px] font-semibold text-ork-ink">
+                                      Descripción
+                                    </span>
+                                    {locked ? (
+                                      <RichText
+                                        value={it.description}
+                                        className="text-[13px]"
+                                      />
+                                    ) : (
+                                      <RichEditor
+                                        value={it.description}
+                                        onChange={(html) =>
+                                          setItem(i, { description: html })
+                                        }
+                                        minHeight={110}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="flex flex-col gap-3">
+                                    <ImageField
+                                      label="Imagen"
+                                      value={it.image_url ?? ""}
+                                      onChange={(v) =>
+                                        setItem(i, { image_url: v })
+                                      }
+                                    />
+                                    <TextField
+                                      label="Link de pago"
+                                      disabled={locked}
+                                      placeholder="https://…"
+                                      value={it.payment_url ?? ""}
+                                      onChange={(e) =>
+                                        setItem(i, {
+                                          payment_url: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {!locked && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Plus className="size-3.5" aria-hidden />}
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        items: [
+                          ...draft.items,
+                          {
+                            name: "",
+                            description: "",
+                            quantity: 1,
+                            unit: "",
+                            unit_price: 0,
+                            discount: 0,
+                          },
+                        ],
+                      })
+                    }
+                  >
+                    Agregar línea
+                  </Button>
+                  {!!products.data?.length && (
+                    <select
+                      aria-label="Agregar desde el catálogo"
+                      value=""
+                      onChange={(e) => {
+                        const prod = products.data?.find(
+                          (x) => x.id === e.target.value,
+                        );
+                        if (prod)
+                          setDraft({
+                            ...draft,
+                            items: [
+                              ...draft.items,
+                              {
+                                name: prod.name,
+                                description: prod.description,
+                                quantity: 1,
+                                unit: prod.unit,
+                                unit_price: prod.unit_price,
+                                discount: 0,
+                                image_url: prod.image_url,
+                                payment_url: prod.payment_url,
+                              },
+                            ],
+                          });
+                      }}
+                      className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
+                    >
+                      <option value="">＋ Desde el catálogo…</option>
+                      {products.data
+                        .filter((x) => x.active)
+                        .map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name} · {money(x.unit_price, x.currency)}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </Card>
+          </div>
         )}
 
         <Card className="xl:sticky xl:top-4">
           <CardHeader title="Resumen" />
           <div className="grid grid-cols-2 gap-3">
-            <SelectField label="Moneda" disabled={locked} value={draft.currency} onChange={(e) => setDraft({ ...draft, currency: e.target.value })}>
+            <SelectField
+              label="Moneda"
+              disabled={locked}
+              value={draft.currency}
+              onChange={(e) => setDraft({ ...draft, currency: e.target.value })}
+            >
               {CURRENCIES.map((c) => (
                 <option key={c}>{c}</option>
               ))}
             </SelectField>
-            <TextField label="Impuesto %" disabled={locked} inputMode="decimal" value={String(draft.tax_rate)} onChange={(e) => setDraft({ ...draft, tax_rate: Math.min(100, Number(e.target.value.replace(/[^\d.]/g, "")) || 0) })} />
-            <TextField label="Válida hasta" type="date" disabled={locked} className="col-span-2" value={draft.valid_until ?? ""} onChange={(e) => setDraft({ ...draft, valid_until: e.target.value || null })} />
+            <TextField
+              label="Impuesto %"
+              disabled={locked}
+              inputMode="decimal"
+              value={String(draft.tax_rate)}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  tax_rate: Math.min(
+                    100,
+                    Number(e.target.value.replace(/[^\d.]/g, "")) || 0,
+                  ),
+                })
+              }
+            />
+            <TextField
+              label="Válida hasta"
+              type="date"
+              disabled={locked}
+              className="col-span-2"
+              value={draft.valid_until ?? ""}
+              onChange={(e) =>
+                setDraft({ ...draft, valid_until: e.target.value || null })
+              }
+            />
           </div>
-<fieldset className="mt-4">
-            <legend className="mb-1.5 text-[13px] font-semibold text-ork-ink">¿Cómo se presentan los precios?</legend>
+          <fieldset className="mt-4">
+            <legend className="mb-1.5 text-[13px] font-semibold text-ork-ink">
+              ¿Cómo se presentan los precios?
+            </legend>
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-ork-surface p-1">
               {(
                 [
@@ -958,66 +1742,111 @@ export function ProposalEditor() {
                   onClick={() => setDraft({ ...draft, pricing_mode: value })}
                   className={cx(
                     "ork-focus rounded-lg px-2 py-1.5 text-left transition disabled:opacity-60",
-                    draft.pricing_mode === value ? "bg-ork-card shadow-sm" : "hover:bg-ork-card/60",
+                    draft.pricing_mode === value
+                      ? "bg-ork-card shadow-sm"
+                      : "hover:bg-ork-card/60",
                   )}
                 >
-                  <span className={cx("block text-[13px] font-semibold", draft.pricing_mode === value ? "text-ork-blue" : "text-ork-ink")}>{label}</span>
-                  <span className="block text-[11.5px] text-ork-mist">{hint}</span>
+                  <span
+                    className={cx(
+                      "block text-[13px] font-semibold",
+                      draft.pricing_mode === value
+                        ? "text-ork-blue"
+                        : "text-ork-ink",
+                    )}
+                  >
+                    {label}
+                  </span>
+                  <span className="block text-[11.5px] text-ork-mist">
+                    {hint}
+                  </span>
                 </button>
               ))}
             </div>
           </fieldset>
           {draft.pricing_mode === "opciones" ? (
             <div className="mt-4 text-[13.5px]">
-              <p className="text-[12.5px] text-ork-mist">Sin total general: cada producto es una alternativa con su propio valor{draft.tax_rate > 0 ? ` (con ${draft.tax_rate} % de impuestos)` : ""}. Al aceptar, el cliente elige una y la oportunidad toma ese valor.</p>
+              <p className="text-[12.5px] text-ork-mist">
+                Sin total general: cada producto es una alternativa con su
+                propio valor
+                {draft.tax_rate > 0
+                  ? ` (con ${draft.tax_rate} % de impuestos)`
+                  : ""}
+                . Al aceptar, el cliente elige una y la oportunidad toma ese
+                valor.
+              </p>
               <ul className="mt-2 space-y-1.5">
                 {draft.items.map((it, i) => (
-                  <li key={i} className={cx("flex justify-between gap-3", p.chosen_item === i ? "font-bold text-ok" : "text-ork-graphite")}>
+                  <li
+                    key={i}
+                    className={cx(
+                      "flex justify-between gap-3",
+                      p.chosen_item === i
+                        ? "font-bold text-ok"
+                        : "text-ork-graphite",
+                    )}
+                  >
                     <span className="min-w-0 truncate">
                       Opción {i + 1}
                       {it.name ? ` · ${it.name}` : ""}
                       {p.chosen_item === i ? " · elegida" : ""}
                     </span>
-                    <span className="shrink-0 font-semibold">{money(t.options?.[i]?.total ?? 0, draft.currency)}</span>
+                    <span className="shrink-0 font-semibold">
+                      {money(t.options?.[i]?.total ?? 0, draft.currency)}
+                    </span>
                   </li>
                 ))}
               </ul>
             </div>
           ) : (
-          <dl className="mt-4 space-y-1.5 text-[13.5px]">
-            <div className="flex justify-between text-ork-graphite">
-              <dt>Subtotal</dt>
-              <dd>{money(t.subtotal ?? 0, draft.currency)}</dd>
-            </div>
-            {(t.discounts ?? 0) > 0 && (
-              <div className="flex justify-between text-ork-mist">
-                <dt>Descuentos aplicados</dt>
-                <dd>−{money(t.discounts ?? 0, draft.currency)}</dd>
+            <dl className="mt-4 space-y-1.5 text-[13.5px]">
+              <div className="flex justify-between text-ork-graphite">
+                <dt>Subtotal</dt>
+                <dd>{money(t.subtotal ?? 0, draft.currency)}</dd>
               </div>
-            )}
-            <div className="flex justify-between text-ork-graphite">
-              <dt>Impuestos ({draft.tax_rate} %)</dt>
-              <dd>{money(t.tax ?? 0, draft.currency)}</dd>
-            </div>
-            <div className="flex justify-between border-t border-ork-line pt-2 text-[16px] font-bold text-ork-ink">
-              <dt>Total</dt>
-              <dd>{money(t.total ?? 0, draft.currency)}</dd>
-            </div>
-          </dl>
+              {(t.discounts ?? 0) > 0 && (
+                <div className="flex justify-between text-ork-mist">
+                  <dt>Descuentos aplicados</dt>
+                  <dd>−{money(t.discounts ?? 0, draft.currency)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between text-ork-graphite">
+                <dt>Impuestos ({draft.tax_rate} %)</dt>
+                <dd>{money(t.tax ?? 0, draft.currency)}</dd>
+              </div>
+              <div className="flex justify-between border-t border-ork-line pt-2 text-[16px] font-bold text-ork-ink">
+                <dt>Total</dt>
+                <dd>{money(t.total ?? 0, draft.currency)}</dd>
+              </div>
+            </dl>
           )}
           {p.design?.last_email && (
             <p className="mt-4 rounded-lg bg-ork-surface px-3 py-2 text-[12.5px] text-ork-graphite">
-              Último envío a <strong>{p.design.last_email.to.join(", ")}</strong> desde {p.design.last_email.from}.
+              Último envío a{" "}
+              <strong>{p.design.last_email.to.join(", ")}</strong> desde{" "}
+              {p.design.last_email.from}.
             </p>
           )}
           {!locked && (
-            <button type="button" className="mt-5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-bad hover:underline" onClick={() => window.confirm("¿Eliminar esta propuesta?") && remove.mutate()}>
+            <button
+              type="button"
+              className="mt-5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-bad hover:underline"
+              onClick={() =>
+                window.confirm("¿Eliminar esta propuesta?") && remove.mutate()
+              }
+            >
               <Trash2 className="size-3.5" aria-hidden /> Eliminar propuesta
             </button>
           )}
         </Card>
       </div>
-      {emailing && <EmailProposalModal proposal={p} onClose={() => setEmailing(false)} onSent={(data) => refresh(data)} />}
+      {emailing && (
+        <EmailProposalModal
+          proposal={p}
+          onClose={() => setEmailing(false)}
+          onSent={(data) => refresh(data)}
+        />
+      )}
     </>
   );
 }
@@ -1037,11 +1866,21 @@ const EMAIL_COPY = {
   },
 };
 
-function EmailProposalModal({ proposal: p, onClose, onSent }: { proposal: Proposal; onClose: () => void; onSent: (data: Proposal) => void }) {
+function EmailProposalModal({
+  proposal: p,
+  onClose,
+  onSent,
+}: {
+  proposal: Proposal;
+  onClose: () => void;
+  onSent: (data: Proposal) => void;
+}) {
   const boxes = useMailboxes();
   const brand = useBrand();
   const { session } = useSession();
-  const lang = (p.design?.language || brand.data?.brand.language || "es") as keyof typeof EMAIL_COPY;
+  const lang = (p.design?.language ||
+    brand.data?.brand.language ||
+    "es") as keyof typeof EMAIL_COPY;
   const [mailbox, setMailbox] = useState("");
   const [to, setTo] = useState(p.contact?.email ?? "");
   const [cc, setCc] = useState("");
@@ -1050,24 +1889,44 @@ function EmailProposalModal({ proposal: p, onClose, onSent }: { proposal: Propos
   const editorRef = useRef<Editor | null>(null);
   const active = (boxes.data?.items ?? []).filter((m) => m.status === "active");
   useEffect(() => {
-    if (!mailbox && active.length) setMailbox((active.find((m) => m.email === session?.user.email) ?? active[0]).id);
+    if (!mailbox && active.length)
+      setMailbox(
+        (active.find((m) => m.email === session?.user.email) ?? active[0]).id,
+      );
   }, [active, mailbox, session]);
   const send = useMutation({
-    mutationFn: () => api<Proposal>(`/api/proposals/${p.id}/email`, { method: "POST", json: { mailbox_id: mailbox, to, cc, subject, body } }),
+    mutationFn: () =>
+      api<Proposal>(`/api/proposals/${p.id}/email`, {
+        method: "POST",
+        json: { mailbox_id: mailbox, to, cc, subject, body },
+      }),
     onSuccess: (data) => {
       onSent(data);
       onClose();
     },
   });
-  const preview = (t: string) => t.replace(/\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g, (_, n: string, f?: string) => p.values?.[n] || (f ?? "").trim());
+  const preview = (t: string) =>
+    t.replace(
+      /\{\{\s*([a-z_]+)\s*(?:\|\s*([^}]*))?\}\}/g,
+      (_, n: string, f?: string) => p.values?.[n] || (f ?? "").trim(),
+    );
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title="Enviar propuesta por correo" description="Sale desde tu Gmail, queda en tus Enviados y el cliente recibe un botón para abrir la propuesta." wide>
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Enviar propuesta por correo"
+      description="Sale desde tu Gmail, queda en tus Enviados y el cliente recibe un botón para abrir la propuesta."
+      wide
+    >
       {boxes.isLoading ? (
         <Spinner />
       ) : !active.length ? (
         <Alert tone="blue">
           Primero conecta tu Gmail en{" "}
-          <Link to="/configuracion/integraciones" className="font-semibold underline">
+          <Link
+            to="/configuracion/integraciones"
+            className="font-semibold underline"
+          >
             Configuración → Integraciones
           </Link>
           .
@@ -1076,38 +1935,79 @@ function EmailProposalModal({ proposal: p, onClose, onSent }: { proposal: Propos
         <div className="flex flex-col gap-3">
           {send.error && <Alert>{send.error.message}</Alert>}
           <div className="grid gap-3 sm:grid-cols-2">
-            <SelectField label="Desde" value={mailbox} onChange={(e) => setMailbox(e.target.value)}>
+            <SelectField
+              label="Desde"
+              value={mailbox}
+              onChange={(e) => setMailbox(e.target.value)}
+            >
               {active.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.email}
                 </option>
               ))}
             </SelectField>
-            <TextField label="Para" value={to} onChange={(e) => setTo(e.target.value)} placeholder="cliente@empresa.com" hint={p.contact ? `Contacto: ${p.contact.full_name}` : undefined} />
+            <TextField
+              label="Para"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="cliente@empresa.com"
+              hint={p.contact ? `Contacto: ${p.contact.full_name}` : undefined}
+            />
           </div>
-          <TextField label="CC (opcional)" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Separa varios con coma" />
-          <TextField label="Asunto" value={subject} onChange={(e) => setSubject(e.target.value)} hint={`Así le llega: ${preview(subject)}`} />
+          <TextField
+            label="CC (opcional)"
+            value={cc}
+            onChange={(e) => setCc(e.target.value)}
+            placeholder="Separa varios con coma"
+          />
+          <TextField
+            label="Asunto"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            hint={`Así le llega: ${preview(subject)}`}
+          />
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">Insertar:</span>
+            <span className="mr-1 text-[12.5px] font-semibold text-ork-graphite">
+              Insertar:
+            </span>
             {Object.entries(p.variables ?? {}).map(([k, label]) => (
               <button
                 key={k}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => editorRef.current?.chain().focus().insertContent(`{{${k}}}`).run()}
+                onClick={() =>
+                  editorRef.current
+                    ?.chain()
+                    .focus()
+                    .insertContent(`{{${k}}}`)
+                    .run()
+                }
                 className="ork-focus rounded-full border border-ork-line px-2.5 py-0.5 text-[12px] font-semibold text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue"
               >
                 {label}
               </button>
             ))}
           </div>
-          <RichEditor value={body} onChange={setBody} onFocus={(e) => (editorRef.current = e)} minHeight={160} />
-          <p className="text-[12px] text-ork-mist">Debajo del texto se agrega el botón «Ver la propuesta» con tus colores y luego tu firma de Gmail configurada en ORKESTA.</p>
+          <RichEditor
+            value={body}
+            onChange={setBody}
+            onFocus={(e) => (editorRef.current = e)}
+            minHeight={160}
+          />
+          <p className="text-[12px] text-ork-mist">
+            Debajo del texto se agrega el botón «Ver la propuesta» con tus
+            colores y luego tu firma de Gmail configurada en ORKESTA.
+          </p>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>
               Cancelar
             </Button>
-            <Button icon={<Send className="size-4" aria-hidden />} loading={send.isPending} disabled={!mailbox || !to.trim()} onClick={() => send.mutate()}>
+            <Button
+              icon={<Send className="size-4" aria-hidden />}
+              loading={send.isPending}
+              disabled={!mailbox || !to.trim()}
+              onClick={() => send.mutate()}
+            >
               Enviar ahora
             </Button>
           </div>

@@ -92,6 +92,7 @@ def product_dict(p: Product) -> dict[str, Any]:
         "image_url": p.image_url,
         "payment_url": p.payment_url,
         "active": p.active,
+        "created_by": str(p.created_by) if p.created_by else None,
     }
 
 

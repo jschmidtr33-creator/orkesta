@@ -96,20 +96,36 @@ def products(principal: Member, db: Db) -> list[dict[str, Any]]:
 
 
 @router.post("/api/products", status_code=201)
-def create_product(body: ProductIn, principal: Manager, db: Db) -> dict[str, Any]:
+def create_product(body: ProductIn, principal: Member, db: Db) -> dict[str, Any]:
+    # Todo el equipo puede sumar productos al catálogo; quedan a su nombre.
     try:
-        return svc.product_dict(svc.save_product(db, principal.tenant_id, body.model_dump()))
+        product = svc.save_product(db, principal.tenant_id, body.model_dump())
+        product.created_by = principal.user.id
+        db.flush()
+        return svc.product_dict(product)
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
 
 
-@router.patch("/api/products/{product_id}")
-def update_product(
-    product_id: uuid.UUID, body: ProductIn, principal: Manager, db: Db
-) -> dict[str, Any]:
+def _own_product(db: Db, principal: Principal, product_id: uuid.UUID) -> Product:
+    """Cada persona edita solo lo que agregó; los productos sin dueño (anteriores) los
+    administran la administración o la jefatura."""
     product = db.get(Product, product_id)
     if product is None or product.tenant_id != principal.tenant_id:
         raise HTTPException(404, "Ese producto no existe.")
+    if product.created_by is None:
+        if principal.role not in ("admin", "supervisor"):
+            raise HTTPException(403, "Solo quien agregó este producto puede cambiarlo.")
+    elif product.created_by != principal.user.id:
+        raise HTTPException(403, "Solo quien agregó este producto puede cambiarlo.")
+    return product
+
+
+@router.patch("/api/products/{product_id}")
+def update_product(
+    product_id: uuid.UUID, body: ProductIn, principal: Member, db: Db
+) -> dict[str, Any]:
+    product = _own_product(db, principal, product_id)
     try:
         return svc.product_dict(
             svc.save_product(db, principal.tenant_id, body.model_dump(), product)
@@ -119,10 +135,8 @@ def update_product(
 
 
 @router.delete("/api/products/{product_id}")
-def delete_product(product_id: uuid.UUID, principal: Manager, db: Db) -> dict[str, bool]:
-    product = db.get(Product, product_id)
-    if product is None or product.tenant_id != principal.tenant_id:
-        raise HTTPException(404, "Ese producto no existe.")
+def delete_product(product_id: uuid.UUID, principal: Member, db: Db) -> dict[str, bool]:
+    product = _own_product(db, principal, product_id)
     db.delete(product)  # las propuestas guardan copia de cada línea: no se afectan
     return {"ok": True}
 

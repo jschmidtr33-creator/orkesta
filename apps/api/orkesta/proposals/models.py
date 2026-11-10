@@ -64,6 +64,10 @@ class Product(IdMixin, Base):
         String(500), nullable=False, default="", server_default=""
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Quién lo agregó: solo esa persona lo edita (sin dueño: administración o jefatura).
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
 
 
 class Proposal(IdMixin, Base):
