@@ -182,3 +182,17 @@ def test_admin_creates_a_paying_company(client: TestClient, database: tuple[str,
     assert demo.status_code == 201 and demo.json()["trial_ends_at"]
     assert client.post("/api/admin/tenants",
                        json={"company": "X", "email": "a@x.co", "plan": "oro"}).status_code in (400, 422)  # fmt: skip
+
+
+def test_access_mail_needs_a_connected_mailbox(
+    client: TestClient, database: tuple[str, str]
+) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    made = client.post("/api/admin/tenants",
+                       json={"company": "Clínica Sur", "email": "dir@clinicasur.co", "plan": "pro"})  # fmt: skip
+    assert made.json()["email"] == "dir@clinicasur.co"
+    sent = client.post("/api/admin/send-access",
+                       json={"email": "dir@clinicasur.co", "message": made.json()["message"]})  # fmt: skip
+    assert sent.status_code == 409 and "Integraciones" in sent.json()["detail"]

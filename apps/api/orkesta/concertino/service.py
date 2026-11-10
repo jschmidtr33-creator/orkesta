@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orkesta.concertino import chat, engine, intent, writer
+from orkesta.concertino import chat, engine, intent, oficio, writer
 from orkesta.concertino import playbook as pb
 from orkesta.concertino.models import FACT_KINDS, AdviceCase, ProductFact
 from orkesta.core.db import unscoped
@@ -124,6 +124,26 @@ def _context(session: Session, *, tenant_id: uuid.UUID, user: User, contact_id: 
     )  # fmt: skip
 
 
+def _lesson_for(session: Session, ctx: Any, question: str) -> oficio.Lesson | None:
+    """Solo para preguntas de método que no son del producto ni una objeción concreta."""
+    if not oficio.is_method_question(question):
+        return None
+    if ctx.contact is not None or ctx.deal is not None or ctx.campaign is not None:
+        return None  # con un caso abierto, el consejo sale de sus datos
+    if not allowed(session, ctx.tenant_id, "estrategia"):
+        return None  # el oficio completo es del plan Pro
+    topic = engine.classify_topic(session, question, objection=None, has={})
+    if topic in ("perfil", "respuesta", "objecion", "cuenta"):
+        return None  # tienen su propio motor (perfil del decisor, respuestas, objeciones)
+    if engine.classify_objection(session, question) is not None:
+        # «¿Cómo respondo si me dicen que es caro?» lo resuelve el mapa de objeciones; solo una
+        # pregunta claramente de método («¿cuántos seguimientos hago?») va al oficio.
+        return oficio.match(question, minimum=12)
+    if engine.advise_product(session, ctx, question).get("_hits"):
+        return None
+    return oficio.match(question)
+
+
 def ask(
     session: Session, *, tenant_id: uuid.UUID, user: User, question: str = "",
     mode: str | None = None, contact_id: uuid.UUID | None = None,
@@ -155,6 +175,15 @@ def ask(
                 "topic_label": pb.TOPICS["producto"] if topic_code == "producto" else "",
                 "objection": None, "objection_label": None, "formal": ctx.formal, **quick,
                 "sources": ["Ficha del producto"] if quick["sections"] else []}  # fmt: skip
+    # Preguntas de método («¿cómo escribo un correo en frío?»): el oficio de ventas de Concertino.
+    if quick is None and question and mode in (None, "general") and ctx.recipient is None:
+        lesson = _lesson_for(session, ctx, question)
+        if lesson is not None:
+            taught = oficio.advice(lesson)
+            taught["summary"] = chat.greet(str(taught["summary"]), name, turn)
+            return {"case_id": None, "topic": "general", "topic_label": "Oficio de ventas",
+                    "objection": None, "objection_label": None, "formal": ctx.formal, **taught,
+                    "suggestions": [], "sources": ["Oficio de ventas de Concertino"]}  # fmt: skip
     reply_text = (ctx.recipient.reply_snippet or "") if ctx.recipient is not None else ""
     if not question and not reply_text and mode not in ("cuenta", "campana", "reunion",
                                                          "estrategia", "perfil", "propuesta"):  # fmt: skip

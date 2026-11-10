@@ -786,7 +786,7 @@ function UsersPage({ me }: { me: Me }) {
 
 type DemoRequest = { id: string; at: string; name: string; email: string; company: string; job_title: string; country: string; message: string };
 type Trial = { id: string; name: string; created_at: string; trial_ends_at: string | null; days_left: number | null; expired: boolean; status: string; members: number; owner: { name: string; email: string } | null; contacts: number; emails_sent: number; deals: number; proposals: number };
-type DemoStarted = { name: string; link: string; trial_ends_at: string | null; message: string };
+type DemoStarted = { name: string; link: string; trial_ends_at: string | null; message: string; email?: string };
 
 function Demos({ me }: { me: Me }) {
   const client = useQueryClient();
@@ -1004,7 +1004,7 @@ function AddUser({ onClose, onDone }: { onClose: () => void; onDone: (r: DemoSta
   const [form, setForm] = useState({ email: "", tenant_id: "", role: "vendedor" });
   const add = useMutation({
     mutationFn: () => api<{ tenant: string; link: string; message: string; email: string }>("/api/admin/users", { method: "POST", json: form }),
-    onSuccess: (r) => onDone({ name: `${r.email} (${r.tenant})`, link: r.link, message: r.message, trial_ends_at: null }),
+    onSuccess: (r) => onDone({ name: `${r.email} (${r.tenant})`, link: r.link, message: r.message, trial_ends_at: null, email: r.email }),
   });
   return (
     <Card className="mb-5">
@@ -1057,19 +1057,41 @@ function AddUser({ onClose, onDone }: { onClose: () => void; onDone: (r: DemoSta
 
 function DemoReady({ demo, onClose, title }: { demo: DemoStarted; onClose: () => void; title?: string }) {
   const [copied, setCopied] = useState("");
+  const [to, setTo] = useState(demo.email ?? "");
   const copy = (what: string, text: string) => {
     void navigator.clipboard?.writeText(text).then(() => setCopied(what));
   };
+  const send = useMutation({
+    mutationFn: () => api<{ from: string; to: string }>("/api/admin/send-access", { method: "POST", json: { email: to, message: demo.message } }),
+  });
   return (
     <Card className="mb-5 border-ok/30">
-      <CardHeader title={title ?? `Demo lista para ${demo.name}`} description="Envíale este mensaje (por tu correo o WhatsApp). Al entrar crea su contraseña y ya tiene todo activo." />
+      <CardHeader title={title ?? `Demo lista para ${demo.name}`} description="ORKESTA no envía este correo solo: envíalo desde tu correo conectado con el botón, o cópialo y mándalo por WhatsApp. Al entrar al enlace, la persona crea su contraseña." />
       <textarea readOnly value={demo.message} rows={10} className="w-full rounded-xl border border-ork-line bg-ork-surface/50 p-3 text-[13.5px]" />
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <div className="min-w-[240px] flex-1">
+          <TextField label="Enviar a" type="email" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        <Button onClick={() => send.mutate()} disabled={send.isPending || !to}>
+          {send.isPending ? "Enviando…" : "Enviar por correo"}
+        </Button>
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button onClick={() => copy("mensaje", demo.message)}>Copiar mensaje</Button>
+        <Button variant="secondary" onClick={() => copy("mensaje", demo.message)}>Copiar mensaje</Button>
         <Button variant="secondary" onClick={() => copy("enlace", demo.link)}>Copiar solo el enlace</Button>
         <Button variant="secondary" onClick={onClose}>Listo</Button>
         {copied && <span className="text-[13px] text-ok">Copiado el {copied}.</span>}
       </div>
+      {send.isSuccess && (
+        <div className="mt-3">
+          <Alert tone="ok">Enviado desde {send.data.from} a {send.data.to}.</Alert>
+        </div>
+      )}
+      {send.error && (
+        <div className="mt-3">
+          <Alert>{send.error.message}</Alert>
+        </div>
+      )}
     </Card>
   );
 }
@@ -1988,6 +2010,7 @@ const ACTIONS: Record<string, string> = {
   "tenant.merged": "unió las empresas",
   "tenant.deleted": "eliminó la empresa",
   "tenant.created": "creó la empresa",
+  "access.sent": "envió el acceso a",
   "tenant.demo_started": "creó la demo de",
   "user.added": "agregó a",
   "user.deleted": "eliminó la cuenta de",
