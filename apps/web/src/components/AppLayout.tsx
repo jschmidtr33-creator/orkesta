@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BookOpenText,
+  CalendarDays,
   Check,
   ChevronsUpDown,
   FileText,
@@ -32,7 +33,12 @@ import { ConcertinoProvider } from "./Concertino";
 import { NotificationBell } from "./Notifications";
 import { Avatar, cx, Spinner, Wordmark } from "./ui";
 
-type NavItem = { to: string; label: string; icon: ComponentType<{ className?: string }>; end?: boolean };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  end?: boolean;
+};
 
 export const NAV: NavItem[] = [
   { to: "/", label: "Inicio", icon: Home, end: true },
@@ -41,19 +47,28 @@ export const NAV: NavItem[] = [
   { to: "/campanas", label: "Campañas", icon: Mail },
   { to: "/automatizacion", label: "Automatización", icon: Workflow },
   { to: "/crm", label: "CRM", icon: Handshake },
+  { to: "/calendario", label: "Calendario", icon: CalendarDays },
   { to: "/propuestas", label: "Propuestas", icon: FileText },
   { to: "/reportes", label: "Reportes", icon: BarChart3 },
   { to: "/producto", label: "Producto", icon: BookOpenText },
 ];
 
 /** Solo para jefaturas y administración: lo que trabaja cada persona a cargo. */
-export const TEAM_NAV: NavItem = { to: "/equipo", label: "Mi equipo", icon: UsersRound };
+export const TEAM_NAV: NavItem = {
+  to: "/equipo",
+  label: "Mi equipo",
+  icon: UsersRound,
+};
 
 function WorkspaceSwitcher({ session }: { session: Session }) {
   const { setSession } = useSession();
   const navigate = useNavigate();
   const switchTo = useMutation({
-    mutationFn: (tenantId: string) => api<Session>("/api/auth/switch", { method: "POST", json: { tenant_id: tenantId } }),
+    mutationFn: (tenantId: string) =>
+      api<Session>("/api/auth/switch", {
+        method: "POST",
+        json: { tenant_id: tenantId },
+      }),
     onSuccess: (data) => {
       setSession(data);
       navigate("/");
@@ -65,8 +80,12 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
       <Menu.Trigger className="ork-focus flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07]">
         <WorkspaceMark name={current?.name ?? "?"} logo={current?.logo_url} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13.5px] font-semibold text-white">{current?.name}</span>
-          <span className="block text-[12px] text-ork-mist">{current?.role_label}</span>
+          <span className="block truncate text-[13.5px] font-semibold text-white">
+            {current?.name}
+          </span>
+          <span className="block text-[12px] text-ork-mist">
+            {current?.role_label}
+          </span>
         </span>
         <ChevronsUpDown className="size-4 text-ork-mist" aria-hidden />
       </Menu.Trigger>
@@ -87,18 +106,20 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
             >
               <WorkspaceMark name={w.name} logo={w.logo_url} small />
               <span className="flex-1 truncate">{w.name}</span>
-              {w.id === current?.id && <Check className="size-4 text-ork-blue" aria-hidden />}
+              {w.id === current?.id && (
+                <Check className="size-4 text-ork-blue" aria-hidden />
+              )}
             </Menu.Item>
           ))}
           {session.user.can_create_workspace && (
             <>
-          <Menu.Separator className="my-1 h-px bg-ork-line" />
-          <Menu.Item
-            onSelect={() => navigate("/bienvenida")}
-            className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] text-ork-graphite outline-none data-[highlighted]:bg-ork-surface"
-          >
-            <Plus className="size-4" aria-hidden /> Crear otro espacio
-          </Menu.Item>
+              <Menu.Separator className="my-1 h-px bg-ork-line" />
+              <Menu.Item
+                onSelect={() => navigate("/bienvenida")}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-[13.5px] text-ork-graphite outline-none data-[highlighted]:bg-ork-surface"
+              >
+                <Plus className="size-4" aria-hidden /> Crear otro espacio
+              </Menu.Item>
             </>
           )}
         </Menu.Content>
@@ -107,7 +128,11 @@ function WorkspaceSwitcher({ session }: { session: Session }) {
   );
 }
 
-const THEMES: { value: Theme; label: string; icon: ComponentType<{ className?: string }> }[] = [
+const THEMES: {
+  value: Theme;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+}[] = [
   { value: "light", label: "Claro", icon: Sun },
   { value: "dark", label: "Oscuro", icon: Moon },
   { value: "system", label: "Sistema", icon: Monitor },
@@ -117,7 +142,11 @@ const THEMES: { value: Theme; label: string; icon: ComponentType<{ className?: s
 export function ThemeSwitch() {
   const [theme, setTheme] = useTheme();
   return (
-    <div role="radiogroup" aria-label="Tema de la app" className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1">
+    <div
+      role="radiogroup"
+      aria-label="Tema de la app"
+      className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1"
+    >
       {THEMES.map(({ value, label, icon: Icon }) => (
         <button
           key={value}
@@ -128,7 +157,9 @@ export function ThemeSwitch() {
           onClick={() => setTheme(value)}
           className={cx(
             "ork-focus flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[12px] font-semibold transition",
-            theme === value ? "bg-white/[0.12] text-white" : "text-ork-mist hover:text-white",
+            theme === value
+              ? "bg-white/[0.12] text-white"
+              : "text-ork-mist hover:text-white",
           )}
         >
           <Icon className="size-3.5" aria-hidden />
@@ -139,13 +170,21 @@ export function ThemeSwitch() {
   );
 }
 
-function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () => void }) {
+function Sidebar({
+  session,
+  onNavigate,
+}: {
+  session: Session;
+  onNavigate?: () => void;
+}) {
   const { logout } = useSession();
   const navigate = useNavigate();
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     cx(
       "ork-focus flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition",
-      isActive ? "bg-ork-blue/20 text-white shadow-[inset_0_0_0_1px_rgb(37_99_235/0.35)]" : "text-ork-mist hover:bg-white/[0.05] hover:text-white",
+      isActive
+        ? "bg-ork-blue/20 text-white shadow-[inset_0_0_0_1px_rgb(37_99_235/0.35)]"
+        : "text-ork-mist hover:bg-white/[0.05] hover:text-white",
     );
   return (
     <div className="flex h-full flex-col gap-6 px-4 py-5">
@@ -155,7 +194,13 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
       <WorkspaceSwitcher session={session} />
       <nav aria-label="Módulos" className="flex flex-1 flex-col gap-1">
         {NAV.map(({ to, label, icon: Icon, end }) => (
-          <NavLink key={to} to={to} end={end} className={linkClass} onClick={onNavigate}>
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            className={linkClass}
+            onClick={onNavigate}
+          >
             <Icon className="size-[18px]" aria-hidden />
             {label}
           </NavLink>
@@ -180,12 +225,26 @@ function Sidebar({ session, onNavigate }: { session: Session; onNavigate?: () =>
       </nav>
       <ThemeSwitch />
       <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-        <NavLink to="/configuracion/perfil" onClick={onNavigate} className="ork-focus flex min-w-0 flex-1 items-center gap-3 rounded-lg" title="Mi perfil">
-        <Avatar name={session.user.full_name} email={session.user.email} size={34} src={session.user.avatar_url} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13.5px] font-semibold text-white">{session.user.full_name || session.user.email}</p>
-          <p className="truncate text-[12px] text-ork-mist">{session.user.job_title || session.user.email}</p>
-        </div>
+        <NavLink
+          to="/configuracion/perfil"
+          onClick={onNavigate}
+          className="ork-focus flex min-w-0 flex-1 items-center gap-3 rounded-lg"
+          title="Mi perfil"
+        >
+          <Avatar
+            name={session.user.full_name}
+            email={session.user.email}
+            size={34}
+            src={session.user.avatar_url}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13.5px] font-semibold text-white">
+              {session.user.full_name || session.user.email}
+            </p>
+            <p className="truncate text-[12px] text-ork-mist">
+              {session.user.job_title || session.user.email}
+            </p>
+          </div>
         </NavLink>
         <button
           type="button"
@@ -219,14 +278,28 @@ export function AppLayout() {
         <Wordmark size={24} />
         <div className="flex items-center gap-1">
           <NotificationBell />
-          <button type="button" className="ork-focus rounded-lg p-2" aria-label="Abrir menú" onClick={() => setOpen(true)}>
+          <button
+            type="button"
+            className="ork-focus rounded-lg p-2"
+            aria-label="Abrir menú"
+            onClick={() => setOpen(true)}
+          >
             <MenuIcon className="size-5" />
           </button>
         </div>
       </header>
       {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
-          <div className="absolute inset-0 bg-ork-sidebar/60" onClick={() => setOpen(false)} aria-hidden />
+        <div
+          className="fixed inset-0 z-50 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menú"
+        >
+          <div
+            className="absolute inset-0 bg-ork-sidebar/60"
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
           <aside className="absolute inset-y-0 left-0 w-[280px] bg-ork-sidebar">
             <button
               type="button"
@@ -254,12 +327,14 @@ export function AppLayout() {
   );
 }
 
-
 /** Anuncio global que el equipo de ORKESTA publica desde el panel de administración. */
 function Announcement() {
   const q = useQuery({
     queryKey: ["auth-config"],
-    queryFn: () => api<{ announcement: { text: string; tone: string } | null }>("/api/auth/config"),
+    queryFn: () =>
+      api<{ announcement: { text: string; tone: string } | null }>(
+        "/api/auth/config",
+      ),
     staleTime: 60_000,
   });
   const a = q.data?.announcement;
@@ -272,9 +347,21 @@ function Announcement() {
   });
   if (!a?.text || hidden === a.text) return null;
   const tone =
-    a.tone === "ok" ? "border-ok/30 bg-ok/10 text-ok" : a.tone === "warn" ? "border-warn/30 bg-warn/10 text-warn" : a.tone === "bad" ? "border-bad/30 bg-bad/10 text-bad" : "border-ork-blue/30 bg-ork-blue/10 text-ork-blue";
+    a.tone === "ok"
+      ? "border-ok/30 bg-ok/10 text-ok"
+      : a.tone === "warn"
+        ? "border-warn/30 bg-warn/10 text-warn"
+        : a.tone === "bad"
+          ? "border-bad/30 bg-bad/10 text-bad"
+          : "border-ork-blue/30 bg-ork-blue/10 text-ork-blue";
   return (
-    <div className={cx("mb-5 flex items-start justify-between gap-3 rounded-xl border px-4 py-2.5 text-[13.5px] font-semibold", tone)} role="status">
+    <div
+      className={cx(
+        "mb-5 flex items-start justify-between gap-3 rounded-xl border px-4 py-2.5 text-[13.5px] font-semibold",
+        tone,
+      )}
+      role="status"
+    >
       <span>{a.text}</span>
       <button
         type="button"
@@ -308,11 +395,19 @@ function NewVersionBanner() {
   if (version && first.current === null) first.current = version;
   if (!version || version === first.current) return null;
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ork-blue/30 bg-ork-blue/5 px-4 py-3 text-[13.5px] text-ork-ink" role="status">
+    <div
+      className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ork-blue/30 bg-ork-blue/5 px-4 py-3 text-[13.5px] text-ork-ink"
+      role="status"
+    >
       <span>
-        <strong>Hay una versión nueva de ORKESTA.</strong> Recarga para usar las últimas mejoras.
+        <strong>Hay una versión nueva de ORKESTA.</strong> Recarga para usar las
+        últimas mejoras.
       </span>
-      <button type="button" onClick={() => window.location.reload()} className="ork-gradient ork-focus rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white">
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="ork-gradient ork-focus rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white"
+      >
         Recargar
       </button>
     </div>
@@ -320,18 +415,35 @@ function NewVersionBanner() {
 }
 
 /** Logo de la empresa (el de su marca de propuestas) o, si no tiene, su inicial. */
-function WorkspaceMark({ name, logo, small }: { name: string; logo?: string; small?: boolean }) {
+function WorkspaceMark({
+  name,
+  logo,
+  small,
+}: {
+  name: string;
+  logo?: string;
+  small?: boolean;
+}) {
   const size = small ? "size-6 rounded-md" : "size-8 rounded-lg";
   if (logo) {
     // Los logos suelen ser horizontales: más ancho que alto para que se lean.
     return (
-      <span className={`flex shrink-0 items-center justify-center overflow-hidden bg-white p-1 ${small ? "h-6 w-10 rounded-md" : "h-9 w-16 rounded-lg"}`}>
-        <img src={logo} alt={`Logo de ${name}`} className="size-full object-contain" />
+      <span
+        className={`flex shrink-0 items-center justify-center overflow-hidden bg-white p-1 ${small ? "h-6 w-10 rounded-md" : "h-9 w-16 rounded-lg"}`}
+      >
+        <img
+          src={logo}
+          alt={`Logo de ${name}`}
+          className="size-full object-contain"
+        />
       </span>
     );
   }
   return (
-    <span className={`ork-gradient flex shrink-0 items-center justify-center font-bold text-white ${size} ${small ? "text-[11px]" : "text-[13px]"}`} aria-hidden>
+    <span
+      className={`ork-gradient flex shrink-0 items-center justify-center font-bold text-white ${size} ${small ? "text-[11px]" : "text-[13px]"}`}
+      aria-hidden
+    >
       {name.slice(0, 1).toUpperCase()}
     </span>
   );

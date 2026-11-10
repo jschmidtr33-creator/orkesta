@@ -1,6 +1,25 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FileUp, ListPlus, Mail, MailCheck, Pencil, Plus, Search, Sparkles, Trash2, X } from "lucide-react";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  CalendarDays,
+  Download,
+  ExternalLink,
+  FileUp,
+  ListPlus,
+  Mail,
+  MailCheck,
+  Pencil,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -20,8 +39,16 @@ import { AskConcertino } from "../components/Concertino";
 import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
+import { EventModal } from "./calendar";
 import { formatWhen } from "./dashboard";
-import { EMAIL_FILTERS, EmailBadge, EnrichModal, EnrichmentBanner, ValidateModal, ValidationBanner } from "./validation";
+import {
+  EMAIL_FILTERS,
+  EmailBadge,
+  EnrichModal,
+  EnrichmentBanner,
+  ValidateModal,
+  ValidationBanner,
+} from "./validation";
 import { money, NewDealModal, Timeline, useStages, type Deal } from "./crm";
 
 export type Option = { value: string; label: string };
@@ -59,14 +86,33 @@ type ContactPage = {
   pages: number;
   counts: Record<string, number>;
 };
-type Source = { value: string; source_type: string; source_label: string; obtained_at: string };
+type Source = {
+  value: string;
+  source_type: string;
+  source_label: string;
+  obtained_at: string;
+};
 type ContactDetail = ContactRow & {
-  fields: { field: string; label: string; value: string | null; pending: boolean; sources: Source[] }[];
+  fields: {
+    field: string;
+    label: string;
+    value: string | null;
+    pending: boolean;
+    sources: Source[];
+  }[];
   lists: { id: string; name: string }[];
 };
-export type ListItem = { id: string; name: string; description: string; contacts: number };
+export type ListItem = {
+  id: string;
+  name: string;
+  description: string;
+  contacts: number;
+};
 
-const STATUS_TONE: Record<string, "neutral" | "blue" | "violet" | "ok" | "warn"> = {
+const STATUS_TONE: Record<
+  string,
+  "neutral" | "blue" | "violet" | "ok" | "warn"
+> = {
   nuevo: "neutral",
   en_proceso: "warn",
   enriquecido: "violet",
@@ -81,11 +127,18 @@ const TABS = [
 ];
 
 export function useMeta() {
-  return useQuery({ queryKey: ["contacts-meta"], queryFn: () => api<Meta>("/api/contacts/meta"), staleTime: Infinity });
+  return useQuery({
+    queryKey: ["contacts-meta"],
+    queryFn: () => api<Meta>("/api/contacts/meta"),
+    staleTime: Infinity,
+  });
 }
 
 export function useLists() {
-  return useQuery({ queryKey: ["lists"], queryFn: () => api<ListItem[]>("/api/lists") });
+  return useQuery({
+    queryKey: ["lists"],
+    queryFn: () => api<ListItem[]>("/api/lists"),
+  });
 }
 
 function useDebounced<T>(value: T, ms = 300): T {
@@ -114,7 +167,9 @@ export function ContactsPage() {
   };
   const page = Number(params.get("pagina") ?? "1") || 1;
   const search = new URLSearchParams(
-    Object.entries({ ...filters, pagina: String(page) }).filter(([, v]) => v) as [string, string][],
+    Object.entries({ ...filters, pagina: String(page) }).filter(
+      ([, v]) => v,
+    ) as [string, string][],
   ).toString();
   const meta = useMeta();
   const lists = useLists();
@@ -145,7 +200,11 @@ export function ContactsPage() {
   }, [query]);
 
   const remove = useMutation({
-    mutationFn: (ids: string[]) => api<{ deleted: number }>("/api/contacts/delete", { method: "POST", json: { ids } }),
+    mutationFn: (ids: string[]) =>
+      api<{ deleted: number }>("/api/contacts/delete", {
+        method: "POST",
+        json: { ids },
+      }),
     onSuccess: () => {
       setSelected(new Set());
       client.invalidateQueries({ queryKey: ["contacts"] });
@@ -168,19 +227,36 @@ export function ContactsPage() {
         description="Tu base comercial: cada dato con su fuente. Lo que falta queda pendiente de enriquecimiento, nunca se inventa."
         action={
           <div className="flex flex-wrap gap-2">
-            <Link to="/contactos/listas" className="ork-focus inline-flex h-10 items-center rounded-xl px-3 text-sm font-semibold text-ork-graphite hover:bg-ork-ink/5">
+            <Link
+              to="/contactos/listas"
+              className="ork-focus inline-flex h-10 items-center rounded-xl px-3 text-sm font-semibold text-ork-graphite hover:bg-ork-ink/5"
+            >
               Listas
             </Link>
-            <Link to="/contactos/importar" className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40">
+            <Link
+              to="/contactos/importar"
+              className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40"
+            >
               <FileUp className="size-4" aria-hidden /> Importar
             </Link>
-            <Button variant="secondary" icon={<Sparkles className="size-4" aria-hidden />} onClick={() => setEnrichOpen(true)}>
+            <Button
+              variant="secondary"
+              icon={<Sparkles className="size-4" aria-hidden />}
+              onClick={() => setEnrichOpen(true)}
+            >
               Enriquecer
             </Button>
-            <Button variant="secondary" icon={<MailCheck className="size-4" aria-hidden />} onClick={() => setValidateOpen(true)}>
+            <Button
+              variant="secondary"
+              icon={<MailCheck className="size-4" aria-hidden />}
+              onClick={() => setValidateOpen(true)}
+            >
               Validar correos
             </Button>
-            <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setEditing("new")}>
+            <Button
+              icon={<Plus className="size-4" aria-hidden />}
+              onClick={() => setEditing("new")}
+            >
               Agregar contacto
             </Button>
           </div>
@@ -197,11 +273,18 @@ export function ContactsPage() {
                 onClick={() => setFilter("estado", tab.value)}
                 className={cx(
                   "ork-focus -mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-[13.5px] font-semibold",
-                  active ? "border-ork-blue text-ork-blue" : "border-transparent text-ork-mist hover:text-ork-ink",
+                  active
+                    ? "border-ork-blue text-ork-blue"
+                    : "border-transparent text-ork-mist hover:text-ork-ink",
                 )}
               >
                 {tab.label}
-                <span className={cx("rounded-full px-1.5 text-[11.5px]", active ? "bg-ork-blue/10" : "bg-ork-ink/5")}>
+                <span
+                  className={cx(
+                    "rounded-full px-1.5 text-[11.5px]",
+                    active ? "bg-ork-blue/10" : "bg-ork-ink/5",
+                  )}
+                >
                   {(data?.counts[tab.count] ?? 0).toLocaleString("es")}
                 </span>
               </button>
@@ -211,7 +294,10 @@ export function ContactsPage() {
         <div className="flex flex-wrap items-center gap-2 p-4">
           <label className="relative min-w-[220px] flex-1">
             <span className="sr-only">Buscar</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ork-mist" aria-hidden />
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ork-mist"
+              aria-hidden
+            />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -219,16 +305,37 @@ export function ContactsPage() {
               className="ork-focus h-10 w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
             />
           </label>
-          <FilterSelect label="País" value={filters.pais} onChange={(v) => setFilter("pais", v)} options={meta.data?.countries ?? []} />
-          <FilterSelect label="Industria" value={filters.industria} onChange={(v) => setFilter("industria", v)} options={meta.data?.industries ?? []} />
-          <FilterSelect label="Correo" value={filters.correo} onChange={(v) => setFilter("correo", v)} options={EMAIL_FILTERS} />
+          <FilterSelect
+            label="País"
+            value={filters.pais}
+            onChange={(v) => setFilter("pais", v)}
+            options={meta.data?.countries ?? []}
+          />
+          <FilterSelect
+            label="Industria"
+            value={filters.industria}
+            onChange={(v) => setFilter("industria", v)}
+            options={meta.data?.industries ?? []}
+          />
+          <FilterSelect
+            label="Correo"
+            value={filters.correo}
+            onChange={(v) => setFilter("correo", v)}
+            options={EMAIL_FILTERS}
+          />
           <FilterSelect
             label="Lista"
             value={filters.lista}
             onChange={(v) => setFilter("lista", v)}
-            options={(lists.data ?? []).map((l) => ({ value: l.id, label: l.name }))}
+            options={(lists.data ?? []).map((l) => ({
+              value: l.id,
+              label: l.name,
+            }))}
           />
-          <a href={exportHref} className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl px-3 text-[13.5px] font-semibold text-ork-graphite hover:bg-ork-ink/5">
+          <a
+            href={exportHref}
+            className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl px-3 text-[13.5px] font-semibold text-ork-graphite hover:bg-ork-ink/5"
+          >
             <Download className="size-4" aria-hidden /> Exportar
           </a>
         </div>
@@ -239,24 +346,49 @@ export function ContactsPage() {
             <span>
               Viendo la lista <strong>{activeList.name}</strong>
             </span>
-            <button type="button" className="font-semibold hover:underline" onClick={() => setFilter("lista", "")}>
+            <button
+              type="button"
+              className="font-semibold hover:underline"
+              onClick={() => setFilter("lista", "")}
+            >
               Quitar filtro
             </button>
           </div>
         )}
         {selected.size > 0 && (
           <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-ork-blue/20 bg-ork-blue/5 px-3 py-2">
-            <span className="text-[13px] font-semibold text-ork-blue">{selected.size} seleccionados</span>
-            <Button size="sm" variant="secondary" icon={<ListPlus className="size-3.5" aria-hidden />} onClick={() => setListOpen(true)}>
+            <span className="text-[13px] font-semibold text-ork-blue">
+              {selected.size} seleccionados
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<ListPlus className="size-3.5" aria-hidden />}
+              onClick={() => setListOpen(true)}
+            >
               Agregar a lista
             </Button>
-            <Button size="sm" variant="secondary" icon={<Sparkles className="size-3.5" aria-hidden />} onClick={() => setEnrichOpen(true)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Sparkles className="size-3.5" aria-hidden />}
+              onClick={() => setEnrichOpen(true)}
+            >
               Enriquecer
             </Button>
-            <Button size="sm" variant="secondary" icon={<MailCheck className="size-3.5" aria-hidden />} onClick={() => setValidateOpen(true)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<MailCheck className="size-3.5" aria-hidden />}
+              onClick={() => setValidateOpen(true)}
+            >
               Validar correos
             </Button>
-            <ReassignButton kind="contact" ids={[...selected]} onDone={() => setSelected(new Set())} />
+            <ReassignButton
+              kind="contact"
+              ids={[...selected]}
+              onDone={() => setSelected(new Set())}
+            />
             {canManage && (
               <Button
                 size="sm"
@@ -264,13 +396,22 @@ export function ContactsPage() {
                 loading={remove.isPending}
                 icon={<Trash2 className="size-3.5" aria-hidden />}
                 onClick={() => {
-                  if (window.confirm(`¿Eliminar ${selected.size} contactos? Esta acción no se puede deshacer.`)) remove.mutate([...selected]);
+                  if (
+                    window.confirm(
+                      `¿Eliminar ${selected.size} contactos? Esta acción no se puede deshacer.`,
+                    )
+                  )
+                    remove.mutate([...selected]);
                 }}
               >
                 Eliminar
               </Button>
             )}
-            <button type="button" className="ml-auto text-[13px] text-ork-mist hover:text-ork-ink" onClick={() => setSelected(new Set())}>
+            <button
+              type="button"
+              className="ml-auto text-[13px] text-ork-mist hover:text-ork-ink"
+              onClick={() => setSelected(new Set())}
+            >
               Limpiar selección
             </button>
           </div>
@@ -278,7 +419,10 @@ export function ContactsPage() {
         {contacts.isLoading ? (
           <Spinner />
         ) : items.length === 0 ? (
-          <EmptyContacts filtered={Object.values(filters).some(Boolean)} onAdd={() => setEditing("new")} />
+          <EmptyContacts
+            filtered={Object.values(filters).some(Boolean)}
+            onAdd={() => setEditing("new")}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-[13.5px]">
@@ -291,7 +435,9 @@ export function ContactsPage() {
                       checked={allChecked}
                       onChange={() => {
                         const next = new Set(selected);
-                        items.forEach((c) => (allChecked ? next.delete(c.id) : next.add(c.id)));
+                        items.forEach((c) =>
+                          allChecked ? next.delete(c.id) : next.add(c.id),
+                        );
                         setSelected(next);
                       }}
                       className="size-4 accent-ork-blue"
@@ -306,8 +452,15 @@ export function ContactsPage() {
               </thead>
               <tbody>
                 {items.map((c) => (
-                  <tr key={c.id} className="cursor-pointer border-b border-ork-line last:border-0 hover:bg-ork-surface/70" onClick={() => setOpenId(c.id)}>
-                    <td className="py-3 pl-4" onClick={(e) => e.stopPropagation()}>
+                  <tr
+                    key={c.id}
+                    className="cursor-pointer border-b border-ork-line last:border-0 hover:bg-ork-surface/70"
+                    onClick={() => setOpenId(c.id)}
+                  >
+                    <td
+                      className="py-3 pl-4"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         aria-label={`Seleccionar a ${c.full_name}`}
@@ -323,28 +476,54 @@ export function ContactsPage() {
                     </td>
                     <td className="py-3 pr-3">
                       <div className="flex items-center gap-3">
-                        <Avatar name={c.full_name} email={c.email ?? ""} size={32} />
+                        <Avatar
+                          name={c.full_name}
+                          email={c.email ?? ""}
+                          size={32}
+                        />
                         <div className="min-w-0">
                           <p className="flex items-center gap-1.5 truncate font-semibold text-ork-ink">
                             {c.full_name}
                             {c.linkedin_url && (
-                              <a href={c.linkedin_url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} className="text-ork-blue" aria-label={`Perfil público de ${c.full_name}`}>
-                                <ExternalLink className="size-3.5" aria-hidden />
+                              <a
+                                href={c.linkedin_url}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-ork-blue"
+                                aria-label={`Perfil público de ${c.full_name}`}
+                              >
+                                <ExternalLink
+                                  className="size-3.5"
+                                  aria-hidden
+                                />
                               </a>
                             )}
                           </p>
                           <p className="flex items-center gap-1.5 truncate text-[12.5px] text-ork-mist">
                             {c.email ?? "Correo pendiente"}
-                            {c.email && c.email_status !== "sin_validar" && <EmailBadge status={c.email_status} />}
+                            {c.email && c.email_status !== "sin_validar" && (
+                              <EmailBadge status={c.email_status} />
+                            )}
                           </p>
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 pr-3 text-ork-graphite">{c.job_title ?? <Pending />}</td>
-                    <td className="py-3 pr-3 text-ork-graphite">{c.company ?? <Pending />}</td>
-                    <td className="py-3 pr-3 text-ork-graphite">{[c.city, c.country].filter(Boolean).join(", ") || <Pending />}</td>
+                    <td className="py-3 pr-3 text-ork-graphite">
+                      {c.job_title ?? <Pending />}
+                    </td>
+                    <td className="py-3 pr-3 text-ork-graphite">
+                      {c.company ?? <Pending />}
+                    </td>
+                    <td className="py-3 pr-3 text-ork-graphite">
+                      {[c.city, c.country].filter(Boolean).join(", ") || (
+                        <Pending />
+                      )}
+                    </td>
                     <td className="py-3 pr-4">
-                      <Badge tone={STATUS_TONE[c.status]}>{c.status_label}</Badge>
+                      <Badge tone={STATUS_TONE[c.status]}>
+                        {c.status_label}
+                      </Badge>
                     </td>
                   </tr>
                 ))}
@@ -355,13 +534,24 @@ export function ContactsPage() {
         {data && data.pages > 1 && (
           <div className="flex items-center justify-between border-t border-ork-line px-4 py-3 text-[13px] text-ork-mist">
             <span>
-              {data.total.toLocaleString("es")} contactos · página {data.page} de {data.pages}
+              {data.total.toLocaleString("es")} contactos · página {data.page}{" "}
+              de {data.pages}
             </span>
             <div className="flex gap-2">
-              <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setFilter("pagina", String(page - 1))}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={page <= 1}
+                onClick={() => setFilter("pagina", String(page - 1))}
+              >
                 Anterior
               </Button>
-              <Button size="sm" variant="secondary" disabled={page >= data.pages} onClick={() => setFilter("pagina", String(page + 1))}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={page >= data.pages}
+                onClick={() => setFilter("pagina", String(page + 1))}
+              >
                 Siguiente
               </Button>
             </div>
@@ -369,7 +559,11 @@ export function ContactsPage() {
         )}
       </Card>
 
-      <ContactDrawer id={openId} onClose={() => setOpenId(null)} onEdit={(c) => setEditing(c)} />
+      <ContactDrawer
+        id={openId}
+        onClose={() => setOpenId(null)}
+        onEdit={(c) => setEditing(c)}
+      />
       {editing && (
         <ContactForm
           contact={editing === "new" ? null : editing}
@@ -379,8 +573,19 @@ export function ContactsPage() {
           onSaved={(id) => setOpenId(id)}
         />
       )}
-      <AddToListModal open={listOpen} onOpenChange={setListOpen} ids={[...selected]} onDone={() => setSelected(new Set())} />
-      <EnrichModal open={enrichOpen} onOpenChange={setEnrichOpen} ids={[...selected]} filters={filters} onStarted={() => setSelected(new Set())} />
+      <AddToListModal
+        open={listOpen}
+        onOpenChange={setListOpen}
+        ids={[...selected]}
+        onDone={() => setSelected(new Set())}
+      />
+      <EnrichModal
+        open={enrichOpen}
+        onOpenChange={setEnrichOpen}
+        ids={[...selected]}
+        filters={filters}
+        onStarted={() => setSelected(new Set())}
+      />
       <ValidateModal
         open={validateOpen}
         onOpenChange={setValidateOpen}
@@ -396,7 +601,17 @@ function Pending() {
   return <span className="text-[12.5px] italic text-ork-mist">Pendiente</span>;
 }
 
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: Option[] }) {
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Option[];
+}) {
   return (
     <label className="relative">
       <span className="sr-only">{label}</span>
@@ -405,7 +620,9 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
         onChange={(e) => onChange(e.target.value)}
         className={cx(
           "ork-focus h-10 max-w-[200px] rounded-xl border bg-ork-card px-3 text-[13.5px]",
-          value ? "border-ork-blue/40 text-ork-blue" : "border-ork-line text-ork-graphite",
+          value
+            ? "border-ork-blue/40 text-ork-blue"
+            : "border-ork-line text-ork-graphite",
         )}
       >
         <option value="">{label}: todos</option>
@@ -419,8 +636,19 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   );
 }
 
-function EmptyContacts({ filtered, onAdd }: { filtered: boolean; onAdd: () => void }) {
-  if (filtered) return <p className="px-4 pb-10 pt-6 text-center text-[14px] text-ork-mist">Ningún contacto coincide con estos filtros.</p>;
+function EmptyContacts({
+  filtered,
+  onAdd,
+}: {
+  filtered: boolean;
+  onAdd: () => void;
+}) {
+  if (filtered)
+    return (
+      <p className="px-4 pb-10 pt-6 text-center text-[14px] text-ork-mist">
+        Ningún contacto coincide con estos filtros.
+      </p>
+    );
   return (
     <div className="flex flex-col items-center gap-3 px-6 pb-14 pt-8 text-center">
       <span className="ork-gradient flex size-12 items-center justify-center rounded-2xl text-white">
@@ -428,10 +656,15 @@ function EmptyContacts({ filtered, onAdd }: { filtered: boolean; onAdd: () => vo
       </span>
       <h2 className="text-[18px] font-bold text-ork-ink">Tu base está vacía</h2>
       <p className="max-w-md text-[14px] text-ork-mist">
-        Importa un Excel o CSV: ORKESTA reconoce las columnas y guarda solo nombre, apellido, ubicación, teléfono, correo, cargo, empresa e industria.
+        Importa un Excel o CSV: ORKESTA reconoce las columnas y guarda solo
+        nombre, apellido, ubicación, teléfono, correo, cargo, empresa e
+        industria.
       </p>
       <div className="flex gap-2">
-        <Link to="/contactos/importar" className="ork-gradient inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold text-white">
+        <Link
+          to="/contactos/importar"
+          className="ork-gradient inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold text-white"
+        >
           Importar base
         </Link>
         <Button variant="secondary" onClick={onAdd}>
@@ -456,14 +689,27 @@ function SourceText({ label }: { label: string }) {
   return (
     <>
       {before}
-      <a href={match[0]} target="_blank" rel="noreferrer noopener" className="text-ork-blue hover:underline">
+      <a
+        href={match[0]}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-ork-blue hover:underline"
+      >
         {match[0].replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)}
       </a>
     </>
   );
 }
 
-function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: () => void; onEdit: (c: ContactDetail) => void }) {
+function ContactDrawer({
+  id,
+  onClose,
+  onEdit,
+}: {
+  id: string | null;
+  onClose: () => void;
+  onEdit: (c: ContactDetail) => void;
+}) {
   const detail = useQuery({
     queryKey: ["contact", id],
     queryFn: () => api<ContactDetail>(`/api/contacts/${id}`),
@@ -480,21 +726,35 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
               <div className="flex items-center gap-3">
                 <Avatar name={c.full_name} email={c.email ?? ""} size={44} />
                 <div>
-                  <Dialog.Title className="text-[18px] font-bold text-ork-ink">{c.full_name}</Dialog.Title>
+                  <Dialog.Title className="text-[18px] font-bold text-ork-ink">
+                    {c.full_name}
+                  </Dialog.Title>
                   <Dialog.Description className="text-[13px] text-ork-mist">
-                    {[c.job_title, c.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa"}
+                    {[c.job_title, c.company].filter(Boolean).join(" · ") ||
+                      "Sin cargo ni empresa"}
                   </Dialog.Description>
                   {c.linkedin_url && (
-                    <a href={c.linkedin_url} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ork-blue hover:underline">
-                      <ExternalLink className="size-3" aria-hidden /> Perfil público
+                    <a
+                      href={c.linkedin_url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-ork-blue hover:underline"
+                    >
+                      <ExternalLink className="size-3" aria-hidden /> Perfil
+                      público
                     </a>
                   )}
                 </div>
               </div>
             ) : (
-              <Dialog.Title className="text-[18px] font-bold">Contacto</Dialog.Title>
+              <Dialog.Title className="text-[18px] font-bold">
+                Contacto
+              </Dialog.Title>
             )}
-            <Dialog.Close className="ork-focus rounded-lg p-1 text-ork-mist hover:bg-ork-ink/5" aria-label="Cerrar">
+            <Dialog.Close
+              className="ork-focus rounded-lg p-1 text-ork-mist hover:bg-ork-ink/5"
+              aria-label="Cerrar"
+            >
               <X className="size-5" />
             </Dialog.Close>
           </div>
@@ -504,36 +764,63 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
               <>
                 <div className="mb-5 flex items-center justify-between">
                   <Badge tone={STATUS_TONE[c.status]}>{c.status_label}</Badge>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <AskConcertino contact_id={c.id} label={c.full_name}>
                       Concertino
                     </AskConcertino>
-                    {c.email && <OneToOneCampaign id={c.id} name={c.full_name} />}
-                    <Button size="sm" variant="secondary" icon={<Pencil className="size-3.5" aria-hidden />} onClick={() => onEdit(c)}>
+                    {c.email && (
+                      <OneToOneCampaign id={c.id} name={c.full_name} />
+                    )}
+                    {c.email && (
+                      <ScheduleMeeting id={c.id} name={c.full_name} />
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Pencil className="size-3.5" aria-hidden />}
+                      onClick={() => onEdit(c)}
+                    >
                       Editar
                     </Button>
                   </div>
                 </div>
                 <dl className="divide-y divide-ork-line">
                   {c.fields.map((f) => (
-                    <div key={f.field} className="grid grid-cols-[110px_1fr] gap-3 py-3">
-                      <dt className="text-[12.5px] font-semibold text-ork-mist">{f.label}</dt>
+                    <div
+                      key={f.field}
+                      className="grid grid-cols-[110px_1fr] gap-3 py-3"
+                    >
+                      <dt className="text-[12.5px] font-semibold text-ork-mist">
+                        {f.label}
+                      </dt>
                       <dd>
                         {f.pending ? (
-                          <Badge tone="warn">Pendiente de enriquecimiento</Badge>
+                          <Badge tone="warn">
+                            Pendiente de enriquecimiento
+                          </Badge>
                         ) : (
                           <>
-                            <p className="break-words text-[14px] text-ork-ink">{f.value}</p>
+                            <p className="break-words text-[14px] text-ork-ink">
+                              {f.value}
+                            </p>
                             {f.field === "email" && c.email_status && (
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <EmailBadge status={c.email_status} />
-                                {c.email_check_reason && <span className="text-[11.5px] text-ork-mist">{c.email_check_reason}</span>}
+                                {c.email_check_reason && (
+                                  <span className="text-[11.5px] text-ork-mist">
+                                    {c.email_check_reason}
+                                  </span>
+                                )}
                               </div>
                             )}
                             {f.sources[0] && (
                               <p className="mt-0.5 text-[11.5px] text-ork-mist">
-                                Fuente: {SOURCE_LABEL[f.sources[0].source_type]} · <SourceText label={f.sources[0].source_label} /> · {formatWhen(f.sources[0].obtained_at)}
-                                {f.sources.length > 1 && ` · ${f.sources.length - 1} fuente${f.sources.length > 2 ? "s" : ""} más`}
+                                Fuente: {SOURCE_LABEL[f.sources[0].source_type]}{" "}
+                                ·{" "}
+                                <SourceText label={f.sources[0].source_label} />{" "}
+                                · {formatWhen(f.sources[0].obtained_at)}
+                                {f.sources.length > 1 &&
+                                  ` · ${f.sources.length - 1} fuente${f.sources.length > 2 ? "s" : ""} más`}
                               </p>
                             )}
                           </>
@@ -543,7 +830,9 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                   ))}
                 </dl>
                 <div className="mt-5">
-                  <p className="mb-2 text-[12.5px] font-semibold text-ork-mist">Listas</p>
+                  <p className="mb-2 text-[12.5px] font-semibold text-ork-mist">
+                    Listas
+                  </p>
                   {c.lists.length ? (
                     <div className="flex flex-wrap gap-1.5">
                       {c.lists.map((l) => (
@@ -553,10 +842,20 @@ function ContactDrawer({ id, onClose, onEdit }: { id: string | null; onClose: ()
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[13px] text-ork-mist">No está en ninguna lista.</p>
+                    <p className="text-[13px] text-ork-mist">
+                      No está en ninguna lista.
+                    </p>
                   )}
                 </div>
-                <ContactCrm contactId={c.id} hit={{ id: c.id, full_name: c.full_name, company: c.company, job_title: c.job_title }} />
+                <ContactCrm
+                  contactId={c.id}
+                  hit={{
+                    id: c.id,
+                    full_name: c.full_name,
+                    company: c.company,
+                    job_title: c.job_title,
+                  }}
+                />
               </>
             )}
           </div>
@@ -582,10 +881,15 @@ function ContactForm({
   const client = useQueryClient();
   const lists = useLists();
   // Contacto nuevo: a qué listas entra (por defecto, la lista que se está viendo).
-  const [listIds, setListIds] = useState<string[]>(defaultList ? [defaultList] : []);
+  const [listIds, setListIds] = useState<string[]>(
+    defaultList ? [defaultList] : [],
+  );
   const [creatingList, setCreatingList] = useState(false);
   const [newList, setNewList] = useState("");
-  const toggleList = (id: string) => setListIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleList = (id: string) =>
+    setListIds((ids) =>
+      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+    );
   const [form, setForm] = useState({
     first_name: contact?.first_name ?? "",
     last_name: contact?.last_name ?? "",
@@ -600,10 +904,17 @@ function ContactForm({
   const save = useMutation({
     mutationFn: () =>
       contact
-        ? api<ContactDetail>(`/api/contacts/${contact.id}`, { method: "PATCH", json: form })
+        ? api<ContactDetail>(`/api/contacts/${contact.id}`, {
+            method: "PATCH",
+            json: form,
+          })
         : api<ContactDetail>("/api/contacts", {
             method: "POST",
-            json: { ...form, list_ids: listIds, new_list: creatingList ? newList.trim() : "" },
+            json: {
+              ...form,
+              list_ids: listIds,
+              new_list: creatingList ? newList.trim() : "",
+            },
           }),
     onSuccess: (data) => {
       client.invalidateQueries({ queryKey: ["contacts"] });
@@ -613,27 +924,65 @@ function ContactForm({
       onSaved(data.id);
     },
   });
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm({ ...form, [key]: e.target.value });
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title={contact ? "Editar contacto" : "Agregar contacto"} description="Los campos vacíos quedan pendientes de enriquecimiento.">
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={contact ? "Editar contacto" : "Agregar contacto"}
+      description="Los campos vacíos quedan pendientes de enriquecimiento."
+    >
       <form onSubmit={submit} className="grid grid-cols-2 gap-3">
         {save.error && (
           <div className="col-span-2">
             <Alert>{save.error.message}</Alert>
           </div>
         )}
-        <TextField label="Nombre" required value={form.first_name} onChange={set("first_name")} />
-        <TextField label="Apellido" value={form.last_name} onChange={set("last_name")} />
-        <TextField label="Cargo" value={form.job_title} onChange={set("job_title")} className="col-span-2" />
-        <TextField label="Empresa" value={form.company} onChange={set("company")} className="col-span-2" />
-        <TextField label="Correo" type="email" value={form.email} onChange={set("email")} />
-        <TextField label="Teléfono" value={form.phone} onChange={set("phone")} />
+        <TextField
+          label="Nombre"
+          required
+          value={form.first_name}
+          onChange={set("first_name")}
+        />
+        <TextField
+          label="Apellido"
+          value={form.last_name}
+          onChange={set("last_name")}
+        />
+        <TextField
+          label="Cargo"
+          value={form.job_title}
+          onChange={set("job_title")}
+          className="col-span-2"
+        />
+        <TextField
+          label="Empresa"
+          value={form.company}
+          onChange={set("company")}
+          className="col-span-2"
+        />
+        <TextField
+          label="Correo"
+          type="email"
+          value={form.email}
+          onChange={set("email")}
+        />
+        <TextField
+          label="Teléfono"
+          value={form.phone}
+          onChange={set("phone")}
+        />
         <TextField label="Ciudad" value={form.city} onChange={set("city")} />
-        <SelectField label="País" value={form.country} onChange={set("country")}>
+        <SelectField
+          label="País"
+          value={form.country}
+          onChange={set("country")}
+        >
           <option value="">Sin país</option>
           {meta?.countries.map((c) => (
             <option key={c.value} value={c.label}>
@@ -641,10 +990,17 @@ function ContactForm({
             </option>
           ))}
         </SelectField>
-        <TextField label="Industria" value={form.industry} onChange={set("industry")} className="col-span-2" />
+        <TextField
+          label="Industria"
+          value={form.industry}
+          onChange={set("industry")}
+          className="col-span-2"
+        />
         {!contact && (
           <fieldset className="col-span-2 mt-1 rounded-xl border border-ork-line p-3">
-            <legend className="px-1 text-[13px] font-semibold text-ork-ink">Agregar a listas</legend>
+            <legend className="px-1 text-[13px] font-semibold text-ork-ink">
+              Agregar a listas
+            </legend>
             {lists.data && lists.data.length > 0 ? (
               <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
                 {lists.data.map((l) => {
@@ -657,7 +1013,9 @@ function ContactForm({
                       onClick={() => toggleList(l.id)}
                       className={cx(
                         "ork-focus rounded-full border px-3 py-1 text-[12.5px] font-semibold transition",
-                        on ? "border-ork-blue bg-ork-blue/10 text-ork-blue" : "border-ork-line text-ork-graphite hover:border-ork-blue/40",
+                        on
+                          ? "border-ork-blue bg-ork-blue/10 text-ork-blue"
+                          : "border-ork-line text-ork-graphite hover:border-ork-blue/40",
                       )}
                     >
                       {on ? "✓ " : ""}
@@ -667,21 +1025,41 @@ function ContactForm({
                 })}
               </div>
             ) : (
-              <p className="text-[12.5px] text-ork-mist">Aún no tienes listas.</p>
+              <p className="text-[12.5px] text-ork-mist">
+                Aún no tienes listas.
+              </p>
             )}
             {creatingList ? (
               <div className="mt-3 flex items-end gap-2">
-                <TextField label="Nombre de la lista nueva" autoFocus value={newList} onChange={(e) => setNewList(e.target.value)} className="flex-1" placeholder="Ej.: Feria Andicom 2026" />
-                <Button type="button" variant="ghost" size="sm" onClick={() => (setCreatingList(false), setNewList(""))}>
+                <TextField
+                  label="Nombre de la lista nueva"
+                  autoFocus
+                  value={newList}
+                  onChange={(e) => setNewList(e.target.value)}
+                  className="flex-1"
+                  placeholder="Ej.: Feria Andicom 2026"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => (setCreatingList(false), setNewList(""))}
+                >
                   Quitar
                 </Button>
               </div>
             ) : (
-              <button type="button" className="mt-3 text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => setCreatingList(true)}>
+              <button
+                type="button"
+                className="mt-3 text-[12.5px] font-semibold text-ork-blue hover:underline"
+                onClick={() => setCreatingList(true)}
+              >
                 + Crear una lista nueva
               </button>
             )}
-            <p className="mt-2 text-[11.5px] text-ork-mist">Opcional: puedes dejarlo sin lista y agregarlo después.</p>
+            <p className="mt-2 text-[11.5px] text-ork-mist">
+              Opcional: puedes dejarlo sin lista y agregarlo después.
+            </p>
           </fieldset>
         )}
         <div className="col-span-2 mt-2 flex justify-end gap-2">
@@ -697,7 +1075,17 @@ function ContactForm({
   );
 }
 
-function AddToListModal({ open, onOpenChange, ids, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; ids: string[]; onDone: () => void }) {
+function AddToListModal({
+  open,
+  onOpenChange,
+  ids,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  ids: string[];
+  onDone: () => void;
+}) {
   const client = useQueryClient();
   const lists = useLists();
   const [listId, setListId] = useState("");
@@ -705,8 +1093,17 @@ function AddToListModal({ open, onOpenChange, ids, onDone }: { open: boolean; on
   const add = useMutation({
     mutationFn: async () => {
       let target = listId;
-      if (!target) target = (await api<{ id: string }>("/api/lists", { method: "POST", json: { name } })).id;
-      return api<{ added: number }>(`/api/lists/${target}/members`, { method: "POST", json: { ids } });
+      if (!target)
+        target = (
+          await api<{ id: string }>("/api/lists", {
+            method: "POST",
+            json: { name },
+          })
+        ).id;
+      return api<{ added: number }>(`/api/lists/${target}/members`, {
+        method: "POST",
+        json: { ids },
+      });
     },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["lists"] });
@@ -717,7 +1114,12 @@ function AddToListModal({ open, onOpenChange, ids, onDone }: { open: boolean; on
     },
   });
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Agregar a una lista" description={`${ids.length} contactos seleccionados.`}>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Agregar a una lista"
+      description={`${ids.length} contactos seleccionados.`}
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -726,7 +1128,11 @@ function AddToListModal({ open, onOpenChange, ids, onDone }: { open: boolean; on
         }}
       >
         {add.error && <Alert>{add.error.message}</Alert>}
-        <SelectField label="Lista existente" value={listId} onChange={(e) => setListId(e.target.value)}>
+        <SelectField
+          label="Lista existente"
+          value={listId}
+          onChange={(e) => setListId(e.target.value)}
+        >
           <option value="">— Crear una lista nueva —</option>
           {lists.data?.map((l) => (
             <option key={l.id} value={l.id}>
@@ -734,7 +1140,14 @@ function AddToListModal({ open, onOpenChange, ids, onDone }: { open: boolean; on
             </option>
           ))}
         </SelectField>
-        {!listId && <TextField label="Nombre de la lista nueva" required value={name} onChange={(e) => setName(e.target.value)} />}
+        {!listId && (
+          <TextField
+            label="Nombre de la lista nueva"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
         <Button type="submit" loading={add.isPending}>
           Agregar
         </Button>
@@ -770,10 +1183,16 @@ export function ListsPage() {
         description="Agrupa contactos para tus campañas. Borrar una lista no borra a las personas."
         action={
           <div className="flex gap-2">
-            <Link to="/contactos" className="ork-focus inline-flex h-10 items-center rounded-xl px-3 text-sm font-semibold text-ork-graphite hover:bg-ork-ink/5">
+            <Link
+              to="/contactos"
+              className="ork-focus inline-flex h-10 items-center rounded-xl px-3 text-sm font-semibold text-ork-graphite hover:bg-ork-ink/5"
+            >
               Volver a contactos
             </Link>
-            <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setOpen(true)}>
+            <Button
+              icon={<Plus className="size-4" aria-hidden />}
+              onClick={() => setOpen(true)}
+            >
               Nueva lista
             </Button>
           </div>
@@ -782,20 +1201,31 @@ export function ListsPage() {
       {lists.isLoading ? (
         <Spinner />
       ) : sorted.length === 0 ? (
-        <Card className="py-10 text-center text-[14px] text-ork-mist">Aún no tienes listas. Créalas desde aquí, al importar o seleccionando contactos.</Card>
+        <Card className="py-10 text-center text-[14px] text-ork-mist">
+          Aún no tienes listas. Créalas desde aquí, al importar o seleccionando
+          contactos.
+        </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {sorted.map((l) => (
             <Card key={l.id} className="flex flex-col gap-3">
               <div>
                 <p className="text-[15px] font-bold text-ork-ink">{l.name}</p>
-                {l.description && <p className="text-[13px] text-ork-mist">{l.description}</p>}
+                {l.description && (
+                  <p className="text-[13px] text-ork-mist">{l.description}</p>
+                )}
               </div>
               <p className="text-[26px] font-bold text-ork-ink">
-                {l.contacts.toLocaleString("es")} <span className="text-[13px] font-medium text-ork-mist">contactos</span>
+                {l.contacts.toLocaleString("es")}{" "}
+                <span className="text-[13px] font-medium text-ork-mist">
+                  contactos
+                </span>
               </p>
               <div className="mt-auto flex items-center justify-between">
-                <Link to={`/contactos?lista=${l.id}`} className="text-[13.5px] font-semibold text-ork-blue hover:underline">
+                <Link
+                  to={`/contactos?lista=${l.id}`}
+                  className="text-[13.5px] font-semibold text-ork-blue hover:underline"
+                >
                   Ver contactos
                 </Link>
                 {canManage && (
@@ -803,7 +1233,11 @@ export function ListsPage() {
                     type="button"
                     className="ork-focus rounded-lg p-1.5 text-ork-mist hover:bg-bad/5 hover:text-bad"
                     aria-label={`Eliminar la lista ${l.name}`}
-                    onClick={() => window.confirm(`¿Eliminar la lista «${l.name}»? Los contactos se conservan.`) && remove.mutate(l.id)}
+                    onClick={() =>
+                      window.confirm(
+                        `¿Eliminar la lista «${l.name}»? Los contactos se conservan.`,
+                      ) && remove.mutate(l.id)
+                    }
                   >
                     <Trash2 className="size-4" />
                   </button>
@@ -822,7 +1256,13 @@ export function ListsPage() {
           }}
         >
           {create.error && <Alert>{create.error.message}</Alert>}
-          <TextField label="Nombre" required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField
+            label="Nombre"
+            required
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <Button type="submit" loading={create.isPending}>
             Crear lista
           </Button>
@@ -832,19 +1272,37 @@ export function ListsPage() {
   );
 }
 
-
-function ContactCrm({ contactId, hit }: { contactId: string; hit: { id: string; full_name: string; company: string | null; job_title: string | null } }) {
+function ContactCrm({
+  contactId,
+  hit,
+}: {
+  contactId: string;
+  hit: {
+    id: string;
+    full_name: string;
+    company: string | null;
+    job_title: string | null;
+  };
+}) {
   const stages = useStages();
   const [creating, setCreating] = useState(false);
   const deals = useQuery({
     queryKey: ["crm-deals", "contact", contactId],
-    queryFn: () => api<{ deals: Deal[] }>(`/api/crm/deals?contacto=${contactId}`),
+    queryFn: () =>
+      api<{ deals: Deal[] }>(`/api/crm/deals?contacto=${contactId}`),
   });
   return (
     <div className="mt-6 border-t border-ork-line pt-5">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[12.5px] font-semibold text-ork-mist">Oportunidades</p>
-        <Button size="sm" variant="secondary" icon={<Plus className="size-3.5" aria-hidden />} onClick={() => setCreating(true)}>
+        <p className="text-[12.5px] font-semibold text-ork-mist">
+          Oportunidades
+        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Plus className="size-3.5" aria-hidden />}
+          onClick={() => setCreating(true)}
+        >
           Crear oportunidad
         </Button>
       </div>
@@ -852,7 +1310,10 @@ function ContactCrm({ contactId, hit }: { contactId: string; hit: { id: string; 
         <ul className="mb-4 space-y-1.5">
           {deals.data.deals.map((d) => (
             <li key={d.id}>
-              <Link to={`/crm?oportunidad=${d.id}`} className="flex items-center justify-between rounded-lg border border-ork-line px-3 py-2 text-[13px] hover:border-ork-blue/40">
+              <Link
+                to={`/crm?oportunidad=${d.id}`}
+                className="flex items-center justify-between rounded-lg border border-ork-line px-3 py-2 text-[13px] hover:border-ork-blue/40"
+              >
                 <span className="font-semibold text-ork-ink">{d.title}</span>
                 <span className="text-ork-mist">
                   {d.stage} · {money(d.value, d.currency)}
@@ -862,28 +1323,77 @@ function ContactCrm({ contactId, hit }: { contactId: string; hit: { id: string; 
           ))}
         </ul>
       ) : (
-        <p className="mb-4 text-[13px] text-ork-mist">Sin oportunidades todavía.</p>
+        <p className="mb-4 text-[13px] text-ork-mist">
+          Sin oportunidades todavía.
+        </p>
       )}
-      <p className="mb-2 text-[12.5px] font-semibold text-ork-mist">Historial</p>
+      <p className="mb-2 text-[12.5px] font-semibold text-ork-mist">
+        Historial
+      </p>
       <Timeline contactId={contactId} />
-      <NewDealModal open={creating} onOpenChange={setCreating} stages={stages.data?.stages ?? []} currencies={stages.data?.currencies ?? ["USD"]} contact={hit} />
+      <NewDealModal
+        open={creating}
+        onOpenChange={setCreating}
+        stages={stages.data?.stages ?? []}
+        currencies={stages.data?.currencies ?? ["USD"]}
+        contact={hit}
+      />
     </div>
   );
 }
 
 /** Campaña para un solo contacto: crea la campaña con esa persona como audiencia y la abre. */
+/** Agenda una reunión con el contacto: queda en el Google Calendar de la persona y le llega la
+ * invitación al contacto. */
+function ScheduleMeeting({ id, name }: { id: string; name: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="secondary"
+        icon={<CalendarDays className="size-3.5" aria-hidden />}
+        onClick={() => setOpen(true)}
+        title={`Agendar una reunión con ${name}`}
+      >
+        Agendar
+      </Button>
+      {open && (
+        <EventModal
+          event={null}
+          contactId={id}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function OneToOneCampaign({ id, name }: { id: string; name: string }) {
   const navigate = useNavigate();
   const create = useMutation({
     mutationFn: async () => {
-      const c = await api<{ id: string }>("/api/campaigns", { method: "POST", json: { name: `Para ${name}`.slice(0, 120) } });
-      await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { audience: { contact_ids: [id], include_estimated: true } } });
+      const c = await api<{ id: string }>("/api/campaigns", {
+        method: "POST",
+        json: { name: `Para ${name}`.slice(0, 120) },
+      });
+      await api(`/api/campaigns/${c.id}`, {
+        method: "PATCH",
+        json: { audience: { contact_ids: [id], include_estimated: true } },
+      });
       return c;
     },
     onSuccess: (c) => navigate(`/campanas/${c.id}`),
   });
   return (
-    <Button size="sm" variant="secondary" icon={<Mail className="size-3.5" aria-hidden />} loading={create.isPending} onClick={() => create.mutate()} title="Campaña personalizada solo para este contacto">
+    <Button
+      size="sm"
+      variant="secondary"
+      icon={<Mail className="size-3.5" aria-hidden />}
+      loading={create.isPending}
+      onClick={() => create.mutate()}
+      title="Campaña personalizada solo para este contacto"
+    >
       Campaña 1 a 1
     </Button>
   );

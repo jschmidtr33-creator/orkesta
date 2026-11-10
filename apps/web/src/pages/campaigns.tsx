@@ -1,15 +1,60 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookmarkCheck, Eye, EyeOff, Sparkles, Mail, MousePointerClick, Pause, Play, Plus, Reply, Rocket, Send, Trash2, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Alert, Badge, Button, Card, CardHeader, cx, Modal, PageHeader, SelectField, Spinner, TextField, Tip } from "../components/ui";
+import {
+  ArrowLeft,
+  BookmarkCheck,
+  Eye,
+  EyeOff,
+  Sparkles,
+  Mail,
+  MousePointerClick,
+  Pause,
+  Play,
+  Plus,
+  Reply,
+  Rocket,
+  Send,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  cx,
+  Modal,
+  PageHeader,
+  SelectField,
+  Spinner,
+  TextField,
+  Tip,
+} from "../components/ui";
 import { AskConcertino } from "../components/Concertino";
 import type { Editor } from "@tiptap/react";
 import { CopyAssistant, StepReview } from "../components/CopyAssistant";
 import { HtmlFrame, RichEditor, toHtml } from "../components/RichEditor";
-import { TemplatePicker, SaveTemplateButton, useTeamTemplates } from "../components/TeamTemplates";
+import {
+  TemplatePicker,
+  SaveTemplateButton,
+  useTeamTemplates,
+} from "../components/TeamTemplates";
 import { api } from "../lib/api";
 import { useLists, useMeta } from "./contacts";
+import { ContactPicker } from "../components/ContactPicker";
 import { formatWhen } from "./dashboard";
 
 type Stats = {
@@ -30,9 +75,26 @@ type Stats = {
   block_rate?: number | null;
   replies?: Record<string, number>;
 };
-type Step = { subject: string; body: string; delay_days: number; variant_b?: { subject: string; body: string }; winner?: "A" | "B" };
-type AbSide = { sent: number; opened: number; replied: number; reply_rate: number | null; open_rate: number | null };
-type AbResult = { step: number; winner: "A" | "B" | null; A: AbSide; B: AbSide };
+type Step = {
+  subject: string;
+  body: string;
+  delay_days: number;
+  variant_b?: { subject: string; body: string };
+  winner?: "A" | "B";
+};
+type AbSide = {
+  sent: number;
+  opened: number;
+  replied: number;
+  reply_rate: number | null;
+  open_rate: number | null;
+};
+type AbResult = {
+  step: number;
+  winner: "A" | "B" | null;
+  A: AbSide;
+  B: AbSide;
+};
 type Settings = {
   timezone: string;
   days: number[];
@@ -43,7 +105,13 @@ type Settings = {
   corporate_mode?: boolean;
   per_domain_daily?: number;
 };
-type Audience = { list_id?: string | null; filters?: Record<string, string>; contact_ids?: string[]; include_estimated?: boolean; quality?: "todos" | "confiables" };
+type Audience = {
+  list_id?: string | null;
+  filters?: Record<string, string>;
+  contact_ids?: string[];
+  include_estimated?: boolean;
+  quality?: "todos" | "confiables";
+};
 type Campaign = {
   id: string;
   name: string;
@@ -76,8 +144,29 @@ type Mailbox = {
   provider?: string;
   provider_label?: string;
 };
-type AudiencePreview = { total: number; eligible: number; no_email: number; invalid: number; suppressed: number; estimated: number; excluded_estimated: number; no_mail_domain?: number; trusted?: number; common?: number; excluded_common?: number; too_many: boolean };
-type Preview = { contact: { full_name: string; email: string } | null; from: string | null; subject: string; body: string; html: string; missing: string[]; threaded: boolean };
+type AudiencePreview = {
+  total: number;
+  eligible: number;
+  no_email: number;
+  invalid: number;
+  suppressed: number;
+  estimated: number;
+  excluded_estimated: number;
+  no_mail_domain?: number;
+  trusted?: number;
+  common?: number;
+  excluded_common?: number;
+  too_many: boolean;
+};
+type Preview = {
+  contact: { full_name: string; email: string } | null;
+  from: string | null;
+  subject: string;
+  body: string;
+  html: string;
+  missing: string[];
+  threaded: boolean;
+};
 type Recipient = {
   id: string;
   contact_id: string;
@@ -103,7 +192,10 @@ type Recipient = {
 };
 
 /** Lo que quiso decir cada respuesta: lo decide el clasificador propio de ORKESTA. */
-const REPLY: Record<string, { label: string; tone: "neutral" | "ok" | "warn" | "blue" | "bad" | "violet" }> = {
+const REPLY: Record<
+  string,
+  { label: string; tone: "neutral" | "ok" | "warn" | "blue" | "bad" | "violet" }
+> = {
   reunion: { label: "Quiere reunión", tone: "ok" },
   interesado: { label: "Interesado", tone: "ok" },
   mas_info: { label: "Pide información", tone: "blue" },
@@ -114,13 +206,19 @@ const REPLY: Record<string, { label: string; tone: "neutral" | "ok" | "warn" | "
   otro: { label: "Respuesta sin clasificar", tone: "neutral" },
 };
 
-const STATUS: Record<Campaign["status"], { label: string; tone: "neutral" | "ok" | "warn" | "blue" }> = {
+const STATUS: Record<
+  Campaign["status"],
+  { label: string; tone: "neutral" | "ok" | "warn" | "blue" }
+> = {
   draft: { label: "Borrador", tone: "neutral" },
   active: { label: "Enviando", tone: "ok" },
   paused: { label: "En pausa", tone: "warn" },
   completed: { label: "Terminada", tone: "blue" },
 };
-const RECIPIENT: Record<string, { label: string; tone: "neutral" | "ok" | "warn" | "blue" | "bad" | "violet" }> = {
+const RECIPIENT: Record<
+  string,
+  { label: string; tone: "neutral" | "ok" | "warn" | "blue" | "bad" | "violet" }
+> = {
   pending: { label: "En cola", tone: "neutral" },
   active: { label: "En secuencia", tone: "blue" },
   replied: { label: "Respondió", tone: "ok" },
@@ -147,13 +245,26 @@ const pct = (v: number | null) => (v === null ? "—" : `${v} %`);
 function useCampaigns() {
   return useQuery({
     queryKey: ["campaigns"],
-    queryFn: () => api<{ items: Campaign[]; variables: Record<string, string>; gmail_enabled: boolean }>("/api/campaigns"),
+    queryFn: () =>
+      api<{
+        items: Campaign[];
+        variables: Record<string, string>;
+        gmail_enabled: boolean;
+      }>("/api/campaigns"),
     refetchInterval: 30000,
   });
 }
 
 export function useMailboxes() {
-  return useQuery({ queryKey: ["mailboxes"], queryFn: () => api<{ enabled: boolean; providers?: { gmail: boolean; microsoft: boolean; smtp: boolean }; items: Mailbox[] }>("/api/mailboxes") });
+  return useQuery({
+    queryKey: ["mailboxes"],
+    queryFn: () =>
+      api<{
+        enabled: boolean;
+        providers?: { gmail: boolean; microsoft: boolean; smtp: boolean };
+        items: Mailbox[];
+      }>("/api/mailboxes"),
+  });
 }
 
 export function CampaignsPage() {
@@ -163,10 +274,17 @@ export function CampaignsPage() {
   const [deleting, setDeleting] = useState<Campaign | null>(null);
   const [params, setParams] = useSearchParams();
   const view = params.get("vista") === "plantillas" ? "plantillas" : "campanas";
-  const setView = (v: "campanas" | "plantillas") => setParams(v === "plantillas" ? { vista: "plantillas" } : {}, { replace: true });
+  const setView = (v: "campanas" | "plantillas") =>
+    setParams(v === "plantillas" ? { vista: "plantillas" } : {}, {
+      replace: true,
+    });
   const items = list.data?.items ?? [];
   const totals = items.reduce(
-    (acc, c) => ({ sent: acc.sent + c.stats.emails_sent, replied: acc.replied + c.stats.replied, active: acc.active + (c.status === "active" ? 1 : 0) }),
+    (acc, c) => ({
+      sent: acc.sent + c.stats.emails_sent,
+      replied: acc.replied + c.stats.replied,
+      active: acc.active + (c.status === "active" ? 1 : 0),
+    }),
     { sent: 0, replied: 0, active: 0 },
   );
   const noMailbox = boxes.data && boxes.data.items.length === 0;
@@ -176,7 +294,10 @@ export function CampaignsPage() {
         title="Campañas"
         description="Secuencias de correos desde tu Gmail, con seguimiento de aperturas y clics. Cuando alguien responde, su secuencia se detiene sola."
         action={
-          <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setCreating(true)}>
+          <Button
+            icon={<Plus className="size-4" aria-hidden />}
+            onClick={() => setCreating(true)}
+          >
             Nueva campaña
           </Button>
         }
@@ -187,7 +308,9 @@ export function CampaignsPage() {
             <div className="flex items-start gap-3">
               <Mail className="mt-0.5 size-5 text-ork-blue" aria-hidden />
               <div>
-                <p className="text-[14.5px] font-semibold text-ork-ink">Conecta tu Gmail para enviar</p>
+                <p className="text-[14.5px] font-semibold text-ork-ink">
+                  Conecta tu Gmail para enviar
+                </p>
                 <p className="text-[13px] text-ork-mist">
                   {boxes.data?.enabled
                     ? "Los correos salen desde tu propio buzón: mejor entrega y las respuestas llegan a tu bandeja."
@@ -208,7 +331,11 @@ export function CampaignsPage() {
         <Kpi label="Correos enviados" value={totals.sent} />
         <Kpi label="Respuestas" value={totals.replied} />
       </div>
-      <div className="mb-4 flex w-fit rounded-xl border border-ork-line bg-ork-card p-1" role="tablist" aria-label="Vista">
+      <div
+        className="mb-4 flex w-fit rounded-xl border border-ork-line bg-ork-card p-1"
+        role="tablist"
+        aria-label="Vista"
+      >
         {(
           [
             ["campanas", "Mis campañas"],
@@ -221,7 +348,12 @@ export function CampaignsPage() {
             role="tab"
             aria-selected={view === value}
             onClick={() => setView(value)}
-            className={cx("rounded-lg px-4 py-1.5 text-[13.5px] font-semibold", view === value ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+            className={cx(
+              "rounded-lg px-4 py-1.5 text-[13.5px] font-semibold",
+              view === value
+                ? "bg-ork-blue-solid text-white"
+                : "text-ork-graphite hover:bg-ork-ink/5",
+            )}
           >
             {label}
           </button>
@@ -234,8 +366,12 @@ export function CampaignsPage() {
       ) : items.length === 0 ? (
         <Card className="py-12 text-center">
           <Send className="mx-auto size-8 text-ork-mist" aria-hidden />
-          <p className="mt-3 text-[15px] font-semibold text-ork-ink">Todavía no tienes campañas</p>
-          <p className="mt-1 text-[13.5px] text-ork-mist">Crea una, elige a quién escribirle y define la secuencia de correos.</p>
+          <p className="mt-3 text-[15px] font-semibold text-ork-ink">
+            Todavía no tienes campañas
+          </p>
+          <p className="mt-1 text-[13.5px] text-ork-mist">
+            Crea una, elige a quién escribirle y define la secuencia de correos.
+          </p>
         </Card>
       ) : (
         <Card className="overflow-x-auto p-0">
@@ -249,24 +385,35 @@ export function CampaignsPage() {
                 <th className="py-3 text-right font-semibold">Apertura</th>
                 <th className="py-3 text-right font-semibold">Clics</th>
                 <th className="py-3 text-right font-semibold">Respuesta</th>
-                <th className="w-12 px-3 py-3"><span className="sr-only">Acciones</span></th>
+                <th className="w-12 px-3 py-3">
+                  <span className="sr-only">Acciones</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ork-line">
               {items.map((c) => (
                 <tr key={c.id} className="hover:bg-ork-surface/60">
                   <td className="px-5 py-3">
-                    <Link to={`/campanas/${c.id}`} className="font-semibold text-ork-ink hover:text-ork-blue">
+                    <Link
+                      to={`/campanas/${c.id}`}
+                      className="font-semibold text-ork-ink hover:text-ork-blue"
+                    >
                       {c.name}
                     </Link>
                     <p className="text-[12px] text-ork-mist">
-                      {c.steps_count} correos · {c.mailbox?.email ?? "sin buzón"}
+                      {c.steps_count} correos ·{" "}
+                      {c.mailbox?.email ?? "sin buzón"}
                     </p>
                   </td>
                   <td className="py-3">
-                    <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
+                    <Badge tone={STATUS[c.status].tone}>
+                      {STATUS[c.status].label}
+                    </Badge>
                     {c.waiting && (
-                      <p className="mt-1 max-w-[220px] text-[11.5px] leading-snug text-ork-mist" title={c.waiting}>
+                      <p
+                        className="mt-1 max-w-[220px] text-[11.5px] leading-snug text-ork-mist"
+                        title={c.waiting}
+                      >
                         {c.waiting}
                       </p>
                     )}
@@ -275,7 +422,9 @@ export function CampaignsPage() {
                   <td className="py-3 text-right">{c.stats.emails_sent}</td>
                   <td className="py-3 text-right">{pct(c.stats.open_rate)}</td>
                   <td className="py-3 text-right">{pct(c.stats.click_rate)}</td>
-                  <td className="py-3 text-right font-semibold text-ok">{pct(c.stats.reply_rate)}</td>
+                  <td className="py-3 text-right font-semibold text-ok">
+                    {pct(c.stats.reply_rate)}
+                  </td>
                   <td className="px-3 py-3 text-right">
                     <button
                       type="button"
@@ -293,16 +442,28 @@ export function CampaignsPage() {
         </Card>
       )}
       <NewCampaignModal open={creating} onOpenChange={setCreating} />
-      <DeleteCampaignModal campaign={deleting} onClose={() => setDeleting(null)} />
+      <DeleteCampaignModal
+        campaign={deleting}
+        onClose={() => setDeleting(null)}
+      />
     </div>
   );
 }
 
 /** Confirmación para borrar una campaña (borrador o enviada). */
-function DeleteCampaignModal({ campaign, onClose, onDeleted }: { campaign: Campaign | null; onClose: () => void; onDeleted?: () => void }) {
+function DeleteCampaignModal({
+  campaign,
+  onClose,
+  onDeleted,
+}: {
+  campaign: Campaign | null;
+  onClose: () => void;
+  onDeleted?: () => void;
+}) {
   const client = useQueryClient();
   const remove = useMutation({
-    mutationFn: (id: string) => api(`/api/campaigns/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api(`/api/campaigns/${id}`, { method: "DELETE" }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["campaigns"] });
       onClose();
@@ -311,7 +472,12 @@ function DeleteCampaignModal({ campaign, onClose, onDeleted }: { campaign: Campa
   });
   const sent = (campaign?.stats.emails_sent ?? 0) > 0;
   return (
-    <Modal open={campaign !== null} onOpenChange={(o) => !o && onClose()} title="Borrar campaña" description={campaign ? `«${campaign.name}»` : ""}>
+    <Modal
+      open={campaign !== null}
+      onOpenChange={(o) => !o && onClose()}
+      title="Borrar campaña"
+      description={campaign ? `«${campaign.name}»` : ""}
+    >
       <div className="flex flex-col gap-4">
         <p className="text-[13.5px] text-ork-graphite">
           {campaign?.status === "active"
@@ -325,7 +491,12 @@ function DeleteCampaignModal({ campaign, onClose, onDeleted }: { campaign: Campa
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
-          <Button variant="danger" loading={remove.isPending} icon={<Trash2 className="size-4" aria-hidden />} onClick={() => campaign && remove.mutate(campaign.id)}>
+          <Button
+            variant="danger"
+            loading={remove.isPending}
+            icon={<Trash2 className="size-4" aria-hidden />}
+            onClick={() => campaign && remove.mutate(campaign.id)}
+          >
             Borrar campaña
           </Button>
         </div>
@@ -334,7 +505,15 @@ function DeleteCampaignModal({ campaign, onClose, onDeleted }: { campaign: Campa
   );
 }
 
-function Kpi({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+function Kpi({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+}) {
   return (
     <Card className="py-4">
       <p className="text-[12.5px] font-semibold text-ork-mist">{label}</p>
@@ -344,16 +523,31 @@ function Kpi({ label, value, hint }: { label: string; value: string | number; hi
   );
 }
 
-function NewCampaignModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+function NewCampaignModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const [name, setName] = useState("");
   const [template, setTemplate] = useState("");
   const navigate = useNavigate();
   const create = useMutation({
-    mutationFn: () => api<Campaign>("/api/campaigns", { method: "POST", json: { name, template_id: template || null } }),
+    mutationFn: () =>
+      api<Campaign>("/api/campaigns", {
+        method: "POST",
+        json: { name, template_id: template || null },
+      }),
     onSuccess: (c) => navigate(`/campanas/${c.id}`),
   });
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Nueva campaña" description="Arranca en blanco o desde una plantilla de tu equipo; después la editas.">
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Nueva campaña"
+      description="Arranca en blanco o desde una plantilla de tu equipo; después la editas."
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -362,9 +556,23 @@ function NewCampaignModal({ open, onOpenChange }: { open: boolean; onOpenChange:
         }}
       >
         {create.error && <Alert>{create.error.message}</Alert>}
-        <TextField label="Nombre" placeholder="Ej.: Bancos Colombia · Q4" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        <TemplatePicker kind="campaign" value={template} onChange={setTemplate} />
-        <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>
+        <TextField
+          label="Nombre"
+          placeholder="Ej.: Bancos Colombia · Q4"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <TemplatePicker
+          kind="campaign"
+          value={template}
+          onChange={setTemplate}
+        />
+        <Button
+          type="submit"
+          loading={create.isPending}
+          disabled={name.trim().length < 2}
+        >
           Crear y editar
         </Button>
       </form>
@@ -378,9 +586,14 @@ export function CampaignDetail() {
   const { id } = useParams();
   const client = useQueryClient();
   const key = ["campaign", id];
-  const q = useQuery({ queryKey: key, queryFn: () => api<Campaign>(`/api/campaigns/${id}`), refetchInterval: 30000 });
+  const q = useQuery({
+    queryKey: key,
+    queryFn: () => api<Campaign>(`/api/campaigns/${id}`),
+    refetchInterval: 30000,
+  });
   const action = useMutation({
-    mutationFn: (verb: "launch" | "pause" | "resume") => api<Campaign>(`/api/campaigns/${id}/${verb}`, { method: "POST" }),
+    mutationFn: (verb: "launch" | "pause" | "resume") =>
+      api<Campaign>(`/api/campaigns/${id}/${verb}`, { method: "POST" }),
     onSuccess: (data) => {
       client.setQueryData(key, data);
       client.invalidateQueries({ queryKey: ["campaigns"] });
@@ -392,11 +605,15 @@ export function CampaignDetail() {
   const navigate = useNavigate();
   const c = q.data;
   if (q.isLoading) return <Spinner />;
-  if (!c) return <Alert>{q.error?.message ?? "No encontramos la campaña."}</Alert>;
+  if (!c)
+    return <Alert>{q.error?.message ?? "No encontramos la campaña."}</Alert>;
   const draft = c.status === "draft";
   return (
     <div>
-      <Link to="/campanas" className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ork-mist hover:text-ork-ink">
+      <Link
+        to="/campanas"
+        className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ork-mist hover:text-ork-ink"
+      >
         <ArrowLeft className="size-4" aria-hidden /> Campañas
       </Link>
       <PageHeader
@@ -410,36 +627,64 @@ export function CampaignDetail() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
             {draft && (
-              <Button icon={<Rocket className="size-4" aria-hidden />} onClick={() => setConfirm(true)}>
+              <Button
+                icon={<Rocket className="size-4" aria-hidden />}
+                onClick={() => setConfirm(true)}
+              >
                 Revisar y lanzar
               </Button>
             )}
             {c.status === "active" && (
-              <Button variant="secondary" icon={<Pause className="size-4" aria-hidden />} loading={action.isPending} onClick={() => action.mutate("pause")}>
+              <Button
+                variant="secondary"
+                icon={<Pause className="size-4" aria-hidden />}
+                loading={action.isPending}
+                onClick={() => action.mutate("pause")}
+              >
                 Pausar
               </Button>
             )}
             {c.status === "paused" && (
-              <Button icon={<Play className="size-4" aria-hidden />} loading={action.isPending} onClick={() => action.mutate("resume")}>
+              <Button
+                icon={<Play className="size-4" aria-hidden />}
+                loading={action.isPending}
+                onClick={() => action.mutate("resume")}
+              >
                 Reanudar
               </Button>
             )}
-            <SaveTemplateButton kind="campaign" sourceId={c.id} defaultName={c.name} />
-            <Button variant="ghost" aria-label="Borrar campaña" icon={<Trash2 className="size-4" aria-hidden />} onClick={() => setDeleting(true)} />
+            <SaveTemplateButton
+              kind="campaign"
+              sourceId={c.id}
+              defaultName={c.name}
+            />
+            <Button
+              variant="ghost"
+              aria-label="Borrar campaña"
+              icon={<Trash2 className="size-4" aria-hidden />}
+              onClick={() => setDeleting(true)}
+            />
           </div>
         }
       />
-      <DeleteCampaignModal campaign={deleting ? c : null} onClose={() => setDeleting(false)} onDeleted={() => navigate("/campanas")} />
+      <DeleteCampaignModal
+        campaign={deleting ? c : null}
+        onClose={() => setDeleting(false)}
+        onDeleted={() => navigate("/campanas")}
+      />
       {action.error && !confirm && (
         <div className="mb-4">
           <Alert>{action.error.message}</Alert>
         </div>
       )}
-      {c.status === "paused" && (c.settings as Record<string, unknown> | undefined)?.auto_paused_at ? (
+      {c.status === "paused" &&
+      (c.settings as Record<string, unknown> | undefined)?.auto_paused_at ? (
         <div className="mb-4">
           <Alert>
-            ORKESTA pausó esta campaña automáticamente porque demasiados correos rebotaron o fueron bloqueados. Revisa los destinatarios antes de
-            reanudar: enviar con muchos rebotes puede hacer que Google limite tu cuenta.
+            ORKESTA pausó esta campaña automáticamente porque demasiados correos
+            rebotaron o fueron bloqueados. Revisa los destinatarios antes de
+            reanudar: enviar con muchos rebotes puede hacer que Google limite tu
+            cuenta.
           </Alert>
         </div>
       ) : null}
@@ -447,7 +692,13 @@ export function CampaignDetail() {
         <div className="mb-4">
           <Alert tone="blue">
             Fuera del horario de envío. El próximo correo sale el{" "}
-            {new Date(c.next_window).toLocaleString("es", { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" })}
+            {new Date(c.next_window).toLocaleString("es", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
             . Puedes cambiar los días y horas en «Envío».
           </Alert>
         </div>
@@ -460,7 +711,11 @@ export function CampaignDetail() {
       {c.mailbox?.status === "error" && (
         <div className="mb-4">
           <Alert>
-            El buzón {c.mailbox.email} perdió el permiso de Google. <Link to="/configuracion/integraciones" className="underline">Reconéctalo</Link> para seguir enviando.
+            El buzón {c.mailbox.email} perdió el permiso de Google.{" "}
+            <Link to="/configuracion/integraciones" className="underline">
+              Reconéctalo
+            </Link>{" "}
+            para seguir enviando.
           </Alert>
         </div>
       )}
@@ -476,7 +731,16 @@ export function CampaignDetail() {
           <AudienceCard c={c} />
         </div>
       </div>
-      <LaunchModal c={c} open={confirm} onOpenChange={setConfirm} launch={() => action.mutate("launch", { onSuccess: () => setConfirm(false) })} pending={action.isPending} error={action.error?.message} />
+      <LaunchModal
+        c={c}
+        open={confirm}
+        onOpenChange={setConfirm}
+        launch={() =>
+          action.mutate("launch", { onSuccess: () => setConfirm(false) })
+        }
+        pending={action.isPending}
+        error={action.error?.message}
+      />
     </div>
   );
 }
@@ -493,8 +757,12 @@ function ReplyBreakdown({ replies }: { replies: Record<string, number> }) {
         </Badge>
       ))}
       {deals > 0 && (
-        <Link to="/crm" className="ml-auto text-[12.5px] font-semibold text-ork-blue hover:underline">
-          {deals} oportunidad{deals === 1 ? "" : "es"} creada{deals === 1 ? "" : "s"} en el CRM →
+        <Link
+          to="/crm"
+          className="ml-auto text-[12.5px] font-semibold text-ork-blue hover:underline"
+        >
+          {deals} oportunidad{deals === 1 ? "" : "es"} creada
+          {deals === 1 ? "" : "s"} en el CRM →
         </Link>
       )}
     </div>
@@ -505,42 +773,74 @@ function CampaignStats({ c }: { c: Campaign }) {
   const s = c.stats;
   const navigate = useNavigate();
   const retry = useMutation({
-    mutationFn: () => api<{ id: string }>(`/api/campaigns/${c.id}/retry-bounced`, { method: "POST" }),
+    mutationFn: () =>
+      api<{ id: string }>(`/api/campaigns/${c.id}/retry-bounced`, {
+        method: "POST",
+      }),
     onSuccess: (r) => navigate(`/campanas/${r.id}`),
   });
   const l = c.learning;
   return (
     <>
-    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      <Kpi label="Contactos" value={s.recipients} hint={`${s.contacted} ya contactados`} />
-      <Kpi label="Correos enviados" value={s.emails_sent} />
-      <Kpi label="Apertura" value={pct(s.open_rate)} hint={`${s.opened} personas`} />
-      <Kpi label="Clics" value={pct(s.click_rate)} hint={`${s.clicked} personas`} />
-      <Kpi label="Respuesta" value={pct(s.reply_rate)} hint={`${s.replied} respondieron`} />
-      <Kpi
-        label="No entregados y bajas"
-        value={s.bounced + (s.blocked ?? 0) + s.unsubscribed}
-        hint={`${s.bounced} no existen · ${s.blocked ?? 0} bloqueados · ${s.unsubscribed} bajas`}
-      />
-    </div>
-    {s.replied > 0 && s.replies && <ReplyBreakdown replies={s.replies} />}
-    {l && (l.confirmed > 0 || l.reproposed > 0 || s.bounced > 0) && (
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] px-4 py-3">
-        <p className="flex items-start gap-2 text-[13px] text-ork-graphite">
-          <Sparkles className="mt-0.5 size-4 shrink-0 text-ork-violet" aria-hidden />
-          <span>
-            <strong className="text-ork-ink">ORKESTA aprendió de esta campaña:</strong> {l.confirmed} formato(s) confirmados por respuestas ·{" "}
-            {s.bounced} dirección(es) inexistentes descartadas para siempre · {l.reproposed} contacto(s) ya tienen un nuevo correo propuesto. Las próximas
-            búsquedas usan este aprendizaje en {l.domains_learned} empresa(s).
-          </span>
-        </p>
-        {l.reproposed > 0 && (
-          <Button size="sm" variant="secondary" loading={retry.isPending} onClick={() => retry.mutate()}>
-            Reintentar con el nuevo formato ({l.reproposed})
-          </Button>
-        )}
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Kpi
+          label="Contactos"
+          value={s.recipients}
+          hint={`${s.contacted} ya contactados`}
+        />
+        <Kpi label="Correos enviados" value={s.emails_sent} />
+        <Kpi
+          label="Apertura"
+          value={pct(s.open_rate)}
+          hint={`${s.opened} personas`}
+        />
+        <Kpi
+          label="Clics"
+          value={pct(s.click_rate)}
+          hint={`${s.clicked} personas`}
+        />
+        <Kpi
+          label="Respuesta"
+          value={pct(s.reply_rate)}
+          hint={`${s.replied} respondieron`}
+        />
+        <Kpi
+          label="No entregados y bajas"
+          value={s.bounced + (s.blocked ?? 0) + s.unsubscribed}
+          hint={`${s.bounced} no existen · ${s.blocked ?? 0} bloqueados · ${s.unsubscribed} bajas`}
+        />
       </div>
-    )}
+      {s.replied > 0 && s.replies && <ReplyBreakdown replies={s.replies} />}
+      {l && (l.confirmed > 0 || l.reproposed > 0 || s.bounced > 0) && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] px-4 py-3">
+          <p className="flex items-start gap-2 text-[13px] text-ork-graphite">
+            <Sparkles
+              className="mt-0.5 size-4 shrink-0 text-ork-violet"
+              aria-hidden
+            />
+            <span>
+              <strong className="text-ork-ink">
+                ORKESTA aprendió de esta campaña:
+              </strong>{" "}
+              {l.confirmed} formato(s) confirmados por respuestas · {s.bounced}{" "}
+              dirección(es) inexistentes descartadas para siempre ·{" "}
+              {l.reproposed} contacto(s) ya tienen un nuevo correo propuesto.
+              Las próximas búsquedas usan este aprendizaje en{" "}
+              {l.domains_learned} empresa(s).
+            </span>
+          </p>
+          {l.reproposed > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={retry.isPending}
+              onClick={() => retry.mutate()}
+            >
+              Reintentar con el nuevo formato ({l.reproposed})
+            </Button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -548,7 +848,8 @@ function CampaignStats({ c }: { c: Campaign }) {
 function useSaveCampaign(id: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (json: Record<string, unknown>) => api<Campaign>(`/api/campaigns/${id}`, { method: "PATCH", json }),
+    mutationFn: (json: Record<string, unknown>) =>
+      api<Campaign>(`/api/campaigns/${id}`, { method: "PATCH", json }),
     onSuccess: (data) => {
       client.setQueryData(["campaign", id], data);
       client.invalidateQueries({ queryKey: ["campaign-preview", id] });
@@ -566,7 +867,11 @@ function StepsEditor({ c }: { c: Campaign }) {
   const [editorKey, setEditorKey] = useState(0);
   const save = useSaveCampaign(c.id);
   const vars = useCampaigns().data?.variables ?? {};
-  const focused = useRef<{ index: number; el?: HTMLInputElement; editor?: Editor } | null>(null);
+  const focused = useRef<{
+    index: number;
+    el?: HTMLInputElement;
+    editor?: Editor;
+  } | null>(null);
   const caret = useRef<{ el: HTMLInputElement; pos: number } | null>(null);
   useLayoutEffect(() => {
     const c = caret.current;
@@ -580,7 +885,9 @@ function StepsEditor({ c }: { c: Campaign }) {
   }, [c.steps, dirty]);
   const locked = c.status !== "draft";
   const update = (i: number, patch: Partial<Step>) => {
-    setSteps((s) => s.map((step, n) => (n === i ? { ...step, ...patch } : step)));
+    setSteps((s) =>
+      s.map((step, n) => (n === i ? { ...step, ...patch } : step)),
+    );
     setDirty(true);
   };
   const insert = (name: string) => {
@@ -596,7 +903,9 @@ function StepsEditor({ c }: { c: Campaign }) {
     const start = el.selectionStart ?? value.length;
     const end = el.selectionEnd ?? value.length;
     caret.current = { el, pos: start + token.length };
-    update(f.index, { subject: value.slice(0, start) + token + value.slice(end) });
+    update(f.index, {
+      subject: value.slice(0, start) + token + value.slice(end),
+    });
   };
   return (
     <Card>
@@ -609,18 +918,37 @@ function StepsEditor({ c }: { c: Campaign }) {
               size="sm"
               variant={live ? "primary" : "secondary"}
               aria-pressed={live}
-              icon={live ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+              icon={
+                live ? (
+                  <EyeOff className="size-4" aria-hidden />
+                ) : (
+                  <Eye className="size-4" aria-hidden />
+                )
+              }
               onClick={() => setLive(!live)}
             >
               {live ? "Ocultar vista previa" : "Vista previa en vivo"}
             </Button>
             {!locked && (
-              <Button size="sm" variant="secondary" icon={<Sparkles className="size-4 text-ork-violet" aria-hidden />} onClick={() => setAssistant(true)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={
+                  <Sparkles className="size-4 text-ork-violet" aria-hidden />
+                }
+                onClick={() => setAssistant(true)}
+              >
                 Redactar con IA
               </Button>
             )}
             {dirty && (
-              <Button size="sm" loading={save.isPending} onClick={() => save.mutate({ steps }, { onSuccess: () => setDirty(false) })}>
+              <Button
+                size="sm"
+                loading={save.isPending}
+                onClick={() =>
+                  save.mutate({ steps }, { onSuccess: () => setDirty(false) })
+                }
+              >
                 Guardar cambios
               </Button>
             )}
@@ -646,7 +974,8 @@ function StepsEditor({ c }: { c: Campaign }) {
           </button>
         ))}
         <span className="ml-1 text-[12px] text-ork-mist">
-          · Valor alterno si falta: <code className="rounded bg-ork-ink/5 px-1">{"{{nombre|Hola}}"}</code>
+          · Valor alterno si falta:{" "}
+          <code className="rounded bg-ork-ink/5 px-1">{"{{nombre|Hola}}"}</code>
         </span>
       </div>
       {!locked && (
@@ -658,136 +987,209 @@ function StepsEditor({ c }: { c: Campaign }) {
           }}
         />
       )}
-      <div ref={area} className={cx(live && wide && "grid gap-5 grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
-      <div className="min-w-0">
-      <ol className="flex flex-col gap-4">
-        {steps.map((step, i) => (
-          <li key={i} className="rounded-xl border border-ork-line p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="ork-gradient inline-flex size-6 items-center justify-center rounded-full text-[12px] font-bold text-white">{i + 1}</span>
-                {i === 0 ? (
-                  <span className="text-[13px] font-semibold text-ork-ink">Primer correo · apenas se lanza</span>
-                ) : (
-                  <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ork-ink">
-                    Esperar
-                    <input
-                      type="number"
-                      min={0}
-                      max={60}
-                      value={step.delay_days}
-                      onChange={(e) => update(i, { delay_days: Number(e.target.value) })}
-                      className="ork-focus h-8 w-16 rounded-lg border border-ork-line px-2 text-center"
+      <div
+        ref={area}
+        className={cx(
+          live &&
+            wide &&
+            "grid gap-5 grid-cols-[minmax(0,1fr)_minmax(320px,420px)]",
+        )}
+      >
+        <div className="min-w-0">
+          <ol className="flex flex-col gap-4">
+            {steps.map((step, i) => (
+              <li key={i} className="rounded-xl border border-ork-line p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="ork-gradient inline-flex size-6 items-center justify-center rounded-full text-[12px] font-bold text-white">
+                      {i + 1}
+                    </span>
+                    {i === 0 ? (
+                      <span className="text-[13px] font-semibold text-ork-ink">
+                        Primer correo · apenas se lanza
+                      </span>
+                    ) : (
+                      <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ork-ink">
+                        Esperar
+                        <input
+                          type="number"
+                          min={0}
+                          max={60}
+                          value={step.delay_days}
+                          onChange={(e) =>
+                            update(i, { delay_days: Number(e.target.value) })
+                          }
+                          className="ork-focus h-8 w-16 rounded-lg border border-ork-line px-2 text-center"
+                        />
+                        días sin respuesta
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <StepReview
+                      subject={step.subject}
+                      body={step.body}
+                      step={i}
                     />
-                    días sin respuesta
-                  </label>
-                )}
-              </div>
-              <div className="flex items-center gap-1">
-                <StepReview subject={step.subject} body={step.body} step={i} />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<Eye className="size-4" aria-hidden />}
-                  onClick={() => {
-                    setSelected(i);
-                    setLive(true);
-                  }}
-                >
-                  Ver
-                </Button>
-                {!locked && steps.length > 1 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Quitar correo"
-                    icon={<Trash2 className="size-4" aria-hidden />}
-                    onClick={() => {
-                      setSteps((s) => s.filter((_, n) => n !== i));
-                      setDirty(true);
-                    }}
-                  />
-                )}
-              </div>
-            </div>
-            <input
-              value={step.subject}
-              placeholder={i === 0 ? "Asunto" : "Sin asunto = respuesta en el mismo hilo"}
-              onFocus={(e) => {
-                focused.current = { index: i, el: e.currentTarget };
-                setSelected(i);
-              }}
-              onChange={(e) => update(i, { subject: e.target.value })}
-              className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
-            />
-            <RichEditor
-              key={`${editorKey}-${i}`}
-              value={step.body}
-              onChange={(html) => update(i, { body: html })}
-              onFocus={(editor) => {
-                focused.current = { index: i, editor };
-                setSelected(i);
-              }}
-            />
-            {step.variant_b ? (
-              <div className="mt-3 rounded-xl border border-ork-violet/30 bg-ork-violet/[0.04] p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[13px] font-semibold text-ork-ink">
-                    Versión B · la recibe la mitad de los contactos
-                    {step.winner && <Badge tone="ok">Ganó la versión {step.winner}</Badge>}
-                  </p>
-                  {!locked && (
-                    <button type="button" className="text-[12.5px] font-semibold text-ork-mist hover:text-bad" onClick={() => update(i, { variant_b: undefined, winner: undefined })}>
-                      Quitar prueba A/B
-                    </button>
-                  )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Eye className="size-4" aria-hidden />}
+                      onClick={() => {
+                        setSelected(i);
+                        setLive(true);
+                      }}
+                    >
+                      Ver
+                    </Button>
+                    {!locked && steps.length > 1 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Quitar correo"
+                        icon={<Trash2 className="size-4" aria-hidden />}
+                        onClick={() => {
+                          setSteps((s) => s.filter((_, n) => n !== i));
+                          setDirty(true);
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
                 <input
-                  value={step.variant_b.subject}
-                  placeholder={i === 0 ? "Asunto de la versión B (vacío = mismo asunto)" : "Asunto B (vacío = respuesta en el hilo)"}
-                  onChange={(e) => update(i, { variant_b: { ...step.variant_b!, subject: e.target.value } })}
-                  className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line bg-ork-card px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
+                  value={step.subject}
+                  placeholder={
+                    i === 0
+                      ? "Asunto"
+                      : "Sin asunto = respuesta en el mismo hilo"
+                  }
+                  onFocus={(e) => {
+                    focused.current = { index: i, el: e.currentTarget };
+                    setSelected(i);
+                  }}
+                  onChange={(e) => update(i, { subject: e.target.value })}
+                  className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
                 />
-                <RichEditor key={`${editorKey}-${i}-b`} value={step.variant_b.body} onChange={(html) => update(i, { variant_b: { ...step.variant_b!, body: html } })} />
-                <p className="mt-2 text-[12px] text-ork-mist">
-                  ORKESTA compara las respuestas de ambas versiones y, cuando una gana con claridad, envía solo la ganadora al resto.
-                </p>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ork-violet hover:underline"
-                onClick={() => update(i, { variant_b: { subject: step.subject, body: step.body } })}
-              >
-                <Plus className="size-3.5" aria-hidden /> Probar otra versión (prueba A/B)
-              </button>
-            )}
-            {live && !wide && i === Math.min(selected, steps.length - 1) && (
-              <div className="mt-4">
-                <LivePreview campaignId={c.id} steps={steps} selected={i} onSelect={setSelected} />
-              </div>
-            )}
-          </li>
-        ))}
-      </ol>
-      {steps.length < 6 && (
-        <Button
-          className="mt-4"
-          size="sm"
-          variant="secondary"
-          icon={<Plus className="size-4" aria-hidden />}
-          onClick={() => {
-            setSteps((s) => [...s, { subject: "", body: "Hola {{nombre|}}, ", delay_days: 3 }]);
-            setDirty(true);
-          }}
-        >
-          Agregar seguimiento
-        </Button>
-      )}
-      </div>
-      {live && wide && steps.length > 0 && (
-        <LivePreview campaignId={c.id} steps={steps} selected={Math.min(selected, steps.length - 1)} onSelect={setSelected} />
-      )}
+                <RichEditor
+                  key={`${editorKey}-${i}`}
+                  value={step.body}
+                  onChange={(html) => update(i, { body: html })}
+                  onFocus={(editor) => {
+                    focused.current = { index: i, editor };
+                    setSelected(i);
+                  }}
+                />
+                {step.variant_b ? (
+                  <div className="mt-3 rounded-xl border border-ork-violet/30 bg-ork-violet/[0.04] p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-ork-ink">
+                        Versión B · la recibe la mitad de los contactos
+                        {step.winner && (
+                          <Badge tone="ok">Ganó la versión {step.winner}</Badge>
+                        )}
+                      </p>
+                      {!locked && (
+                        <button
+                          type="button"
+                          className="text-[12.5px] font-semibold text-ork-mist hover:text-bad"
+                          onClick={() =>
+                            update(i, {
+                              variant_b: undefined,
+                              winner: undefined,
+                            })
+                          }
+                        >
+                          Quitar prueba A/B
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      value={step.variant_b.subject}
+                      placeholder={
+                        i === 0
+                          ? "Asunto de la versión B (vacío = mismo asunto)"
+                          : "Asunto B (vacío = respuesta en el hilo)"
+                      }
+                      onChange={(e) =>
+                        update(i, {
+                          variant_b: {
+                            ...step.variant_b!,
+                            subject: e.target.value,
+                          },
+                        })
+                      }
+                      className="ork-focus mb-2 h-10 w-full rounded-lg border border-ork-line bg-ork-card px-3 text-[14px] font-semibold text-ork-ink placeholder:font-normal placeholder:text-ork-mist"
+                    />
+                    <RichEditor
+                      key={`${editorKey}-${i}-b`}
+                      value={step.variant_b.body}
+                      onChange={(html) =>
+                        update(i, {
+                          variant_b: { ...step.variant_b!, body: html },
+                        })
+                      }
+                    />
+                    <p className="mt-2 text-[12px] text-ork-mist">
+                      ORKESTA compara las respuestas de ambas versiones y,
+                      cuando una gana con claridad, envía solo la ganadora al
+                      resto.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-ork-violet hover:underline"
+                    onClick={() =>
+                      update(i, {
+                        variant_b: { subject: step.subject, body: step.body },
+                      })
+                    }
+                  >
+                    <Plus className="size-3.5" aria-hidden /> Probar otra
+                    versión (prueba A/B)
+                  </button>
+                )}
+                {live &&
+                  !wide &&
+                  i === Math.min(selected, steps.length - 1) && (
+                    <div className="mt-4">
+                      <LivePreview
+                        campaignId={c.id}
+                        steps={steps}
+                        selected={i}
+                        onSelect={setSelected}
+                      />
+                    </div>
+                  )}
+              </li>
+            ))}
+          </ol>
+          {steps.length < 6 && (
+            <Button
+              className="mt-4"
+              size="sm"
+              variant="secondary"
+              icon={<Plus className="size-4" aria-hidden />}
+              onClick={() => {
+                setSteps((s) => [
+                  ...s,
+                  { subject: "", body: "Hola {{nombre|}}, ", delay_days: 3 },
+                ]);
+                setDirty(true);
+              }}
+            >
+              Agregar seguimiento
+            </Button>
+          )}
+        </div>
+        {live && wide && steps.length > 0 && (
+          <LivePreview
+            campaignId={c.id}
+            steps={steps}
+            selected={Math.min(selected, steps.length - 1)}
+            onSelect={setSelected}
+          />
+        )}
       </div>
       <CopyAssistant
         open={assistant}
@@ -803,22 +1205,39 @@ function StepsEditor({ c }: { c: Campaign }) {
 }
 
 function AbResults({ results }: { results: AbResult[] }) {
-  const pct = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("es")} %`);
+  const pct = (v: number | null) =>
+    v === null ? "—" : `${v.toLocaleString("es")} %`;
   return (
     <Card className="mt-4">
-      <CardHeader title="Pruebas A/B" description="Cada versión la recibe la mitad de los contactos. Cuando una gana con claridad (o tras 150 envíos por versión), el resto recibe solo la ganadora." />
+      <CardHeader
+        title="Pruebas A/B"
+        description="Cada versión la recibe la mitad de los contactos. Cuando una gana con claridad (o tras 150 envíos por versión), el resto recibe solo la ganadora."
+      />
       <div className="flex flex-col gap-3">
         {results.map((r) => (
           <div key={r.step} className="rounded-xl border border-ork-line p-3">
             <p className="mb-2 text-[13px] font-semibold text-ork-ink">
-              Correo {r.step + 1} {r.winner ? <Badge tone="ok">Ganó la versión {r.winner}</Badge> : <Badge tone="blue">En prueba</Badge>}
+              Correo {r.step + 1}{" "}
+              {r.winner ? (
+                <Badge tone="ok">Ganó la versión {r.winner}</Badge>
+              ) : (
+                <Badge tone="blue">En prueba</Badge>
+              )}
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               {(["A", "B"] as const).map((v) => (
-                <div key={v} className={cx("rounded-lg p-2.5 text-[13px]", r.winner === v ? "bg-ok/10" : "bg-ork-surface")}>
+                <div
+                  key={v}
+                  className={cx(
+                    "rounded-lg p-2.5 text-[13px]",
+                    r.winner === v ? "bg-ok/10" : "bg-ork-surface",
+                  )}
+                >
                   <p className="font-semibold text-ork-ink">Versión {v}</p>
                   <p className="text-ork-graphite">
-                    {r[v].sent} enviados · <strong>{pct(r[v].reply_rate)}</strong> respuesta · {pct(r[v].open_rate)} apertura
+                    {r[v].sent} enviados ·{" "}
+                    <strong>{pct(r[v].reply_rate)}</strong> respuesta ·{" "}
+                    {pct(r[v].open_rate)} apertura
                   </p>
                 </div>
               ))}
@@ -862,7 +1281,9 @@ function useWide(min: number): [(el: HTMLDivElement | null) => void, boolean] {
     (el: HTMLDivElement | null) => {
       observer.current?.disconnect();
       if (!el) return;
-      observer.current = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= min));
+      observer.current = new ResizeObserver(([entry]) =>
+        setWide(entry.contentRect.width >= min),
+      );
       observer.current.observe(el);
     },
     [min],
@@ -880,26 +1301,57 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 /** Cómo va quedando cada correo mientras se escribe, con los datos de un contacto real. */
-function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: string; steps: Step[]; selected: number; onSelect: (i: number) => void }) {
+function LivePreview({
+  campaignId,
+  steps,
+  selected,
+  onSelect,
+}: {
+  campaignId: string;
+  steps: Step[];
+  selected: number;
+  onSelect: (i: number) => void;
+}) {
   const [variant, setVariant] = useState<"A" | "B">("A");
   const step = steps[selected];
   const hasB = Boolean(step?.variant_b);
   const shown = hasB ? variant : "A";
   const input = useDebounced(
-    { step: selected, variant: shown, first_subject: steps[0]?.subject ?? "", draft: { subject: step?.subject ?? "", body: step?.body ?? "", delay_days: step?.delay_days ?? 0, variant_b: step?.variant_b ?? null } },
+    {
+      step: selected,
+      variant: shown,
+      first_subject: steps[0]?.subject ?? "",
+      draft: {
+        subject: step?.subject ?? "",
+        body: step?.body ?? "",
+        delay_days: step?.delay_days ?? 0,
+        variant_b: step?.variant_b ?? null,
+      },
+    },
     500,
   );
   const q = useQuery({
     queryKey: ["campaign-live-preview", campaignId, input],
-    queryFn: () => api<Preview>(`/api/campaigns/${campaignId}/preview`, { method: "POST", json: input }),
+    queryFn: () =>
+      api<Preview>(`/api/campaigns/${campaignId}/preview`, {
+        method: "POST",
+        json: input,
+      }),
     placeholderData: (prev) => prev,
   });
   const p = q.data;
   return (
-    <aside className="min-w-0 self-start lg:sticky lg:top-4" aria-label="Vista previa del correo">
+    <aside
+      className="min-w-0 self-start lg:sticky lg:top-4"
+      aria-label="Vista previa del correo"
+    >
       <div className="rounded-2xl border border-ork-line bg-ork-surface/60 p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex max-w-full overflow-x-auto rounded-lg border border-ork-line bg-ork-card p-0.5" role="tablist" aria-label="Correo">
+          <div
+            className="flex max-w-full overflow-x-auto rounded-lg border border-ork-line bg-ork-card p-0.5"
+            role="tablist"
+            aria-label="Correo"
+          >
             {steps.map((_, i) => (
               <button
                 key={i}
@@ -907,21 +1359,35 @@ function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: st
                 role="tab"
                 aria-selected={i === selected}
                 onClick={() => onSelect(i)}
-                className={cx("shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-semibold", i === selected ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+                className={cx(
+                  "shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-semibold",
+                  i === selected
+                    ? "bg-ork-blue-solid text-white"
+                    : "text-ork-graphite hover:bg-ork-ink/5",
+                )}
               >
                 Correo {i + 1}
               </button>
             ))}
           </div>
           {hasB && (
-            <div className="flex rounded-lg border border-ork-line bg-ork-card p-0.5" role="group" aria-label="Versión">
+            <div
+              className="flex rounded-lg border border-ork-line bg-ork-card p-0.5"
+              role="group"
+              aria-label="Versión"
+            >
               {(["A", "B"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
                   aria-pressed={shown === v}
                   onClick={() => setVariant(v)}
-                  className={cx("rounded-md px-2.5 py-1 text-[12.5px] font-semibold", shown === v ? "bg-ork-violet text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+                  className={cx(
+                    "rounded-md px-2.5 py-1 text-[12.5px] font-semibold",
+                    shown === v
+                      ? "bg-ork-violet text-white"
+                      : "text-ork-graphite hover:bg-ork-ink/5",
+                  )}
                 >
                   Versión {v}
                 </button>
@@ -934,16 +1400,31 @@ function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: st
         ) : !p ? (
           <Spinner label="Preparando vista previa" />
         ) : (
-          <div className={cx("overflow-hidden rounded-xl border border-ork-line bg-white transition-opacity", q.isFetching && "opacity-70")}>
+          <div
+            className={cx(
+              "overflow-hidden rounded-xl border border-ork-line bg-white transition-opacity",
+              q.isFetching && "opacity-70",
+            )}
+          >
             <div className="border-b border-ork-line px-4 py-3 text-[12.5px] text-gray-500">
               <p className="truncate">
-                <span className="font-semibold text-gray-700">De:</span> {p.from ?? "tu buzón conectado"}
+                <span className="font-semibold text-gray-700">De:</span>{" "}
+                {p.from ?? "tu buzón conectado"}
               </p>
               <p className="truncate">
-                <span className="font-semibold text-gray-700">Para:</span> {p.contact ? `${p.contact.full_name} <${p.contact.email}>` : "Laura Gómez (ejemplo)"}
+                <span className="font-semibold text-gray-700">Para:</span>{" "}
+                {p.contact
+                  ? `${p.contact.full_name} <${p.contact.email}>`
+                  : "Laura Gómez (ejemplo)"}
               </p>
-              <p className="mt-1.5 text-[14.5px] font-semibold text-gray-900">{p.subject}</p>
-              {p.threaded && <p className="mt-0.5 text-[12px]">Llega como respuesta en el mismo hilo del primer correo.</p>}
+              <p className="mt-1.5 text-[14.5px] font-semibold text-gray-900">
+                {p.subject}
+              </p>
+              {p.threaded && (
+                <p className="mt-0.5 text-[12px]">
+                  Llega como respuesta en el mismo hilo del primer correo.
+                </p>
+              )}
             </div>
             <div className="max-h-[65vh] overflow-y-auto">
               <HtmlFrame html={p.html} />
@@ -952,14 +1433,27 @@ function LivePreview({ campaignId, steps, selected, onSelect }: { campaignId: st
         )}
         {p && p.missing.length > 0 && (
           <p className="mt-2 text-[12px] text-ork-mist">
-            A este contacto le falta: {p.missing.join(", ")}. Usa un valor alterno, p. ej. {"{{" + p.missing[0] + "|…}}"}.
+            A este contacto le falta: {p.missing.join(", ")}. Usa un valor
+            alterno, p. ej. {"{{" + p.missing[0] + "|…}}"}.
           </p>
         )}
-        <p className="mt-2 text-[12px] text-ork-mist">{p?.contact ? `Con los datos de ${p.contact.full_name}, de tu audiencia.` : "Con datos de ejemplo: elige la audiencia para verlo con un contacto real."}</p>
+        <p className="mt-2 text-[12px] text-ork-mist">
+          {p?.contact
+            ? `Con los datos de ${p.contact.full_name}, de tu audiencia.`
+            : "Con datos de ejemplo: elige la audiencia para verlo con un contacto real."}
+        </p>
         <CopyCoach
           step={selected}
-          subject={shown === "B" ? step?.variant_b?.subject || step?.subject || "" : step?.subject ?? ""}
-          body={shown === "B" ? step?.variant_b?.body || step?.body || "" : step?.body ?? ""}
+          subject={
+            shown === "B"
+              ? step?.variant_b?.subject || step?.subject || ""
+              : (step?.subject ?? "")
+          }
+          body={
+            shown === "B"
+              ? step?.variant_b?.body || step?.body || ""
+              : (step?.body ?? "")
+          }
         />
       </div>
     </aside>
@@ -970,17 +1464,34 @@ function SendingCard({ c }: { c: Campaign }) {
   const boxes = useMailboxes();
   const save = useSaveCampaign(c.id);
   const s = c.settings!;
-  const set = (patch: Partial<Settings>) => save.mutate({ settings: { ...s, ...patch } });
+  const set = (patch: Partial<Settings>) =>
+    save.mutate({ settings: { ...s, ...patch } });
   return (
     <Card>
-      <CardHeader title="Envío" description="Horario hábil del destinatario y pausas de 1 a 3 minutos entre correos, como lo haría una persona." />
+      <CardHeader
+        title="Envío"
+        description="Horario hábil del destinatario y pausas de 1 a 3 minutos entre correos, como lo haría una persona."
+      />
       <div className="flex flex-col gap-4">
         {boxes.data && boxes.data.items.length === 0 ? (
           <Alert tone="blue">
-            Primero <Link to="/configuracion/integraciones" className="font-semibold underline">conecta tu Gmail</Link>.
+            Primero{" "}
+            <Link
+              to="/configuracion/integraciones"
+              className="font-semibold underline"
+            >
+              conecta tu Gmail
+            </Link>
+            .
           </Alert>
         ) : (
-          <SelectField label="Enviar desde" value={c.mailbox?.id ?? ""} onChange={(e) => save.mutate({ mailbox_id: e.target.value || null })}>
+          <SelectField
+            label="Enviar desde"
+            value={c.mailbox?.id ?? ""}
+            onChange={(e) =>
+              save.mutate({ mailbox_id: e.target.value || null })
+            }
+          >
             <option value="">Elige un buzón</option>
             {(boxes.data?.items ?? []).map((m) => (
               <option key={m.id} value={m.id}>
@@ -989,7 +1500,11 @@ function SendingCard({ c }: { c: Campaign }) {
             ))}
           </SelectField>
         )}
-        <SelectField label="Zona horaria" value={s.timezone} onChange={(e) => set({ timezone: e.target.value })}>
+        <SelectField
+          label="Zona horaria"
+          value={s.timezone}
+          onChange={(e) => set({ timezone: e.target.value })}
+        >
           {TIMEZONES.map(([v, l]) => (
             <option key={v} value={v}>
               {l}
@@ -1007,10 +1522,18 @@ function SendingCard({ c }: { c: Campaign }) {
                   key={d}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => set({ days: on ? s.days.filter((x) => x !== day) : [...s.days, day] })}
+                  onClick={() =>
+                    set({
+                      days: on
+                        ? s.days.filter((x) => x !== day)
+                        : [...s.days, day],
+                    })
+                  }
                   className={cx(
                     "ork-focus size-9 rounded-lg border text-[13px] font-semibold",
-                    on ? "border-ork-blue bg-ork-blue-solid text-white" : "border-ork-line text-ork-graphite",
+                    on
+                      ? "border-ork-blue bg-ork-blue-solid text-white"
+                      : "border-ork-line text-ork-graphite",
                   )}
                 >
                   {d}
@@ -1020,14 +1543,22 @@ function SendingCard({ c }: { c: Campaign }) {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <SelectField label="Desde" value={s.start_hour} onChange={(e) => set({ start_hour: Number(e.target.value) })}>
+          <SelectField
+            label="Desde"
+            value={s.start_hour}
+            onChange={(e) => set({ start_hour: Number(e.target.value) })}
+          >
             {Array.from({ length: 24 }, (_, h) => (
               <option key={h} value={h}>
                 {h}:00
               </option>
             ))}
           </SelectField>
-          <SelectField label="Hasta" value={s.end_hour} onChange={(e) => set({ end_hour: Number(e.target.value) })}>
+          <SelectField
+            label="Hasta"
+            value={s.end_hour}
+            onChange={(e) => set({ end_hour: Number(e.target.value) })}
+          >
             {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => (
               <option key={h} value={h}>
                 {h}:00
@@ -1036,27 +1567,44 @@ function SendingCard({ c }: { c: Campaign }) {
           </SelectField>
         </div>
         <label className="flex items-start gap-2 rounded-xl border border-ork-line p-3 text-[13.5px] text-ork-graphite">
-          <input type="checkbox" className="mt-1" checked={Boolean(s.corporate_mode)} onChange={(e) => set({ corporate_mode: e.target.checked })} />
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={Boolean(s.corporate_mode)}
+            onChange={(e) => set({ corporate_mode: e.target.checked })}
+          />
           <span>
             <strong className="text-ork-ink">Modo corporativo</strong>
             <span className="block text-[12.5px] text-ork-mist">
-              Solo texto, sin imágenes ni medición de aperturas y clics. Recomendado para bancos, aseguradoras y grandes empresas: sus filtros bloquean
-              menos este tipo de correo.
+              Solo texto, sin imágenes ni medición de aperturas y clics.
+              Recomendado para bancos, aseguradoras y grandes empresas: sus
+              filtros bloquean menos este tipo de correo.
             </span>
           </span>
         </label>
         {!s.corporate_mode && (
           <>
             <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
-              <input type="checkbox" checked={s.track_opens} onChange={(e) => set({ track_opens: e.target.checked })} /> Medir aperturas
+              <input
+                type="checkbox"
+                checked={s.track_opens}
+                onChange={(e) => set({ track_opens: e.target.checked })}
+              />{" "}
+              Medir aperturas
             </label>
             <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
-              <input type="checkbox" checked={s.track_clicks} onChange={(e) => set({ track_clicks: e.target.checked })} /> Medir clics en enlaces
+              <input
+                type="checkbox"
+                checked={s.track_clicks}
+                onChange={(e) => set({ track_clicks: e.target.checked })}
+              />{" "}
+              Medir clics en enlaces
             </label>
           </>
         )}
         <p className="text-[12px] text-ork-mist">
-          Si una empresa ya bloqueó un correo tuyo, ORKESTA le escribe uno al día y en texto plano para cuidar tu buzón.
+          Si una empresa ya bloqueó un correo tuyo, ORKESTA le escribe uno al
+          día y en texto plano para cuidar tu buzón.
         </p>
         {save.error && <Alert>{save.error.message}</Alert>}
       </div>
@@ -1072,25 +1620,45 @@ function AudienceCard({ c }: { c: Campaign }) {
   const locked = c.status !== "draft";
   const preview = useQuery({
     queryKey: ["audience", c.id, a],
-    queryFn: () => api<AudiencePreview>("/api/campaigns/audience", { method: "POST", json: { audience: a } }),
+    queryFn: () =>
+      api<AudiencePreview>("/api/campaigns/audience", {
+        method: "POST",
+        json: { audience: a },
+      }),
     enabled: !locked,
   });
-  const setAudience = (patch: Partial<Audience>) => save.mutate({ audience: { ...a, ...patch } });
-  const [pickMode, setPickMode] = useState<"filtros" | "contactos">(a.contact_ids?.length ? "contactos" : "filtros");
-  const setFilter = (k: string, v: string) => setAudience({ filters: { ...(a.filters ?? {}), [k]: v } });
+  const setAudience = (patch: Partial<Audience>) =>
+    save.mutate({ audience: { ...a, ...patch } });
+  const [pickMode, setPickMode] = useState<"filtros" | "contactos">(
+    a.contact_ids?.length ? "contactos" : "filtros",
+  );
+  const setFilter = (k: string, v: string) =>
+    setAudience({ filters: { ...(a.filters ?? {}), [k]: v } });
   const p = preview.data;
   if (locked)
     return (
       <Card>
-        <CardHeader title="Audiencia" description="Se fijó al lanzar la campaña." />
-        <p className="text-[13.5px] text-ork-graphite">{c.stats.recipients} contactos en la secuencia.</p>
+        <CardHeader
+          title="Audiencia"
+          description="Se fijó al lanzar la campaña."
+        />
+        <p className="text-[13.5px] text-ork-graphite">
+          {c.stats.recipients} contactos en la secuencia.
+        </p>
       </Card>
     );
   return (
     <Card>
-      <CardHeader title="Audiencia" description="Solo se escribe a contactos con correo; se excluyen inválidos, rebotes y bajas." />
+      <CardHeader
+        title="Audiencia"
+        description="Solo se escribe a contactos con correo; se excluyen inválidos, rebotes y bajas."
+      />
       <div className="flex flex-col gap-3">
-        <div className="flex w-fit rounded-lg border border-ork-line bg-ork-card p-0.5" role="group" aria-label="A quién enviar">
+        <div
+          className="flex w-fit rounded-lg border border-ork-line bg-ork-card p-0.5"
+          role="group"
+          aria-label="A quién enviar"
+        >
           {(
             [
               ["filtros", "Lista o filtros"],
@@ -1103,19 +1671,32 @@ function AudienceCard({ c }: { c: Campaign }) {
               aria-pressed={pickMode === value}
               onClick={() => {
                 setPickMode(value);
-                if (value === "filtros" && a.contact_ids?.length) setAudience({ contact_ids: [] });
+                if (value === "filtros" && a.contact_ids?.length)
+                  setAudience({ contact_ids: [] });
               }}
-              className={cx("rounded-md px-3 py-1.5 text-[12.5px] font-semibold", pickMode === value ? "bg-ork-blue-solid text-white" : "text-ork-graphite hover:bg-ork-ink/5")}
+              className={cx(
+                "rounded-md px-3 py-1.5 text-[12.5px] font-semibold",
+                pickMode === value
+                  ? "bg-ork-blue-solid text-white"
+                  : "text-ork-graphite hover:bg-ork-ink/5",
+              )}
             >
               {label}
             </button>
           ))}
         </div>
         {pickMode === "contactos" ? (
-          <ContactPicker ids={a.contact_ids ?? []} onChange={(ids) => setAudience({ contact_ids: ids })} />
+          <ContactPicker
+            ids={a.contact_ids ?? []}
+            onChange={(ids) => setAudience({ contact_ids: ids })}
+          />
         ) : (
           <>
-            <SelectField label="Lista" value={a.list_id ?? ""} onChange={(e) => setAudience({ list_id: e.target.value || null })}>
+            <SelectField
+              label="Lista"
+              value={a.list_id ?? ""}
+              onChange={(e) => setAudience({ list_id: e.target.value || null })}
+            >
               <option value="">Todos los contactos</option>
               {(lists.data ?? []).map((l) => (
                 <option key={l.id} value={l.id}>
@@ -1123,7 +1704,11 @@ function AudienceCard({ c }: { c: Campaign }) {
                 </option>
               ))}
             </SelectField>
-            <SelectField label="País" value={a.filters?.pais ?? ""} onChange={(e) => setFilter("pais", e.target.value)}>
+            <SelectField
+              label="País"
+              value={a.filters?.pais ?? ""}
+              onChange={(e) => setFilter("pais", e.target.value)}
+            >
               <option value="">Todos</option>
               {(meta.data?.countries ?? []).map((o) => (
                 <option key={o.value} value={o.value}>
@@ -1131,7 +1716,11 @@ function AudienceCard({ c }: { c: Campaign }) {
                 </option>
               ))}
             </SelectField>
-            <SelectField label="Industria" value={a.filters?.industria ?? ""} onChange={(e) => setFilter("industria", e.target.value)}>
+            <SelectField
+              label="Industria"
+              value={a.filters?.industria ?? ""}
+              onChange={(e) => setFilter("industria", e.target.value)}
+            >
               <option value="">Todas</option>
               {(meta.data?.industries ?? []).map((o) => (
                 <option key={o.value} value={o.value}>
@@ -1139,31 +1728,70 @@ function AudienceCard({ c }: { c: Campaign }) {
                 </option>
               ))}
             </SelectField>
-            <TextField label="Que contenga" placeholder="Empresa, cargo, ciudad…" defaultValue={a.filters?.q ?? ""} onBlur={(e) => e.target.value !== (a.filters?.q ?? "") && setFilter("q", e.target.value)} />
+            <TextField
+              label="Que contenga"
+              placeholder="Empresa, cargo, ciudad…"
+              defaultValue={a.filters?.q ?? ""}
+              onBlur={(e) =>
+                e.target.value !== (a.filters?.q ?? "") &&
+                setFilter("q", e.target.value)
+              }
+            />
           </>
         )}
         <label className="flex items-start gap-2 text-[13.5px] text-ork-graphite">
-          <input type="checkbox" className="mt-1" checked={a.include_estimated ?? true} onChange={(e) => setAudience({ include_estimated: e.target.checked })} />
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={a.include_estimated ?? true}
+            onChange={(e) =>
+              setAudience({ include_estimated: e.target.checked })
+            }
+          />
           <span>
-            Incluir correos estimados <span className="text-ork-mist">(deducidos del patrón de la empresa; pueden rebotar)</span>
+            Incluir correos estimados{" "}
+            <span className="text-ork-mist">
+              (deducidos del patrón de la empresa; pueden rebotar)
+            </span>
           </span>
         </label>
-        <SelectField label="Enviar a" value={a.quality ?? "todos"} onChange={(e) => setAudience({ quality: e.target.value as Audience["quality"] })}>
+        <SelectField
+          label="Enviar a"
+          value={a.quality ?? "todos"}
+          onChange={(e) =>
+            setAudience({ quality: e.target.value as Audience["quality"] })
+          }
+        >
           <option value="todos">Todos los correos válidos</option>
-          <option value="confiables">Solo los de mayor confianza (menos rebotes)</option>
+          <option value="confiables">
+            Solo los de mayor confianza (menos rebotes)
+          </option>
         </SelectField>
         {p && (
           <div className="rounded-xl bg-ork-surface p-3 text-[13px]">
             <p className="text-[20px] font-bold text-ork-ink">{p.eligible}</p>
             <p className="text-ork-graphite">recibirán la campaña</p>
-            {p.eligible > 0 && <QualityBar trusted={p.trusted ?? 0} common={p.common ?? 0} />}
+            {p.eligible > 0 && (
+              <QualityBar trusted={p.trusted ?? 0} common={p.common ?? 0} />
+            )}
             <p className="mt-1 text-[12px] text-ork-mist">
-              Fuera: {p.no_email} sin correo · {p.invalid} inválidos · {p.suppressed} bajas o rebotes
-              {p.excluded_estimated ? ` · ${p.excluded_estimated} estimados` : ""}
-              {p.no_mail_domain ? ` · ${p.no_mail_domain} de empresas que no reciben correo` : ""}
-              {p.excluded_common ? ` · ${p.excluded_common} de formato común` : ""}
+              Fuera: {p.no_email} sin correo · {p.invalid} inválidos ·{" "}
+              {p.suppressed} bajas o rebotes
+              {p.excluded_estimated
+                ? ` · ${p.excluded_estimated} estimados`
+                : ""}
+              {p.no_mail_domain
+                ? ` · ${p.no_mail_domain} de empresas que no reciben correo`
+                : ""}
+              {p.excluded_common
+                ? ` · ${p.excluded_common} de formato común`
+                : ""}
             </p>
-            {p.too_many && <p className="mt-1 text-[12px] text-warn">Máximo 5.000 por campaña; se tomarán los primeros.</p>}
+            {p.too_many && (
+              <p className="mt-1 text-[12px] text-warn">
+                Máximo 5.000 por campaña; se tomarán los primeros.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -1175,57 +1803,116 @@ function QualityBar({ trusted, common }: { trusted: number; common: number }) {
   const total = Math.max(1, trusted + common);
   return (
     <div className="mt-2">
-      <div className="flex h-2 overflow-hidden rounded-full bg-ork-line" aria-hidden>
-        <div className="bg-ok" style={{ width: `${(100 * trusted) / total}%` }} />
-        <div className="bg-warn" style={{ width: `${(100 * common) / total}%` }} />
+      <div
+        className="flex h-2 overflow-hidden rounded-full bg-ork-line"
+        aria-hidden
+      >
+        <div
+          className="bg-ok"
+          style={{ width: `${(100 * trusted) / total}%` }}
+        />
+        <div
+          className="bg-warn"
+          style={{ width: `${(100 * common) / total}%` }}
+        />
       </div>
       <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-ork-graphite">
-        <span><span className="mr-1 inline-block size-2 rounded-full bg-ok" />{trusted} confiables</span>
-        <span><span className="mr-1 inline-block size-2 rounded-full bg-warn" />{common} formato común</span>
+        <span>
+          <span className="mr-1 inline-block size-2 rounded-full bg-ok" />
+          {trusted} confiables
+        </span>
+        <span>
+          <span className="mr-1 inline-block size-2 rounded-full bg-warn" />
+          {common} formato común
+        </span>
       </p>
     </div>
   );
 }
 
-function LaunchModal({ c, open, onOpenChange, launch, pending, error }: { c: Campaign; open: boolean; onOpenChange: (v: boolean) => void; launch: () => void; pending: boolean; error?: string }) {
+function LaunchModal({
+  c,
+  open,
+  onOpenChange,
+  launch,
+  pending,
+  error,
+}: {
+  c: Campaign;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  launch: () => void;
+  pending: boolean;
+  error?: string;
+}) {
   const boxes = useMailboxes();
   const preview = useQuery({
     queryKey: ["audience", c.id, c.audience],
-    queryFn: () => api<AudiencePreview>("/api/campaigns/audience", { method: "POST", json: { audience: c.audience } }),
+    queryFn: () =>
+      api<AudiencePreview>("/api/campaigns/audience", {
+        method: "POST",
+        json: { audience: c.audience },
+      }),
     enabled: open,
   });
   const box = boxes.data?.items.find((m) => m.id === c.mailbox?.id);
   const eligible = preview.data?.eligible ?? 0;
-  const perDay = box ? box.effective_limit ?? box.daily_limit : 0;
+  const perDay = box ? (box.effective_limit ?? box.daily_limit) : 0;
   const days = box ? Math.ceil(eligible / Math.max(1, perDay)) : 0;
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Lanzar campaña" description="Revisa antes de enviar. Puedes pausarla cuando quieras.">
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Lanzar campaña"
+      description="Revisa antes de enviar. Puedes pausarla cuando quieras."
+    >
       <div className="flex flex-col gap-3 text-[13.5px] text-ork-graphite">
         {error && <Alert>{error}</Alert>}
         <ul className="flex flex-col gap-2">
           <li className="flex items-center gap-2">
-            <Mail className="size-4 text-ork-blue" aria-hidden /> Desde <strong>{c.mailbox?.email ?? "— elige un buzón —"}</strong>
+            <Mail className="size-4 text-ork-blue" aria-hidden /> Desde{" "}
+            <strong>{c.mailbox?.email ?? "— elige un buzón —"}</strong>
           </li>
           <li className="flex items-center gap-2">
-            <Send className="size-4 text-ork-blue" aria-hidden /> {c.steps?.length ?? 0} correos en la secuencia
+            <Send className="size-4 text-ork-blue" aria-hidden />{" "}
+            {c.steps?.length ?? 0} correos en la secuencia
           </li>
           <li className="flex items-center gap-2">
-            <Reply className="size-4 text-ork-blue" aria-hidden /> {eligible} contactos
-            {box && eligible > 0 && ` · primer correo a todos en unos ${days} día${days === 1 ? "" : "s"} hábil${days === 1 ? "" : "es"} (${perDay} por día${box.warmup ? ", en calentamiento: sube cada día" : ""})`}
+            <Reply className="size-4 text-ork-blue" aria-hidden /> {eligible}{" "}
+            contactos
+            {box &&
+              eligible > 0 &&
+              ` · primer correo a todos en unos ${days} día${days === 1 ? "" : "s"} hábil${days === 1 ? "" : "es"} (${perDay} por día${box.warmup ? ", en calentamiento: sube cada día" : ""})`}
           </li>
         </ul>
-        {eligible > 0 && <QualityBar trusted={preview.data?.trusted ?? 0} common={preview.data?.common ?? 0} />}
+        {eligible > 0 && (
+          <QualityBar
+            trusted={preview.data?.trusted ?? 0}
+            common={preview.data?.common ?? 0}
+          />
+        )}
         {(preview.data?.no_mail_domain ?? 0) > 0 && (
-          <p className="text-[12.5px] text-ork-mist">{preview.data?.no_mail_domain} contactos quedan fuera: su empresa no tiene servidor de correo.</p>
+          <p className="text-[12.5px] text-ork-mist">
+            {preview.data?.no_mail_domain} contactos quedan fuera: su empresa no
+            tiene servidor de correo.
+          </p>
         )}
         {(preview.data?.common ?? 0) > 0 && (
           <Alert tone="blue">
             <TriangleAlert className="mr-1 inline size-4" aria-hidden />
-            {preview.data?.common} correos usan el formato más común de la empresa y pueden rebotar. Si rebotan, ORKESTA aprende y prueba otro formato.
-            {c.audience?.quality !== "confiables" && " Para cuidar tu dominio, en la audiencia puedes elegir «Solo los de mayor confianza»."}
+            {preview.data?.common} correos usan el formato más común de la
+            empresa y pueden rebotar. Si rebotan, ORKESTA aprende y prueba otro
+            formato.
+            {c.audience?.quality !== "confiables" &&
+              " Para cuidar tu dominio, en la audiencia puedes elegir «Solo los de mayor confianza»."}
           </Alert>
         )}
-        <Button icon={<Rocket className="size-4" aria-hidden />} loading={pending} disabled={eligible === 0} onClick={launch}>
+        <Button
+          icon={<Rocket className="size-4" aria-hidden />}
+          loading={pending}
+          disabled={eligible === 0}
+          onClick={launch}
+        >
           Lanzar ahora
         </Button>
       </div>
@@ -1247,12 +1934,18 @@ function Recipients({ campaignId }: { campaignId: string }) {
   const client = useQueryClient();
   const q = useQuery({
     queryKey: ["recipients", campaignId, status],
-    queryFn: () => api<{ total: number; items: Recipient[] }>(`/api/campaigns/${campaignId}/recipients?status=${status}`),
+    queryFn: () =>
+      api<{ total: number; items: Recipient[] }>(
+        `/api/campaigns/${campaignId}/recipients?status=${status}`,
+      ),
     refetchInterval: 30000,
   });
   const classify = useMutation({
     mutationFn: ({ id, category }: { id: string; category: string }) =>
-      api(`/api/campaigns/${campaignId}/recipients/${id}/category`, { method: "POST", json: { category } }),
+      api(`/api/campaigns/${campaignId}/recipients/${id}/category`, {
+        method: "POST",
+        json: { category },
+      }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["recipients", campaignId] });
       client.invalidateQueries({ queryKey: ["campaign", campaignId] });
@@ -1260,7 +1953,10 @@ function Recipients({ campaignId }: { campaignId: string }) {
   });
   const stop = useMutation({
     mutationFn: ({ id, replied }: { id: string; replied: boolean }) =>
-      api(`/api/campaigns/${campaignId}/recipients/${id}/stop?replied=${replied}`, { method: "POST" }),
+      api(
+        `/api/campaigns/${campaignId}/recipients/${id}/stop?replied=${replied}`,
+        { method: "POST" },
+      ),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["recipients", campaignId] });
       client.invalidateQueries({ queryKey: ["campaign", campaignId] });
@@ -1269,8 +1965,14 @@ function Recipients({ campaignId }: { campaignId: string }) {
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
-        <h2 className="text-[15px] font-bold text-ork-ink">Destinatarios ({q.data?.total ?? 0})</h2>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="ork-focus h-9 rounded-lg border border-ork-line px-2 text-[13px]">
+        <h2 className="text-[15px] font-bold text-ork-ink">
+          Destinatarios ({q.data?.total ?? 0})
+        </h2>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="ork-focus h-9 rounded-lg border border-ork-line px-2 text-[13px]"
+        >
           <option value="">Todos</option>
           {Object.entries(RECIPIENT).map(([k, v]) => (
             <option key={k} value={k}>
@@ -1302,15 +2004,38 @@ function Recipients({ campaignId }: { campaignId: string }) {
                   </p>
                 </td>
                 <td className="whitespace-nowrap py-2.5 pr-3">
-                  <Badge tone={RECIPIENT[r.status]?.tone ?? "neutral"}>{RECIPIENT[r.status]?.label ?? r.status}</Badge>
-                  {r.error && <p className={cx("mt-0.5 max-w-[220px] text-[11.5px]", r.error.startsWith("Fuera de oficina") ? "text-ork-mist" : "text-bad")}>{r.error}</p>}
+                  <Badge tone={RECIPIENT[r.status]?.tone ?? "neutral"}>
+                    {RECIPIENT[r.status]?.label ?? r.status}
+                  </Badge>
+                  {r.error && (
+                    <p
+                      className={cx(
+                        "mt-0.5 max-w-[220px] text-[11.5px]",
+                        r.error.startsWith("Fuera de oficina")
+                          ? "text-ork-mist"
+                          : "text-bad",
+                      )}
+                    >
+                      {r.error}
+                    </p>
+                  )}
                   {r.replied_at && (
                     <div className="mt-1 max-w-[260px]">
                       <select
                         aria-label="Qué respondió"
                         value={r.reply_category ?? "otro"}
-                        onChange={(e) => classify.mutate({ id: r.id, category: e.target.value })}
-                        className={cx("ork-focus rounded-full border-0 py-0.5 pl-2 pr-6 text-[12px] font-semibold", REPLY_SELECT[REPLY[r.reply_category ?? "otro"]?.tone ?? "neutral"])}
+                        onChange={(e) =>
+                          classify.mutate({
+                            id: r.id,
+                            category: e.target.value,
+                          })
+                        }
+                        className={cx(
+                          "ork-focus rounded-full border-0 py-0.5 pl-2 pr-6 text-[12px] font-semibold",
+                          REPLY_SELECT[
+                            REPLY[r.reply_category ?? "otro"]?.tone ?? "neutral"
+                          ],
+                        )}
                       >
                         {Object.entries(REPLY).map(([k, v]) => (
                           <option key={k} value={k}>
@@ -1324,22 +2049,41 @@ function Recipients({ campaignId }: { campaignId: string }) {
                           <button
                             type="button"
                             className="rounded-full bg-ork-card px-2 py-0.5 text-ork-ink shadow-sm hover:text-ork-blue"
-                            onClick={() => classify.mutate({ id: r.id, category: r.reply_category ?? "otro" })}
+                            onClick={() =>
+                              classify.mutate({
+                                id: r.id,
+                                category: r.reply_category ?? "otro",
+                              })
+                            }
                           >
                             Es correcto
                           </button>
                         </div>
                       )}
-                      {r.reply_snippet && <p className="mt-1 whitespace-normal text-[11.5px] italic text-ork-graphite">«{r.reply_snippet.slice(0, 160)}{r.reply_snippet.length > 160 ? "…" : ""}»</p>}
+                      {r.reply_snippet && (
+                        <p className="mt-1 whitespace-normal text-[11.5px] italic text-ork-graphite">
+                          «{r.reply_snippet.slice(0, 160)}
+                          {r.reply_snippet.length > 160 ? "…" : ""}»
+                        </p>
+                      )}
                       {r.reply_snippet && (
                         <div className="mt-1">
-                          <AskConcertino recipient_id={r.id} mode="respuesta" autoAsk label="Respuesta recibida" prompt="Asísteme con esta respuesta">
+                          <AskConcertino
+                            recipient_id={r.id}
+                            mode="respuesta"
+                            autoAsk
+                            label="Respuesta recibida"
+                            prompt="Asísteme con esta respuesta"
+                          >
                             Asísteme con esta respuesta
                           </AskConcertino>
                         </div>
                       )}
                       {r.deal_id && (
-                        <Link to={`/crm?oportunidad=${r.deal_id}`} className="mt-0.5 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
+                        <Link
+                          to={`/crm?oportunidad=${r.deal_id}`}
+                          className="mt-0.5 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline"
+                        >
                           Ver oportunidad →
                         </Link>
                       )}
@@ -1348,16 +2092,38 @@ function Recipients({ campaignId }: { campaignId: string }) {
                 </td>
                 <td className="whitespace-nowrap py-2.5 pr-3 text-ork-graphite">
                   {r.sent_count}
-                  {r.next_send_at && ["pending", "active"].includes(r.status) && <p className="text-[11.5px] text-ork-mist">Próximo: {formatWhen(r.next_send_at)}</p>}
+                  {r.next_send_at &&
+                    ["pending", "active"].includes(r.status) && (
+                      <p className="text-[11.5px] text-ork-mist">
+                        Próximo: {formatWhen(r.next_send_at)}
+                      </p>
+                    )}
                 </td>
                 <td className="py-2.5">
                   <span className="flex items-center gap-2 text-ork-mist">
-                    <Tip label={r.opened ? `Abrió el correo ${r.open_count} ${r.open_count === 1 ? "vez" : "veces"}` : "Aún no abre el correo"}>
-                      <span className={cx("flex items-center gap-0.5", r.opened && "text-ork-blue")}>
+                    <Tip
+                      label={
+                        r.opened
+                          ? `Abrió el correo ${r.open_count} ${r.open_count === 1 ? "vez" : "veces"}`
+                          : "Aún no abre el correo"
+                      }
+                    >
+                      <span
+                        className={cx(
+                          "flex items-center gap-0.5",
+                          r.opened && "text-ork-blue",
+                        )}
+                      >
                         <Eye className="size-3.5" aria-hidden /> {r.open_count}
                       </span>
                     </Tip>
-                    <Tip label={r.clicked ? "Hizo clic en un enlace del correo" : "Aún no hace clic en los enlaces"}>
+                    <Tip
+                      label={
+                        r.clicked
+                          ? "Hizo clic en un enlace del correo"
+                          : "Aún no hace clic en los enlaces"
+                      }
+                    >
                       <span className={cx(r.clicked && "text-ork-violet")}>
                         <MousePointerClick className="size-3.5" aria-hidden />
                       </span>
@@ -1369,7 +2135,12 @@ function Recipients({ campaignId }: { campaignId: string }) {
                     )}
                   </span>
                   {r.gmail_url && (
-                    <a href={r.gmail_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline">
+                    <a
+                      href={r.gmail_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block text-[11.5px] font-semibold text-ork-blue hover:underline"
+                    >
                       Ver en Gmail ↗
                     </a>
                   )}
@@ -1377,10 +2148,20 @@ function Recipients({ campaignId }: { campaignId: string }) {
                 <td className="px-5 py-2.5 text-right">
                   {["pending", "active"].includes(r.status) && (
                     <div className="flex justify-end gap-1 whitespace-nowrap">
-                      <Button size="sm" variant="ghost" onClick={() => stop.mutate({ id: r.id, replied: true })}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => stop.mutate({ id: r.id, replied: true })}
+                      >
                         Ya respondió
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => stop.mutate({ id: r.id, replied: false })}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          stop.mutate({ id: r.id, replied: false })
+                        }
+                      >
                         Detener
                       </Button>
                     </div>
@@ -1390,7 +2171,11 @@ function Recipients({ campaignId }: { campaignId: string }) {
             ))}
           </tbody>
         </table>
-        {q.data?.items.length === 0 && <p className="px-5 py-6 text-center text-[13px] text-ork-mist">Nadie en este estado.</p>}
+        {q.data?.items.length === 0 && (
+          <p className="px-5 py-6 text-center text-[13px] text-ork-mist">
+            Nadie en este estado.
+          </p>
+        )}
       </div>
     </Card>
   );
@@ -1398,30 +2183,77 @@ function Recipients({ campaignId }: { campaignId: string }) {
 
 // --- Configuración → Integraciones: buzones de Gmail --------------------------------------
 
-type Health = { domain: string; overall: "ok" | "bad" | "unknown"; items: { id: string; status: "ok" | "warn" | "bad" | "unknown"; label: string; tip: string }[] };
+type Health = {
+  domain: string;
+  overall: "ok" | "bad" | "unknown";
+  items: {
+    id: string;
+    status: "ok" | "warn" | "bad" | "unknown";
+    label: string;
+    tip: string;
+  }[];
+};
 
 /** SPF, DKIM y DMARC del dominio que envía: sin ellos, bancos y corporativos bloquean. */
 function DomainHealth({ mailboxId }: { mailboxId: string }) {
-  const q = useQuery({ queryKey: ["mailbox-health", mailboxId], queryFn: () => api<Health>(`/api/mailboxes/${mailboxId}/health`), staleTime: 300000 });
-  if (q.isLoading) return <p className="text-[12.5px] text-ork-mist">Revisando la autenticación de tu dominio…</p>;
+  const q = useQuery({
+    queryKey: ["mailbox-health", mailboxId],
+    queryFn: () => api<Health>(`/api/mailboxes/${mailboxId}/health`),
+    staleTime: 300000,
+  });
+  if (q.isLoading)
+    return (
+      <p className="text-[12.5px] text-ork-mist">
+        Revisando la autenticación de tu dominio…
+      </p>
+    );
   if (!q.data) return null;
-  const tone = { ok: "text-ok", warn: "text-warn", bad: "text-bad", unknown: "text-ork-mist" } as const;
+  const tone = {
+    ok: "text-ok",
+    warn: "text-warn",
+    bad: "text-bad",
+    unknown: "text-ork-mist",
+  } as const;
   return (
-    <div className={cx("rounded-xl border p-3", q.data.overall === "bad" ? "border-bad/30 bg-bad/[0.04]" : "border-ork-line")}>
+    <div
+      className={cx(
+        "rounded-xl border p-3",
+        q.data.overall === "bad"
+          ? "border-bad/30 bg-bad/[0.04]"
+          : "border-ork-line",
+      )}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[13px] font-semibold text-ork-ink">Autenticación de {q.data.domain}</p>
-        <Button size="sm" variant="ghost" loading={q.isFetching} onClick={() => q.refetch()}>
+        <p className="text-[13px] font-semibold text-ork-ink">
+          Autenticación de {q.data.domain}
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={q.isFetching}
+          onClick={() => q.refetch()}
+        >
           Volver a revisar
         </Button>
       </div>
       {q.data.overall === "bad" && (
-        <p className="mb-2 text-[12.5px] text-bad">Sin esto, muchos bancos y empresas bloquean tus correos. Pásale estos puntos a quien administre tu dominio.</p>
+        <p className="mb-2 text-[12.5px] text-bad">
+          Sin esto, muchos bancos y empresas bloquean tus correos. Pásale estos
+          puntos a quien administre tu dominio.
+        </p>
       )}
       <ul className="space-y-1.5">
         {q.data.items.map((i) => (
           <li key={i.id} className="text-[12.5px]">
-            <span className={cx("font-semibold", tone[i.status])}>{i.status === "ok" ? "✓" : i.status === "unknown" ? "?" : "✕"} {i.label}</span>
-            {i.status !== "ok" && <span className="block break-words text-ork-graphite">{i.tip}</span>}
+            <span className={cx("font-semibold", tone[i.status])}>
+              {i.status === "ok" ? "✓" : i.status === "unknown" ? "?" : "✕"}{" "}
+              {i.label}
+            </span>
+            {i.status !== "ok" && (
+              <span className="block break-words text-ork-graphite">
+                {i.tip}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -1429,22 +2261,58 @@ function DomainHealth({ mailboxId }: { mailboxId: string }) {
   );
 }
 
-const SMTP_PRESETS: Record<string, { smtp_host: string; smtp_port: number; imap_host: string }> = {
-  "Microsoft 365 (SMTP)": { smtp_host: "smtp.office365.com", smtp_port: 587, imap_host: "outlook.office365.com" },
-  Zoho: { smtp_host: "smtp.zoho.com", smtp_port: 465, imap_host: "imap.zoho.com" },
-  "Hostinger": { smtp_host: "smtp.hostinger.com", smtp_port: 465, imap_host: "imap.hostinger.com" },
-  GoDaddy: { smtp_host: "smtpout.secureserver.net", smtp_port: 465, imap_host: "imap.secureserver.net" },
-  "Otro": { smtp_host: "", smtp_port: 587, imap_host: "" },
+const SMTP_PRESETS: Record<
+  string,
+  { smtp_host: string; smtp_port: number; imap_host: string }
+> = {
+  "Microsoft 365 (SMTP)": {
+    smtp_host: "smtp.office365.com",
+    smtp_port: 587,
+    imap_host: "outlook.office365.com",
+  },
+  Zoho: {
+    smtp_host: "smtp.zoho.com",
+    smtp_port: 465,
+    imap_host: "imap.zoho.com",
+  },
+  Hostinger: {
+    smtp_host: "smtp.hostinger.com",
+    smtp_port: 465,
+    imap_host: "imap.hostinger.com",
+  },
+  GoDaddy: {
+    smtp_host: "smtpout.secureserver.net",
+    smtp_port: 465,
+    imap_host: "imap.secureserver.net",
+  },
+  Otro: { smtp_host: "", smtp_port: 587, imap_host: "" },
 };
 
 /** Correo corporativo por SMTP (envío) e IMAP (respuestas). Se prueba antes de guardar. */
-function SmtpModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+function SmtpModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const client = useQueryClient();
-  const empty = { email: "", display_name: "", username: "", password: "", smtp_host: "", smtp_port: 587, imap_host: "", imap_port: 993 };
+  const empty = {
+    email: "",
+    display_name: "",
+    username: "",
+    password: "",
+    smtp_host: "",
+    smtp_port: 587,
+    imap_host: "",
+    imap_port: 993,
+  };
   const [form, setForm] = useState(empty);
-  const set = (patch: Partial<typeof empty>) => setForm((f) => ({ ...f, ...patch }));
+  const set = (patch: Partial<typeof empty>) =>
+    setForm((f) => ({ ...f, ...patch }));
   const save = useMutation({
-    mutationFn: () => api("/api/mailboxes/smtp", { method: "POST", json: form }),
+    mutationFn: () =>
+      api("/api/mailboxes/smtp", { method: "POST", json: form }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["mailboxes"] });
       setForm(empty);
@@ -1452,7 +2320,12 @@ function SmtpModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bo
     },
   });
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="Conectar correo corporativo" description="Usa los datos SMTP e IMAP de tu proveedor. Si tu correo tiene verificación en dos pasos, crea una contraseña de aplicación.">
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Conectar correo corporativo"
+      description="Usa los datos SMTP e IMAP de tu proveedor. Si tu correo tiene verificación en dos pasos, crea una contraseña de aplicación."
+    >
       <form
         className="grid gap-3 sm:grid-cols-2"
         onSubmit={(e) => {
@@ -1460,25 +2333,84 @@ function SmtpModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bo
           save.mutate();
         }}
       >
-        {save.error && <div className="sm:col-span-2"><Alert>{save.error.message}</Alert></div>}
-        <SelectField label="Proveedor" defaultValue="Otro" onChange={(e) => set(SMTP_PRESETS[e.target.value] ?? {})} className="sm:col-span-2">
+        {save.error && (
+          <div className="sm:col-span-2">
+            <Alert>{save.error.message}</Alert>
+          </div>
+        )}
+        <SelectField
+          label="Proveedor"
+          defaultValue="Otro"
+          onChange={(e) => set(SMTP_PRESETS[e.target.value] ?? {})}
+          className="sm:col-span-2"
+        >
           {Object.keys(SMTP_PRESETS).map((k) => (
             <option key={k} value={k}>
               {k}
             </option>
           ))}
         </SelectField>
-        <TextField label="Correo que envía" type="email" required value={form.email} onChange={(e) => set({ email: e.target.value })} />
-        <TextField label="Nombre del remitente" value={form.display_name} onChange={(e) => set({ display_name: e.target.value })} />
-        <TextField label="Usuario (si es distinto del correo)" value={form.username} onChange={(e) => set({ username: e.target.value })} />
-        <TextField label="Contraseña o contraseña de aplicación" type="password" autoComplete="new-password" required value={form.password} onChange={(e) => set({ password: e.target.value })} />
-        <TextField label="Servidor SMTP" placeholder="smtp.tuempresa.com" required value={form.smtp_host} onChange={(e) => set({ smtp_host: e.target.value })} />
-        <TextField label="Puerto SMTP" type="number" value={form.smtp_port} onChange={(e) => set({ smtp_port: Number(e.target.value) || 587 })} hint="587 (STARTTLS) o 465 (SSL)" />
-        <TextField label="Servidor IMAP (respuestas)" placeholder="imap.tuempresa.com" value={form.imap_host} onChange={(e) => set({ imap_host: e.target.value })} />
-        <TextField label="Puerto IMAP" type="number" value={form.imap_port} onChange={(e) => set({ imap_port: Number(e.target.value) || 993 })} />
-        <p className="text-[12px] text-ork-mist sm:col-span-2">La contraseña se guarda cifrada. ORKESTA prueba el envío y la lectura antes de guardar el buzón.</p>
+        <TextField
+          label="Correo que envía"
+          type="email"
+          required
+          value={form.email}
+          onChange={(e) => set({ email: e.target.value })}
+        />
+        <TextField
+          label="Nombre del remitente"
+          value={form.display_name}
+          onChange={(e) => set({ display_name: e.target.value })}
+        />
+        <TextField
+          label="Usuario (si es distinto del correo)"
+          value={form.username}
+          onChange={(e) => set({ username: e.target.value })}
+        />
+        <TextField
+          label="Contraseña o contraseña de aplicación"
+          type="password"
+          autoComplete="new-password"
+          required
+          value={form.password}
+          onChange={(e) => set({ password: e.target.value })}
+        />
+        <TextField
+          label="Servidor SMTP"
+          placeholder="smtp.tuempresa.com"
+          required
+          value={form.smtp_host}
+          onChange={(e) => set({ smtp_host: e.target.value })}
+        />
+        <TextField
+          label="Puerto SMTP"
+          type="number"
+          value={form.smtp_port}
+          onChange={(e) => set({ smtp_port: Number(e.target.value) || 587 })}
+          hint="587 (STARTTLS) o 465 (SSL)"
+        />
+        <TextField
+          label="Servidor IMAP (respuestas)"
+          placeholder="imap.tuempresa.com"
+          value={form.imap_host}
+          onChange={(e) => set({ imap_host: e.target.value })}
+        />
+        <TextField
+          label="Puerto IMAP"
+          type="number"
+          value={form.imap_port}
+          onChange={(e) => set({ imap_port: Number(e.target.value) || 993 })}
+        />
+        <p className="text-[12px] text-ork-mist sm:col-span-2">
+          La contraseña se guarda cifrada. ORKESTA prueba el envío y la lectura
+          antes de guardar el buzón.
+        </p>
         <div className="sm:col-span-2">
-          <Button type="submit" loading={save.isPending} disabled={!form.email || !form.password || !form.smtp_host}>
+          <Button
+            type="submit"
+            loading={save.isPending}
+            disabled={!form.email || !form.password || !form.smtp_host}
+          >
             Probar y conectar
           </Button>
         </div>
@@ -1496,11 +2428,20 @@ export function GmailCard() {
   const [smtpOpen, setSmtpOpen] = useState(false);
   const providers = boxes.data?.providers;
   const patch = useMutation({
-    mutationFn: ({ id, ...json }: { id: string; daily_limit?: number; signature?: string; warmup?: boolean }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
+    mutationFn: ({
+      id,
+      ...json
+    }: {
+      id: string;
+      daily_limit?: number;
+      signature?: string;
+      warmup?: boolean;
+    }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["mailboxes"] }),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => api(`/api/mailboxes/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api(`/api/mailboxes/${id}`, { method: "DELETE" }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["mailboxes"] }),
   });
   const enabled = boxes.data?.enabled;
@@ -1522,26 +2463,53 @@ export function GmailCard() {
         )}
         {providers?.microsoft ? (
           <a href="/api/mail/microsoft/start">
-            <Button size="sm" variant="secondary" icon={<Mail className="size-4" aria-hidden />}>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Mail className="size-4" aria-hidden />}
+            >
               Conectar Microsoft 365 / Outlook
             </Button>
           </a>
         ) : (
           <Badge tone="warn">Microsoft 365 pendiente de configuración</Badge>
         )}
-        <Button size="sm" variant="secondary" icon={<Mail className="size-4" aria-hidden />} onClick={() => setSmtpOpen(true)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Mail className="size-4" aria-hidden />}
+          onClick={() => setSmtpOpen(true)}
+        >
           Conectar otro correo (SMTP)
         </Button>
       </div>
-      {result === "conectado" && <Alert tone="ok">Buzón conectado. Ya puedes lanzar campañas.</Alert>}
-      {result === "error" && <Alert>{via} no completó la conexión. Inténtalo de nuevo y acepta los permisos de envío y lectura.</Alert>}
-      {result === "cancelado" && <Alert tone="blue">Cancelaste la conexión con {via}.</Alert>}
-      {result === "pendiente" && <Alert tone="blue">La conexión con {via} aún no está configurada por la administración de ORKESTA.</Alert>}
+      {result === "conectado" && (
+        <Alert tone="ok">Buzón conectado. Ya puedes lanzar campañas.</Alert>
+      )}
+      {result === "error" && (
+        <Alert>
+          {via} no completó la conexión. Inténtalo de nuevo y acepta los
+          permisos de envío y lectura.
+        </Alert>
+      )}
+      {result === "cancelado" && (
+        <Alert tone="blue">Cancelaste la conexión con {via}.</Alert>
+      )}
+      {result === "pendiente" && (
+        <Alert tone="blue">
+          La conexión con {via} aún no está configurada por la administración de
+          ORKESTA.
+        </Alert>
+      )}
       <SmtpModal open={smtpOpen} onOpenChange={setSmtpOpen} />
       {!enabled && (
         <p className="text-[13px] text-ork-mist">
-          En Render agrega GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y PUBLIC_BASE_URL, y en Google Cloud la URI de redirección
-          <code className="mx-1 rounded bg-ork-ink/5 px-1">/api/mail/google/callback</code>.
+          En Render agrega GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y
+          PUBLIC_BASE_URL, y en Google Cloud la URI de redirección
+          <code className="mx-1 rounded bg-ork-ink/5 px-1">
+            /api/mail/google/callback
+          </code>
+          .
         </p>
       )}
       <ul className="mt-3 flex flex-col gap-3">
@@ -1550,21 +2518,40 @@ export function GmailCard() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-[14px] font-semibold text-ork-ink">
-                  {m.email} {m.provider_label && <span className="ml-1 text-[12px] font-normal text-ork-mist">· {m.provider_label}</span>}
+                  {m.email}{" "}
+                  {m.provider_label && (
+                    <span className="ml-1 text-[12px] font-normal text-ork-mist">
+                      · {m.provider_label}
+                    </span>
+                  )}
                 </p>
                 <p className="text-[12.5px] text-ork-mist">
-                  {m.sent_today} enviados hoy de {m.effective_limit ?? m.daily_limit}
-                  {m.warmup && m.warmup_day ? ` · calentamiento, día ${m.warmup_day}` : ""}
+                  {m.sent_today} enviados hoy de{" "}
+                  {m.effective_limit ?? m.daily_limit}
+                  {m.warmup && m.warmup_day
+                    ? ` · calentamiento, día ${m.warmup_day}`
+                    : ""}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {m.status === "active" ? <Badge tone="ok">Conectado</Badge> : <Badge tone="bad">Reconectar</Badge>}
-                <Button size="sm" variant="ghost" loading={remove.isPending} onClick={() => remove.mutate(m.id)}>
+                {m.status === "active" ? (
+                  <Badge tone="ok">Conectado</Badge>
+                ) : (
+                  <Badge tone="bad">Reconectar</Badge>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  loading={remove.isPending}
+                  onClick={() => remove.mutate(m.id)}
+                >
                   Desconectar
                 </Button>
               </div>
             </div>
-            {m.error && <p className="mt-2 text-[12.5px] text-bad">{m.error}</p>}
+            {m.error && (
+              <p className="mt-2 text-[12.5px] text-bad">{m.error}</p>
+            )}
             <div className="mt-3 grid gap-3">
               <TextField
                 label="Límite diario"
@@ -1575,28 +2562,49 @@ export function GmailCard() {
                 hint="Google Workspace: hasta 2.000 al día. Gmail personal: hasta 500. ORKESTA reparte los envíos en tu horario para cumplir el límite."
                 className="max-w-[320px]"
                 onBlur={(e) => {
-                  const value = Math.max(1, Math.min(2000, Number(e.target.value) || 1));
-                  if (value !== m.daily_limit) patch.mutate({ id: m.id, daily_limit: value });
+                  const value = Math.max(
+                    1,
+                    Math.min(2000, Number(e.target.value) || 1),
+                  );
+                  if (value !== m.daily_limit)
+                    patch.mutate({ id: m.id, daily_limit: value });
                 }}
               />
               <label className="flex items-start gap-2 text-[13px] text-ork-graphite">
-                <input type="checkbox" className="mt-0.5" checked={m.warmup ?? true} onChange={(e) => patch.mutate({ id: m.id, warmup: e.target.checked })} />
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={m.warmup ?? true}
+                  onChange={(e) =>
+                    patch.mutate({ id: m.id, warmup: e.target.checked })
+                  }
+                />
                 <span>
-                  <strong className="text-ork-ink">Calentamiento automático</strong> (recomendado)
+                  <strong className="text-ork-ink">
+                    Calentamiento automático
+                  </strong>{" "}
+                  (recomendado)
                   <span className="block text-[12.5px] text-ork-mist">
-                    El límite real empieza en 20 al día y sube solo cada día de envío (20 → 30 → 45 → 65 → 90 → 125…) hasta tu límite diario. Protege la
-                    reputación de tu correo.
+                    El límite real empieza en 20 al día y sube solo cada día de
+                    envío (20 → 30 → 45 → 65 → 90 → 125…) hasta tu límite
+                    diario. Protege la reputación de tu correo.
                   </span>
                 </span>
               </label>
               {m.daily_limit > 300 && !m.warmup && (
                 <Alert tone="blue">
-                  Con más de 300 correos en frío al día, sube de forma gradual (por ejemplo 100 → 300 → 700 → 1.500 en dos semanas) y
-                  vigila el rebote: si Google detecta un salto brusco o muchos rebotes puede limitar temporalmente tu cuenta.
+                  Con más de 300 correos en frío al día, sube de forma gradual
+                  (por ejemplo 100 → 300 → 700 → 1.500 en dos semanas) y vigila
+                  el rebote: si Google detecta un salto brusco o muchos rebotes
+                  puede limitar temporalmente tu cuenta.
                 </Alert>
               )}
               <DomainHealth mailboxId={m.id} />
-              <SignatureEditor value={m.signature} saving={patch.isPending} onSave={(signature) => patch.mutate({ id: m.id, signature })} />
+              <SignatureEditor
+                value={m.signature}
+                saving={patch.isPending}
+                onSave={(signature) => patch.mutate({ id: m.id, signature })}
+              />
             </div>
           </li>
         ))}
@@ -1605,9 +2613,19 @@ export function GmailCard() {
   );
 }
 
-function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (html: string) => void; saving: boolean }) {
+function SignatureEditor({
+  value,
+  onSave,
+  saving,
+}: {
+  value: string;
+  onSave: (html: string) => void;
+  saving: boolean;
+}) {
   const [draft, setDraft] = useState(value);
-  const [mode, setMode] = useState<"visual" | "html">(/<table/i.test(value) ? "html" : "visual");
+  const [mode, setMode] = useState<"visual" | "html">(
+    /<table/i.test(value) ? "html" : "visual",
+  );
   useEffect(() => setDraft(value), [value]);
   const changed = draft !== value;
   return (
@@ -1625,7 +2643,12 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
               key={k}
               type="button"
               onClick={() => setMode(k)}
-              className={cx("rounded-md px-2.5 py-1", mode === k ? "bg-ork-blue-solid text-white" : "text-ork-graphite")}
+              className={cx(
+                "rounded-md px-2.5 py-1",
+                mode === k
+                  ? "bg-ork-blue-solid text-white"
+                  : "text-ork-graphite",
+              )}
             >
               {label}
             </button>
@@ -1633,7 +2656,12 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
         </div>
       </div>
       {mode === "visual" ? (
-        <RichEditor value={draft} onChange={setDraft} minHeight={110} allowSource={false} />
+        <RichEditor
+          value={draft}
+          onChange={setDraft}
+          minHeight={110}
+          allowSource={false}
+        />
       ) : (
         <>
           <textarea
@@ -1644,17 +2672,27 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
             placeholder="Pega el HTML de tu firma (en Gmail: Configuración → Firma; o desde tu generador de firmas)."
             className="ork-focus rounded-lg border border-ork-line px-3 py-2 font-mono text-[12.5px]"
           />
-          <p className="text-[12px] text-ork-mist">Para una firma solo con imagen, usa «Editor» → imagen y sube el archivo.</p>
+          <p className="text-[12px] text-ork-mist">
+            Para una firma solo con imagen, usa «Editor» → imagen y sube el
+            archivo.
+          </p>
         </>
       )}
       {draft.trim() && (
         <div className="rounded-lg border border-dashed border-ork-line">
-          <p className="px-3 pt-2 text-[11.5px] font-semibold uppercase tracking-wide text-ork-mist">Así se verá</p>
+          <p className="px-3 pt-2 text-[11.5px] font-semibold uppercase tracking-wide text-ork-mist">
+            Así se verá
+          </p>
           <HtmlFrame html={toHtml(draft)} minHeight={60} />
         </div>
       )}
       <div className="flex justify-end">
-        <Button size="sm" disabled={!changed} loading={saving} onClick={() => onSave(draft)}>
+        <Button
+          size="sm"
+          disabled={!changed}
+          loading={saving}
+          onClick={() => onSave(draft)}
+        >
           Guardar firma
         </Button>
       </div>
@@ -1662,15 +2700,32 @@ function SignatureEditor({ value, onSave, saving }: { value: string; onSave: (ht
   );
 }
 
-type CopyAssess = { ready: boolean; probability?: number; average?: number; tips?: string[] };
+type CopyAssess = {
+  ready: boolean;
+  probability?: number;
+  average?: number;
+  tips?: string[];
+};
 
 /** Probabilidad estimada de respuesta del correo que se escribe, aprendida de los resultados de
  * todas las empresas (solo estilos y cifras, nunca textos). No aparece hasta que hay modelo. */
-function CopyCoach({ step, subject, body }: { step: number; subject: string; body: string }) {
+function CopyCoach({
+  step,
+  subject,
+  body,
+}: {
+  step: number;
+  subject: string;
+  body: string;
+}) {
   const input = useDebounced({ step, subject, body }, 800);
   const q = useQuery({
     queryKey: ["campaign-copy-assess", input],
-    queryFn: () => api<CopyAssess>("/api/campaigns/copy/assess", { method: "POST", json: input }),
+    queryFn: () =>
+      api<CopyAssess>("/api/campaigns/copy/assess", {
+        method: "POST",
+        json: input,
+      }),
     enabled: input.body.trim().length > 20,
     placeholderData: (prev) => prev,
     staleTime: 60_000,
@@ -1680,10 +2735,18 @@ function CopyCoach({ step, subject, body }: { step: number; subject: string; bod
   const pct = (v: number) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)} %`;
   const better = a.average != null && a.probability >= a.average;
   return (
-    <div className="mt-3 rounded-xl border border-ork-line bg-ork-card px-3 py-2.5 text-[12.5px]" aria-live="polite">
+    <div
+      className="mt-3 rounded-xl border border-ork-line bg-ork-card px-3 py-2.5 text-[12.5px]"
+      aria-live="polite"
+    >
       <p className="text-ork-graphite">
-        Probabilidad estimada de respuesta: <strong className={better ? "text-ok" : "text-ork-ink"}>{pct(a.probability)}</strong>
-        {a.average != null && <span className="text-ork-mist"> · promedio {pct(a.average)}</span>}
+        Probabilidad estimada de respuesta:{" "}
+        <strong className={better ? "text-ok" : "text-ork-ink"}>
+          {pct(a.probability)}
+        </strong>
+        {a.average != null && (
+          <span className="text-ork-mist"> · promedio {pct(a.average)}</span>
+        )}
       </p>
       {a.tips && a.tips.length > 0 && (
         <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-ork-graphite">
@@ -1692,79 +2755,23 @@ function CopyCoach({ step, subject, body }: { step: number; subject: string; bod
           ))}
         </ul>
       )}
-      <p className="mt-1.5 text-[11.5px] text-ork-mist">Aprendido de los resultados de todas las empresas en ORKESTA, solo con cifras de estilo.</p>
+      <p className="mt-1.5 text-[11.5px] text-ork-mist">
+        Aprendido de los resultados de todas las empresas en ORKESTA, solo con
+        cifras de estilo.
+      </p>
     </div>
   );
 }
 
-type PickedContact = { id: string; full_name: string; email: string | null; company: string | null; job_title: string | null };
-
-/** Elegir uno o varios contactos puntuales para una campaña muy personalizada. */
-function ContactPicker({ ids, onChange }: { ids: string[]; onChange: (ids: string[]) => void }) {
-  const [q, setQ] = useState("");
-  const term = useDebounced(q.trim(), 300);
-  const found = useQuery({
-    queryKey: ["contact-pick", term],
-    queryFn: () => api<{ items: PickedContact[] }>(`/api/contacts?q=${encodeURIComponent(term)}`),
-    enabled: term.length >= 2,
-  });
-  const chosen = useQuery({
-    queryKey: ["contact-chosen", ids],
-    queryFn: () => Promise.all(ids.slice(0, 50).map((id) => api<PickedContact>(`/api/contacts/${id}`).catch(() => null))),
-    enabled: ids.length > 0,
-  });
-  const people = (chosen.data ?? []).filter((x): x is PickedContact => Boolean(x));
-  return (
-    <div className="flex flex-col gap-2">
-      {ids.length > 0 && (
-        <ul className="flex flex-col gap-1.5" aria-label="Contactos elegidos">
-          {(people.length ? people : ids.map((id) => ({ id, full_name: "Cargando…", email: null, company: null, job_title: null }))).map((x) => (
-            <li key={x.id} className="flex items-center justify-between gap-2 rounded-lg border border-ork-line px-3 py-2 text-[13px]">
-              <span className="min-w-0">
-                <span className="block truncate font-semibold text-ork-ink">{x.full_name}</span>
-                <span className="block truncate text-[12px] text-ork-mist">{[x.job_title, x.company, x.email ?? "sin correo"].filter(Boolean).join(" · ")}</span>
-              </span>
-              <button type="button" className="shrink-0 text-[12px] font-semibold text-bad hover:underline" onClick={() => onChange(ids.filter((i) => i !== x.id))}>
-                Quitar
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <TextField label={ids.length ? "Agregar otro contacto" : "Busca el contacto"} placeholder="Nombre, correo o empresa" value={q} onChange={(e) => setQ(e.target.value)} />
-      {term.length >= 2 && (
-        <ul className="max-h-56 overflow-y-auto rounded-lg border border-ork-line" aria-label="Resultados">
-          {found.isLoading && <li className="px-3 py-2 text-[12.5px] text-ork-mist">Buscando…</li>}
-          {found.data && found.data.items.length === 0 && <li className="px-3 py-2 text-[12.5px] text-ork-mist">No encontré contactos con «{term}».</li>}
-          {(found.data?.items ?? [])
-            .filter((x) => !ids.includes(x.id))
-            .slice(0, 8)
-            .map((x) => (
-              <li key={x.id}>
-                <button
-                  type="button"
-                  disabled={!x.email}
-                  onClick={() => {
-                    onChange([...ids, x.id]);
-                    setQ("");
-                  }}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] hover:bg-ork-blue/5 disabled:opacity-50"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-ork-ink">{x.full_name}</span>
-                    <span className="block truncate text-[12px] text-ork-mist">{[x.job_title, x.company, x.email ?? "sin correo: no se le puede escribir"].filter(Boolean).join(" · ")}</span>
-                  </span>
-                  {x.email && <span className="shrink-0 text-[12px] font-semibold text-ork-blue">Agregar</span>}
-                </button>
-              </li>
-            ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-type TemplateDetail = { id: string; name: string; description: string; shared: boolean; payload: { steps?: { subject?: string; body?: string; delay_days?: number }[] } };
+type TemplateDetail = {
+  id: string;
+  name: string;
+  description: string;
+  shared: boolean;
+  payload: {
+    steps?: { subject?: string; body?: string; delay_days?: number }[];
+  };
+};
 
 function plain(html: string): string {
   const div = document.createElement("div");
@@ -1780,7 +2787,9 @@ function TemplatesGallery() {
   const [seeing, setSeeing] = useState<string | null>(null);
   const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
   if (list.isLoading) return <Spinner />;
-  const items = (list.data ?? []).filter((t) => (filter === "equipo" ? t.shared : filter === "mias" ? !t.shared : true));
+  const items = (list.data ?? []).filter((t) =>
+    filter === "equipo" ? t.shared : filter === "mias" ? !t.shared : true,
+  );
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1796,7 +2805,12 @@ function TemplatesGallery() {
             type="button"
             aria-pressed={filter === value}
             onClick={() => setFilter(value)}
-            className={cx("rounded-full border px-3 py-1 text-[12.5px] font-semibold", filter === value ? "border-ork-blue bg-ork-blue/10 text-ork-blue" : "border-ork-line text-ork-graphite hover:border-ork-blue/40")}
+            className={cx(
+              "rounded-full border px-3 py-1 text-[12.5px] font-semibold",
+              filter === value
+                ? "border-ork-blue bg-ork-blue/10 text-ork-blue"
+                : "border-ork-line text-ork-graphite hover:border-ork-blue/40",
+            )}
           >
             {label}
           </button>
@@ -1804,8 +2818,13 @@ function TemplatesGallery() {
       </div>
       {items.length === 0 ? (
         <Card className="py-10 text-center">
-          <p className="text-[15px] font-semibold text-ork-ink">Todavía no hay plantillas aquí</p>
-          <p className="mt-1 text-[13.5px] text-ork-mist">Desde una campaña, usa «Guardar como plantilla» o «Compartir con el equipo».</p>
+          <p className="text-[15px] font-semibold text-ork-ink">
+            Todavía no hay plantillas aquí
+          </p>
+          <p className="mt-1 text-[13.5px] text-ork-mist">
+            Desde una campaña, usa «Guardar como plantilla» o «Compartir con el
+            equipo».
+          </p>
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1813,19 +2832,37 @@ function TemplatesGallery() {
             <Card key={t.id} className="flex flex-col gap-2 p-4">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[14.5px] font-bold text-ork-ink">{t.name}</p>
-                <Badge tone={t.shared ? "violet" : "neutral"}>{t.shared ? "Del equipo" : "Solo tú"}</Badge>
+                <Badge tone={t.shared ? "violet" : "neutral"}>
+                  {t.shared ? "Del equipo" : "Solo tú"}
+                </Badge>
               </div>
-              {t.description && <p className="text-[13px] text-ork-graphite">{t.description}</p>}
-              {t.preview && <p className="truncate text-[12.5px] text-ork-mist">Asunto: {t.preview}</p>}
+              {t.description && (
+                <p className="text-[13px] text-ork-graphite">{t.description}</p>
+              )}
+              {t.preview && (
+                <p className="truncate text-[12.5px] text-ork-mist">
+                  Asunto: {t.preview}
+                </p>
+              )}
               <p className="text-[12px] text-ork-mist">
                 {t.summary} · de {t.mine ? "ti" : t.author}
-                {t.use_count ? ` · usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}` : ""}
+                {t.use_count
+                  ? ` · usada ${t.use_count} ${t.use_count === 1 ? "vez" : "veces"}`
+                  : ""}
               </p>
               <div className="mt-auto flex gap-2 pt-1">
-                <Button size="sm" onClick={() => setUsing({ id: t.id, name: t.name })}>
+                <Button
+                  size="sm"
+                  onClick={() => setUsing({ id: t.id, name: t.name })}
+                >
                   Usar
                 </Button>
-                <Button size="sm" variant="secondary" icon={<Eye className="size-3.5" aria-hidden />} onClick={() => setSeeing(t.id)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Eye className="size-3.5" aria-hidden />}
+                  onClick={() => setSeeing(t.id)}
+                >
                   Ver correos
                 </Button>
               </div>
@@ -1833,17 +2870,48 @@ function TemplatesGallery() {
           ))}
         </div>
       )}
-      {seeing && <TemplatePreview id={seeing} onClose={() => setSeeing(null)} onUse={(t) => { setSeeing(null); setUsing(t); }} />}
-      {using && <UseTemplateModal template={using} onClose={() => setUsing(null)} />}
+      {seeing && (
+        <TemplatePreview
+          id={seeing}
+          onClose={() => setSeeing(null)}
+          onUse={(t) => {
+            setSeeing(null);
+            setUsing(t);
+          }}
+        />
+      )}
+      {using && (
+        <UseTemplateModal template={using} onClose={() => setUsing(null)} />
+      )}
     </div>
   );
 }
 
-function TemplatePreview({ id, onClose, onUse }: { id: string; onClose: () => void; onUse: (t: { id: string; name: string }) => void }) {
-  const q = useQuery({ queryKey: ["template-detail", id], queryFn: () => api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`) });
+function TemplatePreview({
+  id,
+  onClose,
+  onUse,
+}: {
+  id: string;
+  onClose: () => void;
+  onUse: (t: { id: string; name: string }) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["template-detail", id],
+    queryFn: () => api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`),
+  });
   const t = q.data;
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title={t?.name ?? "Plantilla"} description={t?.description || "Así son sus correos. Al usarla, se copian a una campaña nueva que puedes editar."} wide>
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t?.name ?? "Plantilla"}
+      description={
+        t?.description ||
+        "Así son sus correos. Al usarla, se copian a una campaña nueva que puedes editar."
+      }
+      wide
+    >
       {q.isLoading || !t ? (
         <Spinner />
       ) : (
@@ -1852,17 +2920,25 @@ function TemplatePreview({ id, onClose, onUse }: { id: string; onClose: () => vo
             <div key={i} className="rounded-xl border border-ork-line p-3">
               <p className="text-[12px] font-semibold text-ork-mist">
                 Correo {i + 1}
-                {i > 0 ? ` · ${st.delay_days ?? 0} días después` : " · apenas se lanza"}
+                {i > 0
+                  ? ` · ${st.delay_days ?? 0} días después`
+                  : " · apenas se lanza"}
               </p>
-              <p className="mt-1 text-[13.5px] font-semibold text-ork-ink">{st.subject || "(respuesta en el mismo hilo)"}</p>
-              <p className="mt-1 whitespace-pre-line text-[13px] text-ork-graphite">{plain(st.body ?? "")}</p>
+              <p className="mt-1 text-[13.5px] font-semibold text-ork-ink">
+                {st.subject || "(respuesta en el mismo hilo)"}
+              </p>
+              <p className="mt-1 whitespace-pre-line text-[13px] text-ork-graphite">
+                {plain(st.body ?? "")}
+              </p>
             </div>
           ))}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={onClose}>
               Cerrar
             </Button>
-            <Button onClick={() => onUse({ id: t.id, name: t.name })}>Usar esta plantilla</Button>
+            <Button onClick={() => onUse({ id: t.id, name: t.name })}>
+              Usar esta plantilla
+            </Button>
           </div>
         </div>
       )}
@@ -1870,15 +2946,30 @@ function TemplatePreview({ id, onClose, onUse }: { id: string; onClose: () => vo
   );
 }
 
-function UseTemplateModal({ template, onClose }: { template: { id: string; name: string }; onClose: () => void }) {
+function UseTemplateModal({
+  template,
+  onClose,
+}: {
+  template: { id: string; name: string };
+  onClose: () => void;
+}) {
   const [name, setName] = useState(template.name);
   const navigate = useNavigate();
   const create = useMutation({
-    mutationFn: () => api<Campaign>("/api/campaigns", { method: "POST", json: { name, template_id: template.id } }),
+    mutationFn: () =>
+      api<Campaign>("/api/campaigns", {
+        method: "POST",
+        json: { name, template_id: template.id },
+      }),
     onSuccess: (c) => navigate(`/campanas/${c.id}`),
   });
   return (
-    <Modal open onOpenChange={(o) => !o && onClose()} title="Usar plantilla" description={`Se crea una campaña nueva con todo lo de «${template.name}» precargado en el editor. La plantilla no cambia.`}>
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Usar plantilla"
+      description={`Se crea una campaña nueva con todo lo de «${template.name}» precargado en el editor. La plantilla no cambia.`}
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -1887,8 +2978,18 @@ function UseTemplateModal({ template, onClose }: { template: { id: string; name:
         }}
       >
         {create.error && <Alert>{create.error.message}</Alert>}
-        <TextField label="Nombre de tu campaña" placeholder="Ej.: Bancos Colombia · Q4" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        <Button type="submit" loading={create.isPending} disabled={name.trim().length < 2}>
+        <TextField
+          label="Nombre de tu campaña"
+          placeholder="Ej.: Bancos Colombia · Q4"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <Button
+          type="submit"
+          loading={create.isPending}
+          disabled={name.trim().length < 2}
+        >
           Crear y abrir en el editor
         </Button>
       </form>
@@ -1905,12 +3006,21 @@ function MyTemplates({ onLoad }: { onLoad: (steps: Step[]) => void }) {
   const items = list.data ?? [];
   if (!items.length) return null;
   const load = async (id: string, name: string) => {
-    if (!window.confirm(`¿Cargar «${name}»? Reemplaza los correos de esta campaña; la plantilla no cambia.`)) return;
+    if (
+      !window.confirm(
+        `¿Cargar «${name}»? Reemplaza los correos de esta campaña; la plantilla no cambia.`,
+      )
+    )
+      return;
     setBusy(id);
     setError("");
     try {
       const t = await api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`);
-      const steps = (t.payload.steps ?? []).map((st, i) => ({ subject: st.subject ?? "", body: st.body ?? "", delay_days: st.delay_days ?? (i === 0 ? 0 : 3) })) as Step[];
+      const steps = (t.payload.steps ?? []).map((st, i) => ({
+        subject: st.subject ?? "",
+        body: st.body ?? "",
+        delay_days: st.delay_days ?? (i === 0 ? 0 : 3),
+      })) as Step[];
       if (steps.length) onLoad(steps);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No pude cargar la plantilla.");
@@ -1925,25 +3035,48 @@ function MyTemplates({ onLoad }: { onLoad: (steps: Step[]) => void }) {
   return (
     <div className="mb-4 rounded-2xl border border-ork-violet/20 bg-ork-violet/[0.05] p-4 text-[13px]">
       <p className="flex items-center gap-2 font-semibold text-ork-ink">
-        <BookmarkCheck className="size-4 text-ork-violet" aria-hidden /> Empezar desde una plantilla
-        <span className="font-normal text-ork-mist">· se copian sus correos aquí para que los ajustes</span>
+        <BookmarkCheck className="size-4 text-ork-violet" aria-hidden /> Empezar
+        desde una plantilla
+        <span className="font-normal text-ork-mist">
+          · se copian sus correos aquí para que los ajustes
+        </span>
       </p>
-      {error && <div className="mt-2"><Alert>{error}</Alert></div>}
+      {error && (
+        <div className="mt-2">
+          <Alert>{error}</Alert>
+        </div>
+      )}
       {groups.map((g) => (
         <div key={g.title} className="mt-3">
-          <p className="mb-1.5 text-[11.5px] font-bold uppercase tracking-wide text-ork-mist">{g.title}</p>
+          <p className="mb-1.5 text-[11.5px] font-bold uppercase tracking-wide text-ork-mist">
+            {g.title}
+          </p>
           <div className="grid gap-2 md:grid-cols-3">
             {g.rows.map((t) => (
-              <div key={t.id} className="flex flex-col rounded-xl border border-ork-line bg-ork-card p-3">
-                <p className="truncate font-semibold text-ork-ink" title={t.name}>
+              <div
+                key={t.id}
+                className="flex flex-col rounded-xl border border-ork-line bg-ork-card p-3"
+              >
+                <p
+                  className="truncate font-semibold text-ork-ink"
+                  title={t.name}
+                >
                   {t.name}
                 </p>
-                <p className="truncate text-[12px] text-ork-mist" title={t.preview}>
+                <p
+                  className="truncate text-[12px] text-ork-mist"
+                  title={t.preview}
+                >
                   {t.summary}
                   {t.shared && !t.mine ? ` · de ${t.author}` : ""}
                   {t.preview ? ` · ${t.preview}` : ""}
                 </p>
-                <button type="button" disabled={busy !== null} className="mt-1.5 w-fit text-[12.5px] font-semibold text-ork-blue hover:underline disabled:opacity-50" onClick={() => load(t.id, t.name)}>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  className="mt-1.5 w-fit text-[12.5px] font-semibold text-ork-blue hover:underline disabled:opacity-50"
+                  onClick={() => load(t.id, t.name)}
+                >
                   {busy === t.id ? "Cargando…" : "Cargar en esta campaña"}
                 </button>
               </div>

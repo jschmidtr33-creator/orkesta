@@ -26,7 +26,8 @@ API = "https://gmail.googleapis.com/gmail/v1/users/me"
 CALLBACK_PATH = "/api/mail/google/callback"
 SCOPES = (
     "openid email profile https://www.googleapis.com/auth/gmail.send "
-    "https://www.googleapis.com/auth/gmail.readonly"
+    "https://www.googleapis.com/auth/gmail.readonly "
+    "https://www.googleapis.com/auth/calendar.events"
 )
 
 

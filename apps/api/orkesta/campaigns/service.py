@@ -89,6 +89,11 @@ def save_mailbox(
     mailbox.access_token = gmail.encrypt(connected.access_token)
     mailbox.token_expires_at = connected.expires_at
     mailbox.status, mailbox.error = "active", None
+    # Si en la pantalla de Google aceptó el calendario, se sincroniza (ver orkesta.calendar).
+    calendar = provider == "gmail" and "auth/calendar" in connected.scopes
+    if calendar and not mailbox.calendar_enabled:
+        mailbox.calendar_sync_token = None
+    mailbox.calendar_enabled, mailbox.calendar_error = calendar, None
     session.flush()
     return mailbox
 
@@ -1343,12 +1348,20 @@ class Scheduler(threading.Thread):
         self.stop_event = threading.Event()
 
     def run(self) -> None:
-        last_purge = 0.0
+        last_purge = last_calendar = 0.0
         while not self.stop_event.wait(self.every):
             try:
                 tick(self.factory)
             except Exception:
                 logger.exception("campaign_tick_failed")
+            if time.monotonic() - last_calendar > 60:
+                last_calendar = time.monotonic()
+                try:
+                    from orkesta.calendar.service import sync_all
+
+                    sync_all(self.factory)  # cada buzón se sincroniza cada 5 minutos
+                except Exception:
+                    logger.exception("calendar_sync_failed")
             try:
                 from orkesta.notifications.service import due_task_reminders
 
