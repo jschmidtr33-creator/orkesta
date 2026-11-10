@@ -241,6 +241,56 @@ def delete_tenant(
     return {"ok": True, "users_removed": removed}
 
 
+class CompanyIn(BaseModel):
+    company: str = Field(min_length=2, max_length=160)
+    email: str = Field(max_length=320)
+    plan: str = "pro"
+
+
+@router.post("/tenants", status_code=201)
+def add_company(
+    body: CompanyIn,
+    request: Request,
+    principal: Annotated[Principal, Depends(require("gestionar_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Crea una empresa cliente con su plan e invita a su administración (enlace + mensaje)."""
+    from orkesta.platform import service as platform
+
+    if body.plan == "demo":
+        return start_demo(DemoStartIn(company=body.company, email=body.email), request,
+                          principal, db)  # fmt: skip
+    if body.plan not in svc.PLANS:
+        raise HTTPException(400, "Ese plan no existe.")
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(400, "Escribe un correo válido.")
+    tenant = Tenant(name=body.company.strip()[:160], slug=platform._unique_slug(db, body.company),
+                    plan=body.plan)  # fmt: skip
+    db.add(tenant)
+    db.flush()
+    set_context(db, tenant_id=tenant.id, user_id=principal.user.id)
+    try:
+        _, token = platform.invite(db, tenant_id=tenant.id, inviter_id=principal.user.id,
+                                   email=email, role="admin", ip=client_ip(request))  # fmt: skip
+    except platform.PlatformError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    link = f"{base}/app/invitacion/{token}"
+    svc.log(db, principal.user, "tenant.created", tenant.name, email=email, plan=body.plan)
+    message = (
+        f"Hola:\n\nTe doy la bienvenida a ORKESTA. Ya está listo el espacio de {tenant.name}.\n\n"
+        f"1. Entra a este enlace y crea tu contraseña: {link}\n"
+        "2. Conecta tu correo en Configuración → Integraciones.\n"
+        "3. Invita a tu equipo desde Configuración → Equipo.\n\n"
+        "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
+    )
+    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link,
+            "trial_ends_at": None, "message": message}  # fmt: skip
+
+
 @router.post("/demos/start", status_code=201)
 def start_demo(
     body: DemoStartIn,
