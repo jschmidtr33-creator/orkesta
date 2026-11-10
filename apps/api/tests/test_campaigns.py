@@ -342,6 +342,8 @@ def test_rich_html_body_signature_and_images(
     up = client.post("/api/email-assets", files={"file": ("banner.png", png, "image/png")})
     assert up.status_code == 201, up.text
     url = up.json()["url"]
+    # Relativa: no depende del dominio del servidor (al cambiar de servidor siguen cargando).
+    assert url.startswith("/t/i/") and url.endswith(".png")
     assert client.get(urlsplit(url).path).content == png
     bad = client.post("/api/email-assets", files={"file": ("x.png", b"<svg/>", "image/png")})
     assert bad.status_code == 400
@@ -379,7 +381,9 @@ def test_rich_html_body_signature_and_images(
         .get_payload(decode=True)
         .decode()
     )
-    assert "<li>Miami</li>" in html and url in html and "Strategic Business Development" in html
+    # En el correo enviado la imagen lleva la dirección pública completa.
+    assert f'src="https://orkesta.test{url}"' in html and f'src="{url}"' not in html
+    assert "<li>Miami</li>" in html and "Strategic Business Development" in html
     assert "https://orkesta.test/t/c/" in html and "cal.com" not in html.split("t/c/")[0][-20:]
     assert "max-width:100%" in html and "alert(1)" not in html
     assert "• Miami" in text and "Jennifer Schmidt" in text

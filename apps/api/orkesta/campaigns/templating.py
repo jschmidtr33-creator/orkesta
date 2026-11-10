@@ -15,6 +15,7 @@ from urllib.parse import quote, urlencode
 import nh3
 
 from orkesta.copywriter.engine import contact_industry, contact_reto
+from orkesta.core import assets
 from orkesta.core.config import get_settings
 
 VARIABLES = {
@@ -178,6 +179,8 @@ def build(
     unsubscribe_url = f"{base}/t/u/{token}" if tracking else ""
     content = body_html + (f'<div style="margin-top:16px">{signature_html}</div>'
                            if signature_html.strip() else "")  # fmt: skip
+    # Las imágenes subidas a ORKESTA viajan con la dirección pública actual.
+    content = assets.absolute(content, base)
     text_body = html_to_text(content)
     if tracking and track_clicks:
         content = _HREF.sub(

@@ -56,7 +56,9 @@ def _color(value: Any, fallback: str) -> str:
 
 
 def _url(value: Any) -> str:
-    text = str(value or "").strip()[:500]
+    from orkesta.core.assets import relative
+
+    text = relative(str(value or "").strip()[:500])
     if text and not text.startswith(("https://", "http://", "/t/i/")):
         raise DesignError("Las imágenes y enlaces deben empezar por https://")
     return text
@@ -70,6 +72,9 @@ def get_brand(session: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
     row = session.get(ProposalBrand, tenant_id)
     tenant = session.get(Tenant, tenant_id)
     data = {**DEFAULT_BRAND, **(row.data if row else {})}
+    from orkesta.core.assets import relative
+
+    data["logo_url"] = relative(data.get("logo_url"))
     data["legal_name"] = data["legal_name"] or (tenant.name if tenant else "")
     return data
 

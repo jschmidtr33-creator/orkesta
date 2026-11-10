@@ -118,13 +118,14 @@ def _with_logos(db: Db, user: User, workspaces: list[dict[str, Any]],
                 tenant_id: uuid.UUID | None) -> None:  # fmt: skip
     """El logo de cada empresa (de su marca de propuestas) para mostrarlo en el menú. Solo se
     leen las empresas de las que la persona es miembro activo."""
+    from orkesta.core.assets import relative
     from orkesta.core.db import set_context
     from orkesta.proposals.models import ProposalBrand
 
     for w in workspaces:
         set_context(db, tenant_id=uuid.UUID(w["id"]), user_id=user.id)
         brand = db.get(ProposalBrand, uuid.UUID(w["id"]))
-        w["logo_url"] = str((brand.data if brand else {}).get("logo_url") or "")
+        w["logo_url"] = relative(str((brand.data if brand else {}).get("logo_url") or ""))
     set_context(db, tenant_id=tenant_id, user_id=user.id)
 
 
