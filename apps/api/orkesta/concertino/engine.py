@@ -131,7 +131,11 @@ def load_facts(session: Session, tenant_id: uuid.UUID) -> dict[str, list[Product
     rows = session.scalars(select(ProductFact).where(
         ProductFact.tenant_id == tenant_id, ProductFact.status == "confirmado")
         .order_by(ProductFact.evidence.desc(), ProductFact.created_at))  # fmt: skip
+    today = datetime.now(UTC).date().isoformat()
     for fact in rows:
+        # Un dato con vigencia vencida (una promoción, un precio especial) deja de usarse solo.
+        if str((fact.meta or {}).get("vigencia") or "9999") < today:
+            continue
         out.setdefault(fact.kind, []).append(fact)
     return out
 
@@ -747,10 +751,28 @@ def advise_strategy(session: Session, ctx: Context) -> dict[str, Any]:
             "next_step": "Busca en Prospección más empresas del sector que mejor responde.", "missing": []}  # fmt: skip
 
 
-def _overlap(question: str, fact: ProductFact) -> int:
-    words = {w for w in fold(question).split() if len(w) > 3}
-    text = fold(f"{fact.title} {fact.detail} {fact.answer}")
-    return sum(1 for w in words if w in text)
+_STOP = frozenset(
+    ["como", "cual", "cuales", "cuanto", "cuanta", "cuantos", "cuesta", "cuestan", "nuestro", "nuestra", "nuestros", "nuestras", "producto", "productos", "para", "esta", "este", "estos", "estas", "tiene", "tienen", "puedo", "puede", "sobre", "entre", "donde", "cuando", "quien", "porque", "desde", "hasta", "tambien", "solo", "algo", "alguna", "algun", "hacer", "decir", "dice", "saber", "quiero", "necesito", "ellos", "ustedes", "tengo", "tenemos", "estan", "hay", "que", "los", "las", "una", "uno", "del", "por", "con", "sus", "mas", "les", "le"]
+)  # fmt: skip
+_PITCH = re.compile(r"\b(presento|presentar|presentacion|pitch|explico|explicar|resumo|resumir)\b")
+
+
+def _terms(text: str) -> set[str]:
+    """Raíces (5 letras) de las palabras con contenido: «entradas» y «entrada» coinciden."""
+    return {w[:5] for w in re.findall(r"[a-z0-9$]+", fold(text)) if len(w) > 2 and w not in _STOP}
+
+
+def _overlap(question: str, fact: ProductFact) -> float:
+    words = _terms(question)
+    if not words:
+        return 0
+    title, rest = _terms(fact.title), _terms(f"{fact.detail} {fact.answer}")
+    score = 3 * len(words & title) + len(words & (rest - title))
+    # Una pregunta frecuente que contiene toda la pregunta va primero.
+    if fact.kind == "pregunta" and title:
+        cover = len(words & title) / len(words)
+        score += 10 if cover == 1 else 2 if cover >= 0.6 else 0
+    return score
 
 
 KIND_LABELS = {"producto": "Qué es", "publico": "Para quién", "problema": "Problema que resuelve",
@@ -761,16 +783,20 @@ KIND_LABELS = {"producto": "Qué es", "publico": "Para quién", "problema": "Pro
 
 def advise_product(session: Session, ctx: Context, question: str) -> dict[str, Any]:
     all_facts = [f for items in ctx.facts.values() for f in items]
-    hits = sorted(
-        (f for f in all_facts if _overlap(question, f)),
-        key=lambda f: _overlap(question, f),
-        reverse=True,
+    # «¿Cómo presento el producto?» pide el discurso armado, no datos sueltos.
+    pitch_only = (
+        bool(_PITCH.search(fold(question))) and len(_terms(_PITCH.sub(" ", fold(question)))) <= 1
     )
+    scored = [] if pitch_only else [(f, _overlap(question, f)) for f in all_facts]
+    best = max((sc for _, sc in scored), default=0)
+    hits = [
+        f for f, sc in sorted(scored, key=lambda x: x[1], reverse=True) if sc >= max(2, best / 3)
+    ]
     if hits:
         items = [f"{KIND_LABELS.get(f.kind, f.kind)}: {f.title}" + (f" — {f.answer or f.detail}" if (f.answer or f.detail) else "")
                  for f in hits[:5]]  # fmt: skip
         return {
-            "summary": "Esto es lo que dice tu ficha del producto:",
+            "summary": "Esto es lo que dice tu ficha:",
             "options": [],
             "tips": [],
             "sections": [{"title": "De la ficha", "items": items}],

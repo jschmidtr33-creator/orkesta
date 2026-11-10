@@ -521,6 +521,94 @@ def import_text(session: Session, *, tenant_id: uuid.UUID, user: User, role: str
     return added
 
 
+META_KEYS = ("tipo", "industria", "area", "vigencia")
+MAX_BULK_TEMPLATES = 40
+
+
+def _bulk_meta(raw: Any) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    for key, value in (raw or {}).items() if isinstance(raw, dict) else ():
+        if key in META_KEYS and isinstance(value, str) and value.strip():
+            meta[key] = value.strip()[:40]
+    if "vigencia" in meta and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", meta["vigencia"]):
+        raise ConcertinoError("La vigencia debe tener el formato AAAA-MM-DD.")
+    if "tipo" in meta and meta["tipo"] not in pb.OBJECTION_BY_CODE:
+        raise ConcertinoError(f"Tipo de objeción desconocido: {meta['tipo']}.")
+    return meta
+
+
+def bulk_import(session: Session, *, tenant_id: uuid.UUID, user: User, role: str | None,
+                data: dict[str, Any]) -> dict[str, int]:  # fmt: skip
+    """Carga un paquete de conocimiento ya revisado (JSON) en la ficha de ESTA empresa y,
+    si trae plantillas, las deja compartidas con su equipo. Solo administración o jefatura.
+    Lo que ya existe (mismo tipo y título, o plantilla del mismo nombre) no se duplica."""
+    from orkesta.library.models import TeamTemplate
+
+    if not can_curate(role):
+        raise ConcertinoError(
+            "Solo la administración o la jefatura pueden cargar conocimiento.", 403
+        )
+    facts = data.get("facts") or []
+    templates = data.get("plantillas") or []
+    if not isinstance(facts, list) or not isinstance(templates, list):
+        raise ConcertinoError("El archivo no tiene el formato esperado.")
+    existing = session.execute(select(ProductFact.kind, ProductFact.title, ProductFact.meta)
+                               .where(ProductFact.tenant_id == tenant_id)).all()  # fmt: skip
+    # Un mismo dato puede repetirse para distintas industrias o áreas.
+    seen = {(k, fold(t), (m or {}).get("industria"), (m or {}).get("area")) for k, t, m in existing}
+    room = MAX_FACTS - len(existing)
+    added = skipped = 0
+    for raw in facts:
+        if not isinstance(raw, dict):
+            raise ConcertinoError("El archivo no tiene el formato esperado.")
+        kind = raw.get("kind")
+        title = _clean(str(raw.get("title") or ""), 300)
+        if kind not in FACT_KINDS or not title:
+            raise ConcertinoError(f"Dato no válido: {title or 'sin título'}.")
+        meta = _bulk_meta(raw.get("meta"))
+        key = (kind, fold(title), meta.get("industria"), meta.get("area"))
+        if key in seen:
+            skipped += 1
+            continue
+        if added >= room:
+            raise ConcertinoError(f"La ficha admite hasta {MAX_FACTS} datos.")
+        seen.add(key)
+        session.add(ProductFact(
+            tenant_id=tenant_id, created_by=user.id, kind=kind, title=title,
+            detail=_clean(str(raw.get("detail") or ""), 4000),
+            answer=_clean(str(raw.get("answer") or ""), 4000),
+            status="confirmado", source="importado",
+            evidence=max(1, min(int(raw.get("prioridad") or 1), 5)),
+            meta=meta,
+        ))  # fmt: skip
+        added += 1
+    names = {fold(n) for n in session.scalars(select(TeamTemplate.name).where(
+        TeamTemplate.tenant_id == tenant_id, TeamTemplate.kind == "campaign",
+        TeamTemplate.shared.is_(True)))}  # fmt: skip
+    created = 0
+    for raw in templates[:MAX_BULK_TEMPLATES]:
+        name = " ".join(str((raw or {}).get("name") or "").split())[:120]
+        steps = []
+        for step in (raw or {}).get("steps") or []:
+            subject = " ".join(str(step.get("subject") or "").split())[:200]
+            body = str(step.get("body") or "").strip()[:8000]
+            if subject and body:
+                steps.append({"subject": subject, "body": body,
+                              "delay_days": max(0, min(int(step.get("delay_days") or 0), 60))})  # fmt: skip
+        if not name or not steps:
+            raise ConcertinoError(f"Plantilla no válida: {name or 'sin nombre'}.")
+        if fold(name) in names:
+            skipped += 1
+            continue
+        names.add(fold(name))
+        session.add(TeamTemplate(tenant_id=tenant_id, created_by=user.id, kind="campaign", name=name,
+                                 description=" ".join(str(raw.get("description") or "").split())[:300],
+                                 payload={"steps": steps}, shared=True))  # fmt: skip
+        created += 1
+    session.flush()
+    return {"added": added, "templates": created, "skipped": skipped}
+
+
 def stats(session: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
     """Cifras para el panel Cerebro y para las jefaturas (nunca el contenido)."""
     from sqlalchemy import func
