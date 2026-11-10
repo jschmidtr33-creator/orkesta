@@ -454,9 +454,39 @@ function Tenants({ me }: { me: Me }) {
   const manage = can(me, "gestionar_empresas");
   const canMerge = manage && me.role === "owner";
   const [merging, setMerging] = useState<TenantRow | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [created, setCreated] = useState<DemoStarted | null>(null);
   return (
     <>
-      <Title title="Empresas" description="Cada espacio de trabajo en ORKESTA, su plan y su uso." />
+      <Title
+        title="Empresas"
+        description="Cada espacio de trabajo en ORKESTA, su plan y su uso."
+        action={
+          manage && (
+            <Button
+              onClick={() => {
+                setCreated(null);
+                setAdding(true);
+              }}
+            >
+              Agregar empresa
+            </Button>
+          )
+        }
+      />
+      {adding && (
+        <AddCompany
+          plans={list.data?.plans ?? {}}
+          onClose={() => setAdding(false)}
+          onDone={(r) => {
+            setAdding(false);
+            setCreated(r);
+            client.invalidateQueries({ queryKey: ["admin-tenants"] });
+            client.invalidateQueries({ queryKey: ["admin-trials"] });
+          }}
+        />
+      )}
+      {created && <DemoReady demo={created} title={`Empresa lista: ${created.name}`} onClose={() => setCreated(null)} />}
       {merging && <MergeDialog source={merging} tenants={list.data?.items ?? []} onClose={() => setMerging(null)} />}
       <Card className="overflow-x-auto p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
@@ -924,6 +954,48 @@ function Demos({ me }: { me: Me }) {
         )}
       </Card>
     </>
+  );
+}
+
+function AddCompany({ plans, onClose, onDone }: { plans: Record<string, string>; onClose: () => void; onDone: (r: DemoStarted) => void }) {
+  const [form, setForm] = useState({ company: "", email: "", plan: "pro" });
+  const add = useMutation({
+    mutationFn: () => api<DemoStarted>("/api/admin/tenants", { method: "POST", json: form }),
+    onSuccess: onDone,
+  });
+  return (
+    <Card className="mb-5">
+      <CardHeader title="Agregar empresa" description="Se crea su espacio con el plan elegido y se invita a su administración. Te damos el enlace y un mensaje listo para enviar." />
+      <form
+        className="grid gap-3 sm:grid-cols-[1fr_1fr_200px]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add.mutate();
+        }}
+      >
+        <TextField label="Empresa" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} required minLength={2} />
+        <TextField label="Correo de quien la administra" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        <label className="text-[13px] font-semibold text-ork-graphite">
+          Plan
+          <select
+            value={form.plan}
+            onChange={(e) => setForm({ ...form, plan: e.target.value })}
+            className="ork-focus mt-1.5 h-11 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] font-normal"
+          >
+            {Object.entries(plans).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
+          <Button type="submit" disabled={add.isPending}>{add.isPending ? "Creando…" : "Crear empresa"}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          {add.error && <Alert>{add.error.message}</Alert>}
+        </div>
+      </form>
+    </Card>
   );
 }
 
@@ -1915,6 +1987,7 @@ const ACTIONS: Record<string, string> = {
   "tenant.plan": "cambió el plan de",
   "tenant.merged": "unió las empresas",
   "tenant.deleted": "eliminó la empresa",
+  "tenant.created": "creó la empresa",
   "tenant.demo_started": "creó la demo de",
   "user.added": "agregó a",
   "user.deleted": "eliminó la cuenta de",

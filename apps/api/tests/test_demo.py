@@ -163,3 +163,22 @@ def test_admin_deletes_a_company_with_all_its_data(
     )
     assert client.post(f"/api/admin/tenants/{mine['id']}/delete",
                        json={"confirm": "ORKESTA"}).status_code == 409  # fmt: skip
+
+
+def test_admin_creates_a_paying_company(client: TestClient, database: tuple[str, str]) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    made = client.post("/api/admin/tenants",
+                       json={"company": "Clínica Norte", "email": "dir@clinicanorte.co", "plan": "pro"})  # fmt: skip
+    assert made.status_code == 201, made.text
+    guest = _new_client(client)
+    ok = guest.post(f"/api/invitations/{made.json()['link'].rsplit('/', 1)[1]}/accept",
+                    json={"full_name": "Directora", "password": PASSWORD})  # fmt: skip
+    ws = ok.json()["workspace"]
+    assert ws["role"] == "admin" and ws["plan"] == "pro" and ws["trial_ends_at"] is None
+    demo = client.post("/api/admin/tenants",
+                       json={"company": "Prueba SAS", "email": "a@prueba.co", "plan": "demo"})  # fmt: skip
+    assert demo.status_code == 201 and demo.json()["trial_ends_at"]
+    assert client.post("/api/admin/tenants",
+                       json={"company": "X", "email": "a@x.co", "plan": "oro"}).status_code in (400, 422)  # fmt: skip
