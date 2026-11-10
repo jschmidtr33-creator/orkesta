@@ -262,13 +262,13 @@ def confirm(import_id: uuid.UUID, body: ConfirmIn, principal: Member, db: Db) ->
 
 @router.get("/imports")
 def imports(principal: Member, db: Db) -> list[dict[str, Any]]:
-    return [_import_dict(r) for r in svc.recent_imports(db, principal.tenant_id)]
+    return [_import_dict(r) for r in svc.recent_imports(db, principal.tenant_id, principal.user.id)]
 
 
 @router.get("/imports/{import_id}")
 def import_status(import_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     try:
-        return _import_dict(svc.get_import(db, principal.tenant_id, import_id))
+        return _import_dict(svc.get_import(db, principal.tenant_id, import_id, principal.user.id))
     except svc.DataError as exc:
         raise _fail(exc) from exc
 
@@ -276,7 +276,7 @@ def import_status(import_id: uuid.UUID, principal: Member, db: Db) -> dict[str, 
 @router.delete("/imports/{import_id}")
 def cancel_import(import_id: uuid.UUID, principal: Member, db: Db) -> dict[str, bool]:
     try:
-        record = svc.get_import(db, principal.tenant_id, import_id)
+        record = svc.get_import(db, principal.tenant_id, import_id, principal.user.id)
     except svc.DataError as exc:
         raise _fail(exc) from exc
     if record.status == "preview":

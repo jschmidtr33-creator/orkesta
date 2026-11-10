@@ -494,6 +494,7 @@ def save_people(
             if not had_email and contact.email and estimated:
                 contact.email_status = "estimado"
             contact.company_id = contact.company_id or company_ids.get(ckey)
+            contact.owner_user_id = contact.owner_user_id or user_id
             merged += 1
         contact.level_code, contact.area_code = classify_title(contact.job_title)
         contact.search_text = search_text(

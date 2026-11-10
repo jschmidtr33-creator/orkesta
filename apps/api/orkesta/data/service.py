@@ -181,7 +181,7 @@ def confirm_import(
     list_id: uuid.UUID | None = None,
     new_list_name: str = "",
 ) -> ImportJob:
-    record = get_import(session, tenant_id, import_id)
+    record = get_import(session, tenant_id, import_id, user_id)
     if record.status != "preview":
         raise DataError("Esta importación ya se confirmó.")
     sheets = {s["name"]: s for s in record.sheets}
@@ -210,9 +210,16 @@ def confirm_import(
     return record
 
 
-def get_import(session: Session, tenant_id: uuid.UUID, import_id: uuid.UUID) -> ImportJob:
+def get_import(
+    session: Session, tenant_id: uuid.UUID, import_id: uuid.UUID, user_id: uuid.UUID | None = None
+) -> ImportJob:
+    """Una importación de la empresa; con ``user_id``, solo si la hizo esa persona."""
     record = session.get(ImportJob, import_id)
-    if record is None or record.tenant_id != tenant_id:
+    if (
+        record is None
+        or record.tenant_id != tenant_id
+        or (user_id is not None and record.created_by != user_id)
+    ):
         raise DataError("Importación no encontrada.", 404)
     return record
 
@@ -514,6 +521,8 @@ def _upsert_chunk(
         constraint="uq_contacts_tenant_id_dedup_key",
         set_={
             "company_id": func.coalesce(table.c.company_id, ex.company_id),
+            # Un contacto antiguo sin dueño pasa a quien lo vuelve a importar.
+            "owner_user_id": func.coalesce(table.c.owner_user_id, ex.owner_user_id),
             "first_name": fill(table.c.first_name, ex.first_name),
             "last_name": fill(table.c.last_name, ex.last_name),
             "job_title": fill(table.c.job_title, ex.job_title),
@@ -1086,11 +1095,18 @@ def contacts_total(session: Session, tenant_id: uuid.UUID) -> int:
     )
 
 
-def recent_imports(session: Session, tenant_id: uuid.UUID, limit: int = 10) -> list[ImportJob]:
+def recent_imports(
+    session: Session, tenant_id: uuid.UUID, user_id: uuid.UUID, limit: int = 10
+) -> list[ImportJob]:
+    """Las importaciones de cada persona son suyas: nadie ve los archivos de otros."""
     return list(
         session.scalars(
             select(ImportJob)
-            .where(ImportJob.tenant_id == tenant_id, ImportJob.status != "preview")
+            .where(
+                ImportJob.tenant_id == tenant_id,
+                ImportJob.created_by == user_id,
+                ImportJob.status != "preview",
+            )
             .order_by(ImportJob.created_at.desc())
             .limit(limit)
         )
