@@ -216,3 +216,50 @@ def test_inicial_plan_keeps_objections(
     got = client.post("/api/concertino/ask", json={"question": "Me dijo que es muy caro"}).json()
     assert got["topic"] == "objecion" and got["options"]
     assert client.get("/api/concertino/info").json()["plan"]["full"] is False
+
+
+def test_bulk_package_stays_in_its_company(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Un paquete de conocimiento revisado se carga en la ficha de una sola empresa: lo usa todo
+    su equipo, no se duplica, respeta la vigencia y deja plantillas compartidas."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    package = {
+        "facts": [
+            {"kind": "precio", "title": "Entrada general: US$740 por los 2 días", "prioridad": 3},
+            {"kind": "precio", "title": "Promoción vencida: US$100", "prioridad": 5,
+             "meta": {"vigencia": "2020-01-01"}},
+            {"kind": "objecion", "title": "Es mucho presupuesto", "meta": {"tipo": "precio"},
+             "answer": "Podemos empezar con un núcleo de 3 a 5 personas clave."},
+        ],
+        "plantillas": [{"name": "Respuesta a cuánto cuesta", "description": "Precio y siguiente paso",
+                        "steps": [{"subject": "{{nombre}}, el valor de la entrada",
+                                   "body": "Hola, {{nombre|}}: la entrada vale US$740.", "delay_days": 0}]}],
+    }  # fmt: skip
+    assert luis.post("/api/concertino/facts/bulk", json=package).status_code == 403
+    r = client.post("/api/concertino/facts/bulk", json=package)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"added": 3, "templates": 1, "skipped": 0}
+    again = client.post("/api/concertino/facts/bulk", json=package).json()
+    assert again == {"added": 0, "templates": 0, "skipped": 4}
+    bad = client.post("/api/concertino/facts/bulk",
+                      json={"facts": [{"kind": "objecion", "title": "x", "meta": {"tipo": "otro"}}]})  # fmt: skip
+    assert bad.status_code == 400
+
+    # Todo el equipo lo usa: la respuesta de la ficha y el precio vigente (no el vencido).
+    advice = luis.post("/api/concertino/ask", json={"question": "Me dijo que es muy caro"}).json()
+    assert "núcleo de 3 a 5 personas" in " ".join(o["text"] for o in advice["options"])
+    product = luis.post("/api/concertino/ask", json={"question": "¿Cuánto vale la entrada?",
+                                                     "mode": "producto"}).json()  # fmt: skip
+    joined = " ".join(i for s in product["sections"] for i in s["items"])
+    assert "US$740" in joined and "US$100" not in joined
+    shared = luis.get("/api/templates?tipo=campaign").json()
+    assert any(t["name"] == "Respuesta a cuánto cuesta" for t in shared)
+
+    # Otra empresa no ve nada.
+    other = TestClient(client.app)
+    register(other, "eva@otra.co")
+    assert other.get("/api/concertino/facts").json()["items"] == []
+    assert other.get("/api/templates?tipo=campaign").json() == []

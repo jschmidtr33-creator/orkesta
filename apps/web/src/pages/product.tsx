@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileUp, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Check, FileUp, PackageOpen, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { AskConcertino } from "../components/Concertino";
 import { Alert, Badge, Button, Card, Modal, PageHeader, SelectField, Spinner, TextField, cx } from "../components/ui";
 import { api } from "../lib/api";
@@ -28,7 +28,8 @@ type Sheet = {
   can_curate: boolean;
 };
 
-const SOURCES: Record<string, string> = { manual: "Escrito por el equipo", campanas: "Aprendido de tus campañas", documento: "Leído de un documento" };
+const SOURCES: Record<string, string> = { manual: "Escrito por el equipo", campanas: "Aprendido de tus campañas", documento: "Leído de un documento", importado: "Cargado desde un paquete revisado" };
+const TODAY = new Date().toISOString().slice(0, 10);
 const ORDER = ["producto", "publico", "problema", "valor", "prueba", "diferencial", "precio", "competidor", "objecion", "pregunta"];
 
 /** La ficha viva del producto: lo que Concertino sabe y usa para asesorar. */
@@ -41,6 +42,19 @@ export function ProductPage() {
   });
   const [adding, setAdding] = useState<{ kind: string; title?: string } | null>(null);
   const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const bulk = useMutation({
+    mutationFn: async (file: File) => {
+      let json: unknown;
+      try {
+        json = JSON.parse(await file.text());
+      } catch {
+        throw new Error("Ese archivo no es un paquete JSON válido.");
+      }
+      return api<{ added: number; templates: number; skipped: number }>("/api/concertino/facts/bulk", { method: "POST", json });
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["concertino-facts"] }),
+  });
   const data = learn.data ?? sheet.data;
   if (sheet.isLoading) return <Spinner label="Abriendo la ficha" />;
   if (sheet.error || !data) return <Alert>{sheet.error?.message ?? "No pude abrir la ficha."}</Alert>;
@@ -60,12 +74,39 @@ export function ProductPage() {
             <Button variant="secondary" size="sm" icon={<FileUp className="size-3.5" aria-hidden />} onClick={() => setImporting(true)}>
               Leer de un documento
             </Button>
+            {data.can_curate && (
+              <>
+                <Button variant="secondary" size="sm" icon={<PackageOpen className="size-3.5" aria-hidden />} loading={bulk.isPending} onClick={() => fileRef.current?.click()}>
+                  Cargar paquete
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  aria-label="Paquete de conocimiento (JSON)"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) bulk.mutate(file);
+                  }}
+                />
+              </>
+            )}
             <Button size="sm" icon={<Sparkles className="size-3.5" aria-hidden />} loading={learn.isPending} onClick={() => learn.mutate()}>
               Aprender de mis campañas
             </Button>
           </div>
         }
       />
+      {bulk.error && <Alert>{bulk.error.message}</Alert>}
+      {bulk.data && (
+        <Alert tone="ok">
+          {`Paquete cargado solo en esta empresa: ${bulk.data.added} dato${bulk.data.added === 1 ? "" : "s"} en la ficha`}
+          {bulk.data.templates ? ` y ${bulk.data.templates} plantilla${bulk.data.templates === 1 ? "" : "s"} compartida${bulk.data.templates === 1 ? "" : "s"} con el equipo` : ""}
+          {bulk.data.skipped ? ` (${bulk.data.skipped} ya estaba${bulk.data.skipped === 1 ? "" : "n"})` : ""}. Todo el equipo ya puede usarlo con Concertino.
+        </Alert>
+      )}
       {learn.data?.learned && (
         <Alert tone="ok">
           {learn.data.learned.added || learn.data.learned.updated
@@ -160,7 +201,13 @@ function FactRow({ fact, canCurate, types }: { fact: Fact; canCurate: boolean; t
           <div className="flex flex-wrap items-center gap-1.5">
             {fact.status === "aprendido" && <Badge tone="violet">{fact.kind_label}</Badge>}
             {typeLabel && fact.kind === "objecion" && fact.title !== typeLabel && <Badge tone="warn">{typeLabel}</Badge>}
-            {fact.evidence > 1 && <Badge>{fact.evidence} veces</Badge>}
+            {fact.evidence > 1 && fact.source !== "importado" && <Badge>{fact.evidence} veces</Badge>}
+            {fact.meta?.industria && <Badge>{fact.meta.industria.replaceAll("_", " ")}</Badge>}
+            {fact.meta?.vigencia && (
+              <Badge tone={fact.meta.vigencia < TODAY ? "warn" : undefined}>
+                {fact.meta.vigencia < TODAY ? "Vencido: Concertino ya no lo usa" : `Vigente hasta ${fact.meta.vigencia.split("-").reverse().join("-")}`}
+              </Badge>
+            )}
           </div>
           <p className="mt-0.5 text-[13.5px] font-semibold text-ork-ink">{fact.title}</p>
           {fact.detail && <p className="text-[12.5px] text-ork-graphite">{fact.detail}</p>}

@@ -47,6 +47,11 @@ class FactIn(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+class BulkIn(BaseModel):
+    facts: list[dict[str, Any]] = Field(default_factory=list, max_length=300)
+    plantillas: list[dict[str, Any]] = Field(default_factory=list, max_length=40)
+
+
 class ImportIn(BaseModel):
     text: str = Field(max_length=60000)
 
@@ -142,6 +147,15 @@ def import_facts(body: ImportIn, principal: Member, db: Db) -> dict[str, int]:
     added = svc.import_text(db, tenant_id=principal.tenant_id, user=principal.user,
                             role=principal.role, text=body.text)  # fmt: skip
     return {"added": added}
+
+
+@router.post("/facts/bulk")
+def bulk_facts(body: BulkIn, principal: Member, db: Db) -> dict[str, int]:
+    try:
+        return svc.bulk_import(db, tenant_id=principal.tenant_id, user=principal.user,
+                               role=principal.role, data=body.model_dump())  # fmt: skip
+    except svc.ConcertinoError as exc:
+        raise _fail(exc) from exc
 
 
 @router.get("/stats")
