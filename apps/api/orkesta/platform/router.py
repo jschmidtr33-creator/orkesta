@@ -114,11 +114,26 @@ class DemoIn(BaseModel):
     consent: bool = False
 
 
+def _with_logos(db: Db, user: User, workspaces: list[dict[str, Any]],
+                tenant_id: uuid.UUID | None) -> None:  # fmt: skip
+    """El logo de cada empresa (de su marca de propuestas) para mostrarlo en el menú. Solo se
+    leen las empresas de las que la persona es miembro activo."""
+    from orkesta.core.db import set_context
+    from orkesta.proposals.models import ProposalBrand
+
+    for w in workspaces:
+        set_context(db, tenant_id=uuid.UUID(w["id"]), user_id=user.id)
+        brand = db.get(ProposalBrand, uuid.UUID(w["id"]))
+        w["logo_url"] = str((brand.data if brand else {}).get("logo_url") or "")
+    set_context(db, tenant_id=tenant_id, user_id=user.id)
+
+
 def _session_payload(db: Db, user: User, tenant_id: uuid.UUID | None) -> dict[str, Any]:
     workspaces = [
         {"id": str(t.id), "name": t.name, "role": m.role, "role_label": ROLE_LABELS[m.role]}
         for m, t in svc.active_memberships(db, user.id)
     ]
+    _with_logos(db, user, workspaces, tenant_id)
     current = next((w for w in workspaces if w["id"] == str(tenant_id)), None)
     return {
         "user": {

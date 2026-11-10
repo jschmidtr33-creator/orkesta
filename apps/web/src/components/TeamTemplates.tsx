@@ -115,14 +115,18 @@ export function TemplatePicker({ kind, value, onChange }: { kind: TemplateKind; 
 
 /** Guardar como plantilla: personal («Guardar como plantilla») o para toda la empresa
  * («Compartir con el equipo»). */
-export function SaveTemplateButton({ kind, sourceId, defaultName }: { kind: TemplateKind; sourceId: string; defaultName: string }) {
+export function SaveTemplateButton({ kind, sourceId, defaultName, beforeSave }: { kind: TemplateKind; sourceId: string; defaultName: string; beforeSave?: () => Promise<unknown> }) {
   const client = useQueryClient();
   const [mode, setMode] = useState<"personal" | "equipo" | null>(null);
   const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState("");
   const shared = mode === "equipo";
   const save = useMutation({
-    mutationFn: () => api<{ id: string; name: string }>("/api/templates", { method: "POST", json: { kind, source_id: sourceId, name, description, shared } }),
+    mutationFn: async () => {
+      // Cambios sin guardar: primero se guardan, así la plantilla lleva lo que se ve.
+      if (beforeSave) await beforeSave();
+      return api<{ id: string; name: string }>("/api/templates", { method: "POST", json: { kind, source_id: sourceId, name, description, shared } });
+    },
     onSuccess: () => client.invalidateQueries({ queryKey: ["team-templates", kind] }),
   });
   const open = (m: "personal" | "equipo") => {

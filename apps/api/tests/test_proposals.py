@@ -122,6 +122,10 @@ def test_brand_design_templates_and_language(client: TestClient) -> None:
     }).json()["brand"]  # fmt: skip
     assert saved["primary"] == "#0F766E" and saved["template"] == "moderna"
     assert client.put("/api/proposal-brand", json={"logo_url": "javascript:x"}).status_code == 400
+    # El logo de la marca queda como logo de la empresa en el menú.
+    session = client.get("/api/auth/session").json()
+    assert session["workspace"]["logo_url"] == "https://cdn.example.com/logo.png"
+    assert session["workspaces"][0]["logo_url"] == "https://cdn.example.com/logo.png"
 
     p = client.post("/api/proposals", json={"deal_id": deal_id}).json()
     assert p["design"]["template"] == "moderna" and p["design"]["language"] == "en"
