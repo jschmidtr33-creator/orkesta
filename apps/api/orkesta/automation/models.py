@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,6 +31,10 @@ class Rule(IdMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Personas que la apagaron para sí: no corre sobre sus contactos ni oportunidades.
+    muted_users: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     trigger: Mapped[str] = mapped_column(String(40), nullable=False)
     conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     actions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)

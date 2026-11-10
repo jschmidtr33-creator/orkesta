@@ -132,3 +132,39 @@ def test_finished_without_reply_waits_and_skips_if_replied(
     assert sorted(r["status"] for r in runs) == ["ok", "skipped"]
     nutrir = next(x for x in client.get("/api/lists").json() if x["name"] == "Nutrir")
     assert nutrir["contacts"] == 1
+
+
+def test_each_person_turns_a_rule_on_or_off_for_their_own_contacts(
+    client: TestClient, session_factory: sessionmaker[Session],
+) -> None:  # fmt: skip
+    """Cada persona apaga o enciende una regla solo para sus contactos; para toda la empresa la
+    activa la administración o la jefatura."""
+    from tests.test_supervision import _join, _pro
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    rule = client.post("/api/automations", json={
+        "trigger": "contact.created",
+        "actions": [{"type": "create_task", "title": "Calificar a {{nombre}}", "due_hours": 2}],
+    }).json()  # fmt: skip
+    # El vendedor no la apaga para todos, pero sí para sí mismo.
+    assert luis.patch(f"/api/automations/{rule['id']}", json={"enabled": False}).status_code == 403
+    off = luis.patch(f"/api/automations/{rule['id']}", json={"mine": False}).json()
+    assert off["on_for_me"] is False and off["enabled"] is True
+    assert client.get("/api/automations").json()["items"][0]["on_for_me"] is True
+
+    his = luis.post("/api/contacts", json={"first_name": "Mario", "last_name": "Paz"}).json()
+    hers = client.post("/api/contacts", json={"first_name": "Rosa", "last_name": "Díaz"}).json()
+    _jobs(session_factory)
+    his_tasks = luis.get("/api/crm/timeline", params={"contacto": his["id"]}).json()
+    assert not any(a["body"] == "Calificar a Mario" for a in his_tasks)
+    her_tasks = client.get("/api/crm/timeline", params={"contacto": hers["id"]}).json()
+    assert any(a["body"] == "Calificar a Rosa" for a in her_tasks)
+
+    # La vuelve a encender para sí: corre de nuevo sobre sus contactos.
+    luis.patch(f"/api/automations/{rule['id']}", json={"mine": True})
+    again = luis.post("/api/contacts", json={"first_name": "Iván", "last_name": "Ruiz"}).json()
+    _jobs(session_factory)
+    tasks = luis.get("/api/crm/timeline", params={"contacto": again["id"]}).json()
+    assert any(a["body"] == "Calificar a Iván" for a in tasks)

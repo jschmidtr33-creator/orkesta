@@ -35,14 +35,16 @@ class RuleIn(BaseModel):
 
 
 class RulePatch(BaseModel):
-    enabled: bool | None = None
+    enabled: bool | None = None  # para toda la empresa (administración o jefatura)
+    mine: bool | None = None  # solo para mis contactos y oportunidades (cualquier persona)
 
 
-def _rule(r: Rule) -> dict[str, Any]:
+def _rule(r: Rule, me: uuid.UUID | None = None) -> dict[str, Any]:
     return {
         "id": str(r.id),
         "name": r.name,
         "enabled": r.enabled,
+        "on_for_me": str(me) not in (r.muted_users or []),
         "trigger": r.trigger,
         "conditions": r.conditions,
         "actions": r.actions,
@@ -72,7 +74,7 @@ def rules(principal: Member, db: Db) -> dict[str, Any]:
     ).all()
     installed = {r.name for r in rows}
     return {
-        "items": [_rule(r) for r in rows],
+        "items": [_rule(r, principal.user.id) for r in rows],
         "triggers": engine.TRIGGERS,
         "actions": engine.ACTIONS,
         "recipes": [
@@ -118,7 +120,7 @@ def create(body: RuleIn, request: Request, principal: Manager, db: Db) -> dict[s
         ip=client_ip(request),
         name=rule.name,
     )
-    return _rule(rule)
+    return _rule(rule, principal.user.id)
 
 
 @router.put("/{rule_id}")
@@ -131,15 +133,23 @@ def replace(rule_id: uuid.UUID, body: RuleIn, principal: Manager, db: Db) -> dic
     for key, value in data.items():
         setattr(rule, key, value)
     rule.enabled = body.enabled
-    return _rule(rule)
+    return _rule(rule, principal.user.id)
 
 
 @router.patch("/{rule_id}")
-def toggle(rule_id: uuid.UUID, body: RulePatch, principal: Manager, db: Db) -> dict[str, Any]:
+def toggle(rule_id: uuid.UUID, body: RulePatch, principal: Member, db: Db) -> dict[str, Any]:
     rule = _get(db, principal, rule_id)
     if body.enabled is not None:
+        if principal.role not in ("admin", "supervisor"):
+            raise HTTPException(
+                403, "Para toda la empresa la activa la administración o la jefatura."
+            )
         rule.enabled = body.enabled
-    return _rule(rule)
+    if body.mine is not None:
+        me = str(principal.user.id)
+        muted = [u for u in (rule.muted_users or []) if u != me]
+        rule.muted_users = muted if body.mine else [*muted, me]
+    return _rule(rule, principal.user.id)
 
 
 @router.delete("/{rule_id}")
@@ -164,7 +174,7 @@ def recipe(key: str, request: Request, principal: Manager, db: Db) -> dict[str, 
         ip=client_ip(request),
         name=rule.name,
     )
-    return _rule(rule)
+    return _rule(rule, principal.user.id)
 
 
 @router.get("/runs")
