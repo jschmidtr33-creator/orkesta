@@ -142,7 +142,10 @@ def load_facts(session: Session, tenant_id: uuid.UUID) -> dict[str, list[Product
 
 def _clean(text: str) -> str:
     text = " ".join((text or "").split()).rstrip(" .;:")
-    if len(text) > 1 and text[0].isupper() and not text[1].isupper():
+    words = text.split(" ")
+    # «Open Finance, …» o «Club Elite» son nombres propios: no se pasan a minúscula.
+    proper = len(words) > 1 and words[1][:1].isupper()
+    if len(text) > 1 and text[0].isupper() and not text[1].isupper() and not proper:
         text = text[0].lower() + text[1:]
     return text
 
