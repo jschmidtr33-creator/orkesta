@@ -92,3 +92,39 @@ def test_orkesta_is_invitation_only(
                        json={"full_name": "Pedro", "password": PASSWORD})  # fmt: skip
     assert ok.status_code == 200 and ok.json()["user"]["can_create_workspace"] is False
     assert outsider.post("/api/workspaces", json={"name": "Otra"}).status_code == 403
+
+
+def test_admin_adds_and_deletes_users(client: TestClient, database: tuple[str, str]) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    demo = client.post("/api/admin/demos/start",
+                       json={"company": "Banco Andino", "email": "laura@bancoandino.co"}).json()  # fmt: skip
+
+    # Sumar a una persona a esa empresa desde el panel.
+    added = client.post("/api/admin/users", json={
+        "email": "pedro@bancoandino.co", "tenant_id": demo["tenant_id"], "role": "vendedor"})  # fmt: skip
+    assert added.status_code == 201, added.text
+    assert "/app/invitacion/" in added.json()["link"]
+    pedro = _new_client(client)
+    ok = pedro.post(f"/api/invitations/{added.json()['link'].rsplit('/', 1)[1]}/accept",
+                    json={"full_name": "Pedro", "password": PASSWORD})  # fmt: skip
+    assert ok.status_code == 200 and ok.json()["workspace"]["role"] == "vendedor"
+    contact = pedro.post("/api/contacts", json={"first_name": "Mario", "email": "m@retail.co"})
+    assert contact.status_code == 201
+
+    users = client.get("/api/admin/users", params={"q": "pedro"}).json()["items"]
+    assert users[0]["workspaces"] == ["Banco Andino (vendedor)"]
+
+    # Eliminarla por completo: pierde el acceso y su trabajo queda en la empresa sin dueño.
+    me = client.get("/api/admin/users", params={"q": "jenn"}).json()["items"][0]
+    assert client.delete(f"/api/admin/users/{me['id']}").status_code == 409
+    gone = client.delete(f"/api/admin/users/{users[0]['id']}")
+    assert gone.status_code == 200, gone.text
+    assert client.get("/api/admin/users", params={"q": "pedro"}).json()["items"] == []
+    assert pedro.get("/api/contacts").status_code == 401
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT owner_user_id FROM orkesta.contacts WHERE first_name = 'Mario'"
+        ).fetchone()
+    assert row is not None and row[0] is None

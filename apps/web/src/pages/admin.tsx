@@ -614,16 +614,45 @@ function UsersPage({ me }: { me: Me }) {
   const refresh = () => client.invalidateQueries({ queryKey: ["admin-users"] });
   const patch = useMutation({ mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => api(`/api/admin/users/${id}`, { method: "PATCH", json: { is_active } }), onSuccess: refresh });
   const logout = useMutation({ mutationFn: (id: string) => api(`/api/admin/users/${id}/logout`, { method: "POST" }), onSuccess: refresh });
+  const remove = useMutation({ mutationFn: (id: string) => api(`/api/admin/users/${id}`, { method: "DELETE" }), onSuccess: refresh });
   const manage = can(me, "gestionar_usuarios");
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<DemoStarted | null>(null);
   return (
     <>
-      <Title title="Usuarios" description="Todas las personas con cuenta en ORKESTA." />
+      <Title
+        title="Usuarios"
+        description="Todas las personas con cuenta en ORKESTA."
+        action={
+          manage && (
+            <Button
+              onClick={() => {
+                setAdded(null);
+                setAdding(true);
+              }}
+            >
+              Agregar usuario
+            </Button>
+          )
+        }
+      />
+      {adding && (
+        <AddUser
+          onClose={() => setAdding(false)}
+          onDone={(r) => {
+            setAdding(false);
+            setAdded(r);
+            refresh();
+          }}
+        />
+      )}
+      {added && <DemoReady demo={added} title={`Acceso listo para ${added.name}`} onClose={() => setAdded(null)} />}
       <Card className="overflow-x-auto p-0">
         <div className="px-5 pt-5">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o correo…" className="ork-focus h-10 w-full max-w-xs rounded-xl border border-ork-line px-3 text-[14px]" />
-          {(patch.error || logout.error) && (
+          {(patch.error || logout.error || remove.error) && (
             <div className="mt-3">
-              <Alert>{(patch.error ?? logout.error)?.message}</Alert>
+              <Alert>{(patch.error ?? logout.error ?? remove.error)?.message}</Alert>
             </div>
           )}
         </div>
@@ -673,6 +702,19 @@ function UsersPage({ me }: { me: Me }) {
                         ) : (
                           <Button size="sm" variant="secondary" onClick={() => patch.mutate({ id: u.id, is_active: true })}>
                             Reactivar
+                          </Button>
+                        )}
+                        {!u.platform_role && (
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() =>
+                              window.confirm(
+                                `¿Eliminar por completo la cuenta de ${u.email}?\n\nPierde el acceso para siempre, se desconecta su correo y se pausan sus campañas activas. Sus contactos, oportunidades y propuestas quedan en la empresa sin dueño para reasignarlos. No se puede deshacer.`,
+                              ) && remove.mutate(u.id)
+                            }
+                          >
+                            Eliminar
                           </Button>
                         )}
                       </div>
@@ -863,14 +905,70 @@ function Demos({ me }: { me: Me }) {
   );
 }
 
-function DemoReady({ demo, onClose }: { demo: DemoStarted; onClose: () => void }) {
+function AddUser({ onClose, onDone }: { onClose: () => void; onDone: (r: DemoStarted) => void }) {
+  const tenants = useQuery({ queryKey: ["admin-tenants", ""], queryFn: () => api<{ items: TenantRow[] }>("/api/admin/tenants?q=") });
+  const [form, setForm] = useState({ email: "", tenant_id: "", role: "vendedor" });
+  const add = useMutation({
+    mutationFn: () => api<{ tenant: string; link: string; message: string; email: string }>("/api/admin/users", { method: "POST", json: form }),
+    onSuccess: (r) => onDone({ name: `${r.email} (${r.tenant})`, link: r.link, message: r.message, trial_ends_at: null }),
+  });
+  return (
+    <Card className="mb-5">
+      <CardHeader title="Agregar usuario" description="Elige la empresa y el rol. Te damos el enlace y un mensaje listo para enviárselo; al entrar crea su contraseña." />
+      <form
+        className="grid gap-3 sm:grid-cols-[1fr_1fr_160px]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add.mutate();
+        }}
+      >
+        <TextField label="Correo" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        <label className="text-[13px] font-semibold text-ork-graphite">
+          Empresa
+          <select
+            required
+            value={form.tenant_id}
+            onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
+            className="ork-focus mt-1.5 h-11 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] font-normal"
+          >
+            <option value="">Selecciona…</option>
+            {(tenants.data?.items ?? []).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[13px] font-semibold text-ork-graphite">
+          Rol
+          <select
+            value={form.role}
+            onChange={(e) => setForm({ ...form, role: e.target.value })}
+            className="ork-focus mt-1.5 h-11 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] font-normal"
+          >
+            <option value="vendedor">Vendedor</option>
+            <option value="supervisor">Jefatura</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </label>
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
+          <Button type="submit" disabled={add.isPending}>{add.isPending ? "Creando…" : "Crear acceso"}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          {add.error && <Alert>{add.error.message}</Alert>}
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+function DemoReady({ demo, onClose, title }: { demo: DemoStarted; onClose: () => void; title?: string }) {
   const [copied, setCopied] = useState("");
   const copy = (what: string, text: string) => {
     void navigator.clipboard?.writeText(text).then(() => setCopied(what));
   };
   return (
     <Card className="mb-5 border-ok/30">
-      <CardHeader title={`Demo lista para ${demo.name}`} description="Envíale este mensaje (por tu correo o WhatsApp). Al entrar crea su contraseña y ya tiene todo activo." />
+      <CardHeader title={title ?? `Demo lista para ${demo.name}`} description="Envíale este mensaje (por tu correo o WhatsApp). Al entrar crea su contraseña y ya tiene todo activo." />
       <textarea readOnly value={demo.message} rows={10} className="w-full rounded-xl border border-ork-line bg-ork-surface/50 p-3 text-[13.5px]" />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button onClick={() => copy("mensaje", demo.message)}>Copiar mensaje</Button>
