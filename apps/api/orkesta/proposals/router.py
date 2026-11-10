@@ -108,15 +108,12 @@ def create_product(body: ProductIn, principal: Member, db: Db) -> dict[str, Any]
 
 
 def _own_product(db: Db, principal: Principal, product_id: uuid.UUID) -> Product:
-    """Cada persona edita solo lo que agregó; los productos sin dueño (anteriores) los
-    administran la administración o la jefatura."""
+    """Cada persona edita solo lo que agregó. Los productos anteriores al cambio no tienen dueño
+    registrado: cualquiera del equipo puede editarlos, y quien lo hace primero queda como dueño."""
     product = db.get(Product, product_id)
     if product is None or product.tenant_id != principal.tenant_id:
         raise HTTPException(404, "Ese producto no existe.")
-    if product.created_by is None:
-        if principal.role not in ("admin", "supervisor"):
-            raise HTTPException(403, "Solo quien agregó este producto puede cambiarlo.")
-    elif product.created_by != principal.user.id:
+    if product.created_by is not None and product.created_by != principal.user.id:
         raise HTTPException(403, "Solo quien agregó este producto puede cambiarlo.")
     return product
 
@@ -127,9 +124,9 @@ def update_product(
 ) -> dict[str, Any]:
     product = _own_product(db, principal, product_id)
     try:
-        return svc.product_dict(
-            svc.save_product(db, principal.tenant_id, body.model_dump(), product)
-        )
+        saved = svc.save_product(db, principal.tenant_id, body.model_dump(), product)
+        saved.created_by = saved.created_by or principal.user.id
+        return svc.product_dict(saved)
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
 

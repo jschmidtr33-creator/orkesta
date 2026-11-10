@@ -601,11 +601,9 @@ export function NewProposalModal({
 
 function Catalog() {
   const { session } = useSession();
-  const isManager = session?.workspace?.role !== "vendedor";
   const me = session?.user.id;
-  // Cada persona edita lo que agregó; lo anterior sin dueño, la administración o la jefatura.
-  const canEdit = (p: Product) =>
-    p.created_by ? p.created_by === me : isManager;
+  // Cada persona edita lo que agregó; lo anterior sin dueño lo edita cualquiera y queda suyo.
+  const canEdit = (p: Product) => !p.created_by || p.created_by === me;
   const client = useQueryClient();
   const products = useProducts();
   const empty = {
