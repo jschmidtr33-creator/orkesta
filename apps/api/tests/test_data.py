@@ -209,8 +209,17 @@ def test_manual_contacts_roles_and_provenance(
         json={"full_name": "Luis", "password": "ClaveSegura2026"},
     )
     assert seller.patch(f"/api/contacts/{contact_id}", json=body).status_code in (403, 404)
-    assert seller.post("/api/contacts/delete", json={"ids": [contact_id]}).status_code == 403
-    assert client.post("/api/contacts/delete", json={"ids": [contact_id]}).json() == {"deleted": 1}
+    assert seller.post("/api/contacts/delete", json={"ids": [contact_id]}).json()["deleted"] == 0
+    # Pero sí edita y borra los suyos.
+    mine = seller.post("/api/contacts", json={"first_name": "Mario", "email": "mario@retail.mx"})
+    mine_id = mine.json()["id"]
+    assert mine.json()["owner_user_id"]
+    fixed = seller.patch(f"/api/contacts/{mine_id}",
+                         json={"first_name": "Mario", "last_name": "Paz", "email": "mario@retail.mx"})  # fmt: skip
+    assert fixed.status_code == 200 and fixed.json()["last_name"] == "Paz"
+    assert seller.post("/api/contacts/delete", json={"ids": [mine_id, contact_id]}).json() == {
+        "deleted": 1, "skipped": 1}  # fmt: skip
+    assert client.post("/api/contacts/delete", json={"ids": [contact_id]}).json()["deleted"] == 1
     with session_factory() as session:
         assert (
             session.scalar(select(func.count()).select_from(DataPoint)) == 0
@@ -258,7 +267,7 @@ def test_contacts_are_isolated_between_companies(
     register(other, "jorge@otra.co", "Otra Empresa")
     assert other.get("/api/contacts").json()["total"] == 0
     assert other.get(f"/api/contacts/{ana_contact}").status_code == 404
-    assert other.post("/api/contacts/delete", json={"ids": [ana_contact]}).json() == {"deleted": 0}
+    assert other.post("/api/contacts/delete", json={"ids": [ana_contact]}).json()["deleted"] == 0
     with session_factory() as session:
         set_context(session, tenant_id=uuid.uuid4())
         assert session.scalar(select(func.count()).select_from(Contact)) == 0

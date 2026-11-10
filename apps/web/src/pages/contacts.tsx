@@ -93,6 +93,7 @@ type Source = {
   obtained_at: string;
 };
 type ContactDetail = ContactRow & {
+  owner_user_id: string | null;
   fields: {
     field: string;
     label: string;
@@ -151,10 +152,9 @@ function useDebounced<T>(value: T, ms = 300): T {
 }
 
 export function ContactsPage() {
-  const { session } = useSession();
-  const canManage = session?.workspace?.role !== "vendedor";
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
+  const [removed, setRemoved] = useState<{ deleted: number; skipped: number } | null>(null);
   const [q, setQ] = useState(params.get("q") ?? "");
   const query = useDebounced(q);
   const filters = {
@@ -201,11 +201,12 @@ export function ContactsPage() {
 
   const remove = useMutation({
     mutationFn: (ids: string[]) =>
-      api<{ deleted: number }>("/api/contacts/delete", {
+      api<{ deleted: number; skipped: number }>("/api/contacts/delete", {
         method: "POST",
         json: { ids },
       }),
-    onSuccess: () => {
+    onSuccess: (r) => {
+      setRemoved(r);
       setSelected(new Set());
       client.invalidateQueries({ queryKey: ["contacts"] });
       client.invalidateQueries({ queryKey: ["lists"] });
@@ -389,8 +390,7 @@ export function ContactsPage() {
               ids={[...selected]}
               onDone={() => setSelected(new Set())}
             />
-            {canManage && (
-              <Button
+            <Button
                 size="sm"
                 variant="danger"
                 loading={remove.isPending}
@@ -406,7 +406,6 @@ export function ContactsPage() {
               >
                 Eliminar
               </Button>
-            )}
             <button
               type="button"
               className="ml-auto text-[13px] text-ork-mist hover:text-ork-ink"
@@ -559,10 +558,23 @@ export function ContactsPage() {
         )}
       </Card>
 
+      {removed && (
+        <div className="mt-3" role="status">
+          <Alert tone={removed.skipped ? "blue" : "ok"}>
+            {removed.deleted === 1 ? "Se eliminó 1 contacto." : `Se eliminaron ${removed.deleted} contactos.`}
+            {removed.skipped > 0 &&
+              ` ${removed.skipped} no se eliminaron porque pertenecen a otra persona del equipo.`}
+          </Alert>
+        </div>
+      )}
       <ContactDrawer
         id={openId}
         onClose={() => setOpenId(null)}
         onEdit={(c) => setEditing(c)}
+        onDeleted={(r) => {
+          setOpenId(null);
+          setRemoved(r);
+        }}
       />
       {editing && (
         <ContactForm
@@ -705,17 +717,33 @@ function ContactDrawer({
   id,
   onClose,
   onEdit,
+  onDeleted,
 }: {
   id: string | null;
   onClose: () => void;
   onEdit: (c: ContactDetail) => void;
+  onDeleted: (r: { deleted: number; skipped: number }) => void;
 }) {
+  const { session } = useSession();
+  const client = useQueryClient();
   const detail = useQuery({
     queryKey: ["contact", id],
     queryFn: () => api<ContactDetail>(`/api/contacts/${id}`),
     enabled: Boolean(id),
   });
   const c = detail.data;
+  // Cada quien edita y borra sus contactos; la administración, cualquiera.
+  const canEdit =
+    !!c && (session?.workspace?.role === "admin" || !c.owner_user_id || c.owner_user_id === session?.user.id);
+  const remove = useMutation({
+    mutationFn: (contactId: string) =>
+      api<{ deleted: number; skipped: number }>("/api/contacts/delete", { method: "POST", json: { ids: [contactId] } }),
+    onSuccess: (r) => {
+      client.invalidateQueries({ queryKey: ["contacts"] });
+      client.invalidateQueries({ queryKey: ["lists"] });
+      onDeleted(r);
+    },
+  });
   return (
     <Dialog.Root open={Boolean(id)} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
@@ -774,14 +802,30 @@ function ContactDrawer({
                     {c.email && (
                       <ScheduleMeeting id={c.id} name={c.full_name} />
                     )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon={<Pencil className="size-3.5" aria-hidden />}
-                      onClick={() => onEdit(c)}
-                    >
-                      Editar
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Pencil className="size-3.5" aria-hidden />}
+                        onClick={() => onEdit(c)}
+                      >
+                        Editar
+                      </Button>
+                    )}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        loading={remove.isPending}
+                        icon={<Trash2 className="size-3.5" aria-hidden />}
+                        onClick={() =>
+                          window.confirm(`¿Eliminar a ${c.full_name}? Esta acción no se puede deshacer.`) &&
+                          remove.mutate(c.id)
+                        }
+                      >
+                        Eliminar
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <dl className="divide-y divide-ork-line">
