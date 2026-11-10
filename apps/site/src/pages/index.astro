@@ -4,21 +4,25 @@ import Base from "../layouts/Base.astro";
 
 // Pantallas reales de ORKESTA con un ejemplo ficticio (Nexa Logística).
 const tour = [
-  { key: "ingresar", tag: "Ingresa", title: "Entras con tu cuenta de Google o tu correo", text: "Cada empresa tiene su propio espacio de trabajo, aislado y seguro." },
+  { key: "ingresar", tag: "Ingresa", title: "Entras con tu cuenta de Google o tu correo", text: "Cada empresa tiene su propio espacio, con su logo, aislado y seguro." },
   { key: "inicio", tag: "Tu día", title: "Lo primero que ves: tus pendientes y las novedades", text: "Tareas de hoy, vencidas, quién respondió y quién abrió tu propuesta." },
   { key: "prospeccion", tag: "Prospecta", title: "Encuentra decisores con filtros inteligentes", text: "Cargo, función, sector y país. Cada lead con su correo, LinkedIn y un puntaje de encaje." },
-  { key: "campana", tag: "Contacta", title: "Campañas desde tu propio buzón, con pruebas A/B", text: "Secuencias que se detienen solas cuando responden y aprenden qué versión funciona mejor." },
-  { key: "respuestas", tag: "Responden", title: "La IA lee cada respuesta y actúa por ti", text: "Quiere reunión, pide información, más adelante, no interesado: oportunidad y tarea creadas solas." },
+  { key: "campana", tag: "Contacta", title: "Campañas desde tu propio buzón, con pruebas A/B", text: "A un equipo entero o a un solo contacto. Se detienen solas cuando responden y aprenden qué versión funciona mejor." },
+  { key: "respuestas", tag: "Responden", title: "La IA lee cada respuesta y actúa por ti", text: "Quiere reunión, pide información, más adelante, no interesado. Con un clic marcas a alguien como no interesado y no se le vuelve a escribir." },
+  { key: "concertino", tag: "Concertino", title: "Tu asesor de ventas redacta contigo", text: "Pídele una secuencia para un cargo e industria, ajústala con «más corto» o «pásalo a WhatsApp» y créala como campaña." },
+  { key: "calendario", tag: "Agenda", title: "Tu Google Calendar dentro de ORKESTA", text: "Lo que agendas aquí aparece en Google y viceversa. Si un lead agenda una reunión, se detiene su secuencia y nace la oportunidad." },
   { key: "crm", tag: "CRM", title: "Pipeline en Kanban con la salud de cada oportunidad", text: "Caliente, tibia o fría según actividad, respuestas y propuesta vista." },
   { key: "tareas", tag: "Seguimiento", title: "Ninguna tarea se te escapa", text: "Recordatorios, vencidas y próximas, conectadas a cada contacto y oportunidad." },
   { key: "pronostico", tag: "Pronóstico", title: "Sabe cuánto vas a cerrar este mes", text: "Pronóstico ponderado con probabilidades que aprende de tus ventas y atribución por campaña." },
-  { key: "automatizacion", tag: "Automatiza", title: "Reglas que trabajan solas", text: "Respondió → oportunidad y tarea. Abrió la propuesta → seguimiento en 24 h. Ganado → onboarding." },
-  { key: "propuesta", tag: "Cierra", title: "Propuestas con tu marca y firma electrónica", text: "Tu cliente firma desde el celular; recibes la constancia en PDF con su huella digital." },
+  { key: "plantillas", tag: "Plantillas", title: "Lo que funciona, listo para reutilizar", text: "Guarda campañas y propuestas solo para ti o compártelas con el equipo, y úsalas en un clic." },
+  { key: "automatizacion", tag: "Automatiza", title: "Reglas que trabajan solas", text: "Respondió → oportunidad y tarea. Abrió la propuesta → seguimiento en 24 h. Cada persona las activa o las apaga para sí." },
+  { key: "propuesta", tag: "Cierra", title: "Propuestas con tu logo y firma electrónica", text: "Tu cliente firma desde el celular; recibes la constancia en PDF con su huella digital." },
 ];
 const flow = [
   ["Prospecta", "Define tu cliente ideal y ORKESTA encuentra a los decisores con correo verificado."],
   ["Contacta", "Concertino redacta la secuencia por cargo e industria y la lanzas desde tu Gmail o Microsoft 365, a un equipo entero o a un solo contacto."],
   ["Responden", "Cada respuesta se clasifica sola y crea la oportunidad con su tarea. ¿Objeción? Concertino te dice cómo responderla."],
+  ["Agenda", "Las reuniones quedan en tu Google Calendar y en ORKESTA, ligadas al contacto y a la oportunidad."],
   ["Da seguimiento", "El CRM te dice qué oportunidades están frías y qué hacer hoy."],
   ["Propone", "Propuestas con tu logo y tus plantillas en minutos; ves cuándo la abren."],
   ["Cierra", "Firma electrónica, pronóstico y atribución: sabes qué campaña te trajo cada venta."],
@@ -31,10 +35,11 @@ const modules = [
   { title: "Plantillas tuyas y del equipo", text: "Guarda campañas y propuestas solo para ti o compártelas: el equipo las elige de una galería y las ajusta.", icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/>' },
   { title: "CRM inteligente", text: "Salud de cada oportunidad, tareas, pronóstico de cierre y atribución por campaña.", icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v8M12 7v5M16 7v10"/>' },
   { title: "Propuestas con tu marca", text: "Tu logo en cada propuesta y en ORKESTA, seguimiento de lectura y firma electrónica con constancia PDF.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
+  { title: "Calendario conectado", text: "Tu Google Calendar en ORKESTA y al revés: agenda con Meet desde la ficha del contacto y detecta las reuniones que agendan tus leads.", icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h3v3H8z"/>' },
   { title: "Equipos con jefaturas", text: "Cada vendedor trabaja lo suyo; la jefatura ve el resumen de su equipo sin tocar nada.", icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.5a5 5 0 0 1 5.5 5"/>' },
   { title: "Automatizaciones", text: "Recetas listas y reglas propias que trabajan en segundo plano por tu equipo.", icon: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>' },
 ];
-const ribbon = ["Concertino", "Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo", "Pruebas A/B", "Plantillas de equipo", "Campañas 1 a 1", "Firma electrónica", "Contactos privados", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
+const ribbon = ["Concertino", "Google Calendar", "Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo", "Pruebas A/B", "Plantillas de equipo", "Campañas 1 a 1", "Firma electrónica", "Contactos privados", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
 const concertino = [
   ["Conversa contigo", "Te saluda por tu nombre, sigue el hilo y te propone cómo seguir. Pregúntale como le preguntarías a un colega."],
   ["Redacta por ti", "Correos y secuencias por cargo e industria, mensajes de WhatsApp y LinkedIn, asuntos, resumen ejecutivo y guion de llamada."],
@@ -79,7 +84,7 @@ const concertino = [
             Tu proceso comercial,<br /><span class="shine">de la prospección a la firma.</span>
           </h1>
           <p class="mx-auto mt-6 max-w-2xl text-[17.5px] leading-relaxed text-white/75">
-            Encuentra decisores, contáctalos desde tu correo, deja que la IA lea sus respuestas, haz seguimiento en el CRM y cierra con propuestas firmadas. Con Concertino, un asesor de ventas con IA propia que redacta y te aconseja en cada paso.
+            Encuentra decisores, contáctalos desde tu correo, deja que la IA lea sus respuestas, agenda en tu calendario, haz seguimiento en el CRM y cierra con propuestas firmadas. Con Concertino, un asesor de ventas con IA propia que redacta y te aconseja en cada paso.
           </p>
           <div class="mt-9 flex flex-wrap justify-center gap-3">
             <a href="#demo" class="ork-gradient rounded-xl px-6 py-3 text-[15px] font-semibold text-white shadow-[0_8px_28px_rgb(79_70_229/0.45)] transition hover:-translate-y-0.5 hover:brightness-110">Solicitar demo</a>
@@ -94,7 +99,7 @@ const concertino = [
                 <span class="size-2.5 rounded-full bg-[#FF5F57]"></span><span class="size-2.5 rounded-full bg-[#FEBC2E]"></span><span class="size-2.5 rounded-full bg-[#28C840]"></span>
                 <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] font-semibold tracking-[0.18em] text-white/55">ORKESTA</span>
               </div>
-              <video class="block aspect-[16/10] w-full bg-ork-night" autoplay muted loop playsinline preload="metadata" poster="/media/recorrido-poster.webp" aria-label="Recorrido por ORKESTA: ingreso, prospección, campañas, CRM, pronóstico, automatizaciones y propuesta firmada">
+              <video class="block aspect-[16/10] w-full bg-ork-night" autoplay muted loop playsinline preload="metadata" poster="/media/recorrido-poster.webp" aria-label="Recorrido por ORKESTA: ingreso, prospección, campañas y respuestas, Concertino redactando una secuencia, calendario, CRM, plantillas, automatizaciones y propuesta firmada">
                 <source src="/media/recorrido.webm" type="video/webm" />
                 <source src="/media/recorrido.mp4" type="video/mp4" />
               </video>

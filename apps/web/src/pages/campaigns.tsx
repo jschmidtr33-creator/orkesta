@@ -2004,9 +2004,20 @@ function Recipients({ campaignId }: { campaignId: string }) {
                   </p>
                 </td>
                 <td className="whitespace-nowrap py-2.5 pr-3">
-                  <Badge tone={RECIPIENT[r.status]?.tone ?? "neutral"}>
-                    {RECIPIENT[r.status]?.label ?? r.status}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={RECIPIENT[r.status]?.tone ?? "neutral"}>{RECIPIENT[r.status]?.label ?? r.status}</Badge>
+                    {r.reply_category !== "no_interesado" && !["bounced", "unsubscribed"].includes(r.status) && (
+                      <button
+                        type="button"
+                        className="ork-focus rounded-full border border-ork-line px-2 py-0.5 text-[11.5px] font-semibold text-ork-graphite hover:border-bad/40 hover:text-bad disabled:opacity-50"
+                        disabled={classify.isPending && classify.variables?.id === r.id}
+                        onClick={() => classify.mutate({ id: r.id, category: "no_interesado" })}
+                        title="Detiene sus correos en tus campañas y lo deja anotado en su historial"
+                      >
+                        No interesado
+                      </button>
+                    )}
+                  </div>
                   {r.error && (
                     <p
                       className={cx(
@@ -2146,19 +2157,6 @@ function Recipients({ campaignId }: { campaignId: string }) {
                   )}
                 </td>
                 <td className="px-5 py-2.5 text-right">
-                  {r.reply_category !== "no_interesado" && !["bounced", "unsubscribed"].includes(r.status) && (
-                    <div className="mb-1 flex justify-end">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        loading={classify.isPending && classify.variables?.id === r.id}
-                        onClick={() => classify.mutate({ id: r.id, category: "no_interesado" })}
-                        title="Detiene sus correos en tus campañas y lo deja anotado en su historial"
-                      >
-                        No interesado
-                      </Button>
-                    </div>
-                  )}
                   {["pending", "active"].includes(r.status) && (
                     <div className="flex justify-end gap-1 whitespace-nowrap">
                       <Button
