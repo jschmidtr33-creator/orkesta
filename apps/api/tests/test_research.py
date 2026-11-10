@@ -557,3 +557,35 @@ def test_account_search(
     assert run["people"] == []
     saved = client.post(f"/api/research/runs/{run['id']}/accounts", json={"ids": [andino["id"]]})
     assert saved.json() == {"saved": 1}
+
+
+def test_company_name_variants_find_people(
+    session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Banco Occidente» escrito así no aparece en los perfiles («Banco de Occidente»)."""
+    from orkesta.core.config import get_settings
+    from orkesta.research import serp
+
+    monkeypatch.setattr(get_settings(), "serper_api_key", "clave-serper")
+    asked: list[str] = []
+
+    def route(request: httpx.Request) -> httpx.Response:
+        q = json.loads(request.content)["q"]
+        asked.append(q)
+        if '"Banco de Occidente"' in q and "(" in q:
+            return httpx.Response(200, json={"organic": [
+                {"title": "Laura Gómez - Directora de Riesgos - Banco de Occidente | LinkedIn",
+                 "link": "https://co.linkedin.com/in/laura-gomez-1", "snippet": "Cali"},
+                {"title": "Mario Paz - Gerente Comercial - Banco de Occidente | LinkedIn",
+                 "link": "https://co.linkedin.com/in/mario-paz-2", "snippet": "Bogotá"},
+            ]})  # fmt: skip
+        return httpx.Response(200, json={"organic": []})
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    hits = serp.decision_makers(
+        fetch.Fetcher(session_factory), serp.SerpStats(), company="Banco Occidente",
+        domain="", country="CO", levels=[], areas=[], pages=2,
+    )  # fmt: skip
+    assert {h.full_name for h in hits} == {"Laura Gómez", "Mario Paz"}
+    assert any('"Banco Occidente"' in q for q in asked)  # primero, como lo escribió
+    assert any("(gerente OR manager)" in q for q in asked)  # ningún nivel queda fuera
