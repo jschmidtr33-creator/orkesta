@@ -822,3 +822,33 @@ def test_campaigns_share_the_mailbox_and_full_companies_are_skipped(
     assert sent["Segunda"] == 1
     # Sin tope por empresa: la campaña sigue enviando a Banco Andino (5 de 6 vueltas).
     assert sent["Banco"] == 5
+
+
+def test_not_interested_stops_the_contact_in_all_my_campaigns(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+) -> None:  # fmt: skip
+    """«No interesado» desde la campaña: no se le vuelve a escribir en mis campañas y queda
+    anotado en su historial."""
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    made = []
+    for name in ("Primera", "Segunda"):
+        c = client.post("/api/campaigns", json={"name": name}).json()
+        client.patch(f"/api/campaigns/{c['id']}", json={
+            "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0},
+                      {"subject": "", "body": "Seguimiento de prueba", "delay_days": 3}],
+            "audience": {"contact_ids": [ids[0]]},
+        })  # fmt: skip
+        assert client.post(f"/api/campaigns/{c['id']}/launch").status_code == 200
+        made.append(c["id"])
+    first = client.get(f"/api/campaigns/{made[0]}/recipients").json()["items"][0]
+    r = client.post(f"/api/campaigns/{made[0]}/recipients/{first['id']}/category",
+                    json={"category": "no_interesado"})  # fmt: skip
+    assert r.status_code == 200 and r.json()["stopped"] == 1
+    now = client.get(f"/api/campaigns/{made[0]}/recipients").json()["items"][0]
+    assert now["reply_category"] == "no_interesado" and now["status"] == "replied"
+    other = client.get(f"/api/campaigns/{made[1]}/recipients").json()["items"][0]
+    assert other["status"] == "skipped" and other["error"] == "Marcado como no interesado"
+    timeline = client.get("/api/crm/timeline", params={"contacto": first["contact_id"]}).json()
+    assert any("no interesado" in a["body"] for a in timeline)
