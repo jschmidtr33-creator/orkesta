@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -278,3 +280,17 @@ def test_catalog_each_person_edits_what_they_added(
     hers = client.post("/api/products", json={"name": "Licencia", "unit_price": 100}).json()["id"]
     assert luis.delete(f"/api/products/{hers}").status_code == 403
     assert luis.delete(f"/api/products/{pid}").status_code == 200
+
+    # Un producto anterior sin dueño: cualquiera lo edita y quien lo edita queda como dueño.
+    from sqlalchemy import update
+
+    from orkesta.core.db import set_context
+    from orkesta.proposals.models import Product
+
+    tenant = client.get("/api/auth/session").json()["workspace"]["id"]
+    with session_factory.begin() as s:
+        set_context(s, tenant_id=uuid.UUID(tenant))
+        s.execute(update(Product).values(created_by=None))
+    claimed = luis.patch(f"/api/products/{hers}", json={"name": "Licencia", "unit_price": 120})
+    assert claimed.status_code == 200 and claimed.json()["created_by"]
+    assert client.patch(f"/api/products/{hers}", json={"name": "Otra"}).status_code == 403
