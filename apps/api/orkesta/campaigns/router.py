@@ -731,8 +731,8 @@ MAX_IMAGE = 3 * 1024 * 1024
 
 
 def _asset_url(request: Request, asset: EmailAsset) -> str:
-    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
-    return f"{base}/t/i/{asset.id}.{IMAGE_TYPES[asset.content_type][1]}"
+    # Relativa: funciona en cualquier dominio. Los correos la completan al enviarse.
+    return f"/t/i/{asset.id}.{IMAGE_TYPES[asset.content_type][1]}"
 
 
 @router.post("/api/email-assets", status_code=201)
