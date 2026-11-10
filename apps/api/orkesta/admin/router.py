@@ -287,7 +287,7 @@ def add_company(
         "3. Invita a tu equipo desde Configuración → Equipo.\n\n"
         "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
     )
-    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link,
+    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link, "email": email,
             "trial_ends_at": None, "message": message}  # fmt: skip
 
 
@@ -331,7 +331,7 @@ def start_demo(
         "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
     )
     ends_iso = tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None
-    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link,
+    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link, "email": email,
             "trial_ends_at": ends_iso, "message": message}  # fmt: skip
 
 
@@ -537,6 +537,56 @@ def delete_user(
     db.flush()
     svc.log(db, principal.user, "user.deleted", email, paused_campaigns=paused)
     return {"ok": True, "paused_campaigns": paused}
+
+
+class AccessMailIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    subject: str = Field(default="Tu acceso a ORKESTA", max_length=200)
+    message: str = Field(min_length=10, max_length=5000)
+
+
+@router.post("/send-access")
+def send_access(
+    body: AccessMailIn,
+    principal: Annotated[Principal, Depends(require(""))],
+    db: Db,
+) -> dict[str, Any]:
+    """Envía el mensaje de acceso desde el buzón que la persona del panel conectó a ORKESTA."""
+    from email.message import EmailMessage
+    from email.utils import formataddr, make_msgid
+
+    from orkesta.campaigns.models import Mailbox
+    from orkesta.campaigns.service import deliver
+
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(400, "Escribe un correo válido.")
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    mailbox = db.scalar(
+        select(Mailbox)
+        .where(Mailbox.tenant_id == principal.tenant_id, Mailbox.user_id == principal.user.id,
+               Mailbox.status == "active")
+        .order_by(Mailbox.created_at).limit(1)
+    )  # fmt: skip
+    if mailbox is None:
+        raise HTTPException(
+            409,
+            "Conecta tu correo en Configuración → Integraciones para enviar el acceso desde "
+            "ORKESTA, o copia el mensaje y envíalo tú.",
+        )
+    msg = EmailMessage()
+    msg["From"] = formataddr((principal.user.full_name or "ORKESTA", mailbox.email))
+    msg["To"] = email
+    msg["Subject"] = body.subject
+    rfc_id = make_msgid(domain=mailbox.email.rsplit("@", 1)[-1])
+    msg["Message-ID"] = rfc_id
+    msg.set_content(body.message)
+    try:
+        deliver(db, mailbox, msg.as_bytes(), None, email, rfc_id)
+    except Exception as exc:  # Gmail, Microsoft 365 o SMTP: el mensaje del proveedor
+        raise HTTPException(502, f"No se pudo enviar desde {mailbox.email}: {exc}") from exc
+    svc.log(db, principal.user, "access.sent", email)
+    return {"ok": True, "from": mailbox.email, "to": email}
 
 
 @router.post("/users/{user_id}/logout")
