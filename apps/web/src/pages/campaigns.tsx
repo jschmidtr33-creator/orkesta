@@ -1375,6 +1375,19 @@ function Recipients({ campaignId }: { campaignId: string }) {
                   )}
                 </td>
                 <td className="px-5 py-2.5 text-right">
+                  {r.reply_category !== "no_interesado" && !["bounced", "unsubscribed"].includes(r.status) && (
+                    <div className="mb-1 flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={classify.isPending && classify.variables?.id === r.id}
+                        onClick={() => classify.mutate({ id: r.id, category: "no_interesado" })}
+                        title="Detiene sus correos en tus campañas y lo deja anotado en su historial"
+                      >
+                        No interesado
+                      </Button>
+                    </div>
+                  )}
                   {["pending", "active"].includes(r.status) && (
                     <div className="flex justify-end gap-1 whitespace-nowrap">
                       <Button size="sm" variant="ghost" onClick={() => stop.mutate({ id: r.id, replied: true })}>

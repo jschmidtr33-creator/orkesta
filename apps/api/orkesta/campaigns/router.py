@@ -675,7 +675,37 @@ def set_reply_category(
         recipient.status, recipient.replied_at, recipient.next_send_at = "replied", svc.now(), None
     svc.handle_reply(db, campaign, recipient, data.category, "", principal.user.id,
                      automatic=False)  # fmt: skip
-    return {"ok": True, "deal_id": str(recipient.deal_id) if recipient.deal_id else None}
+    stopped = 0
+    if data.category == "no_interesado":
+        stopped = _not_interested(db, principal, campaign, recipient)
+    return {"ok": True, "deal_id": str(recipient.deal_id) if recipient.deal_id else None,
+            "stopped": stopped}  # fmt: skip
+
+
+def _not_interested(db: Db, principal: Principal, campaign: Campaign, recipient: Recipient) -> int:
+    """«No interesado»: no se le vuelve a escribir desde ninguna de mis campañas y queda en la
+    historia del contacto."""
+    from orkesta.crm.service import log as crm_log
+
+    others = db.scalars(
+        select(Recipient)
+        .join(Campaign, Campaign.id == Recipient.campaign_id)
+        .where(
+            Recipient.tenant_id == principal.tenant_id,
+            Recipient.contact_id == recipient.contact_id,
+            Recipient.id != recipient.id,
+            Recipient.status.in_(("pending", "active")),
+            Campaign.created_by == principal.user.id,
+        )
+    ).all()
+    for other in others:
+        other.status, other.next_send_at = "skipped", None
+        other.error = "Marcado como no interesado"
+    crm_log(db, tenant_id=principal.tenant_id, kind="note", user_id=principal.user.id,
+            contact_id=recipient.contact_id,
+            body=f"Marcado como no interesado en la campaña «{campaign.name}»"
+                 + (f"; se detuvo en {len(others)} campaña(s) más" if others else ""))  # fmt: skip
+    return len(others)
 
 
 class SuppressionIn(BaseModel):
