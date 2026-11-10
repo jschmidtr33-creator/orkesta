@@ -9,7 +9,7 @@ pertenecer a varias empresas.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -52,6 +52,16 @@ class Tenant(IdMixin, Base):
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     plan: Mapped[str] = mapped_column(String(30), nullable=False, default="inicial")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # Demo para empresas: hasta cuándo dura (plan «demo»). Al vencer, el espacio queda en pausa.
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def trial_expired(self) -> bool:
+        return (
+            self.plan == "demo"
+            and self.trial_ends_at is not None
+            and (self.trial_ends_at <= datetime.now(UTC))
+        )
 
 
 class User(IdMixin, Base):

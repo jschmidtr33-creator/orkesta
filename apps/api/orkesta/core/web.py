@@ -163,6 +163,12 @@ def require_roles(*roles: str) -> Callable[[Principal, Session], Principal]:
                 raise HTTPException(
                     423, "Este espacio de trabajo está suspendido. Escríbenos para reactivarlo."
                 )
+            if principal.tenant.trial_expired:
+                raise HTTPException(
+                    402,
+                    "Tu demo de ORKESTA terminó. Tus datos quedan guardados: escríbenos "
+                    "para contratar y seguir trabajando.",
+                )
             from orkesta.admin.service import app_settings
 
             app = app_settings(db)

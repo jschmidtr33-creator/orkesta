@@ -68,7 +68,7 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
   return (await response.json()) as T;
 }
 
-export type Workspace = { id: string; name: string; role: string; role_label: string; logo_url?: string };
+export type Workspace = { id: string; name: string; role: string; role_label: string; logo_url?: string; plan?: string; trial_ends_at?: string | null };
 
 export type Session = {
   user: { id: string; email: string; full_name: string; platform_admin: boolean; has_password: boolean; job_title?: string; avatar_url?: string | null; can_create_workspace?: boolean };

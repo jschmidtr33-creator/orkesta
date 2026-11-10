@@ -121,6 +121,14 @@ def _offline_mx() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _open_signup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """En producción ORKESTA es solo por invitación; las pruebas crean cuentas libremente."""
+    from orkesta.admin import service as admin
+
+    monkeypatch.setitem(admin.DEFAULT_APP, "signup_open", True)
+
+
+@pytest.fixture(autouse=True)
 def _no_domain_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """Las pruebas escriben a varios contactos de un mismo dominio; el tope por empresa se
     prueba aparte."""

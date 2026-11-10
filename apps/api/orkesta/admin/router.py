@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
@@ -135,6 +136,8 @@ def overview(
 class TenantPatch(BaseModel):
     status: str | None = Field(default=None, pattern="^(active|suspended)$")
     plan: str | None = Field(default=None, max_length=30)
+    extend_days: int | None = Field(default=None, ge=1, le=60)  # alarga la demo
+    end_trial: bool = False  # termina la demo hoy
 
 
 @router.get("/tenants")
@@ -161,8 +164,94 @@ def update_tenant(
         if body.plan not in svc.PLANS:
             raise HTTPException(400, "Plan no válido.")
         svc.log(db, principal.user, "tenant.plan", tenant.name, before=tenant.plan, after=body.plan)
+        if body.plan == "demo" and tenant.plan != "demo":
+            tenant.trial_ends_at = svc.now() + timedelta(days=svc.DEMO_DAYS)
         tenant.plan = body.plan
-    return {"ok": True, "status": tenant.status, "plan": tenant.plan}
+        if body.plan != "demo":
+            tenant.trial_ends_at = None  # pasó a un plan pagado: ya no vence
+    if body.extend_days and tenant.plan == "demo":
+        start = max(tenant.trial_ends_at or svc.now(), svc.now())
+        tenant.trial_ends_at = start + timedelta(days=body.extend_days)
+        svc.log(db, principal.user, "tenant.demo_extended", tenant.name, days=body.extend_days)
+    if body.end_trial and tenant.plan == "demo":
+        tenant.trial_ends_at = svc.now()
+        svc.log(db, principal.user, "tenant.demo_ended", tenant.name)
+    ends = tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None
+    return {"ok": True, "status": tenant.status, "plan": tenant.plan, "trial_ends_at": ends}
+
+
+# --- Demos de 2 semanas para empresas ---------------------------------------------------------
+
+
+class DemoStartIn(BaseModel):
+    company: str = Field(min_length=2, max_length=160)
+    email: str = Field(max_length=320)
+    days: int = Field(default=14, ge=1, le=60)
+    request_id: uuid.UUID | None = None
+
+
+@router.post("/demos/start", status_code=201)
+def start_demo(
+    body: DemoStartIn,
+    request: Request,
+    principal: Annotated[Principal, Depends(require("gestionar_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Crea el espacio de la empresa con todas las funciones por N días e invita a su
+    administración. Devuelve el enlace y un mensaje listo para enviárselo."""
+    from orkesta.platform import service as platform
+
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(400, "Escribe un correo válido.")
+    tenant = Tenant(name=body.company.strip()[:160], slug=platform._unique_slug(db, body.company),
+                    plan="demo", trial_ends_at=svc.now() + timedelta(days=body.days))  # fmt: skip
+    db.add(tenant)
+    db.flush()
+    set_context(db, tenant_id=tenant.id, user_id=principal.user.id)
+    try:
+        _, token = platform.invite(db, tenant_id=tenant.id, inviter_id=principal.user.id,
+                                   email=email, role="admin", ip=client_ip(request))  # fmt: skip
+    except platform.PlatformError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    db.flush()  # la invitación y su registro se guardan dentro del espacio de la demo
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    link = f"{base}/app/invitacion/{token}"
+    ends = tenant.trial_ends_at.strftime("%d-%m-%Y") if tenant.trial_ends_at else ""
+    svc.log(db, principal.user, "tenant.demo_started", tenant.name, email=email, days=body.days)
+    message = (
+        f"Hola:\n\nTe dejo el acceso a tu demo de ORKESTA para {tenant.name}. Tienes {body.days} "
+        f"días con todas las funciones activas (hasta el {ends}): prospección, campañas desde tu "
+        "correo, CRM, propuestas con firma, automatizaciones, calendario y Concertino, el asesor "
+        f"de ventas con IA.\n\n1. Entra a este enlace y crea tu contraseña: {link}\n"
+        "2. Conecta tu correo en Configuración → Integraciones.\n"
+        "3. Invita a tu equipo desde Configuración → Equipo.\n\n"
+        "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
+    )
+    ends_iso = tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None
+    return {"tenant_id": str(tenant.id), "name": tenant.name, "link": link,
+            "trial_ends_at": ends_iso, "message": message}  # fmt: skip
+
+
+@router.get("/trials")
+def trials(
+    principal: Annotated[Principal, Depends(require("ver_empresas"))], db: Db
+) -> list[dict[str, Any]]:
+    """Demos activas y vencidas, con lo que la empresa alcanzó a usar."""
+    rows = db.scalars(select(Tenant).where(Tenant.plan == "demo")
+                      .order_by(Tenant.trial_ends_at.asc().nulls_last())).all()  # fmt: skip
+    out = []
+    now = svc.now()
+    for t in rows:
+        left = (t.trial_ends_at - now).total_seconds() / 86400 if t.trial_ends_at else None
+        out.append({"id": str(t.id), "name": t.name, "created_at": t.created_at.isoformat(),
+                    "trial_ends_at": t.trial_ends_at.isoformat() if t.trial_ends_at else None,
+                    "days_left": max(0, int(left + 0.999)) if left is not None else None,
+                    "expired": t.trial_expired, "status": t.status,
+                    "members": svc._members(db, t.id), "owner": svc._owner(db, t.id),
+                    **svc._tenant_usage(db, t.id)})  # fmt: skip
+    return out
 
 
 class MergeIn(BaseModel):

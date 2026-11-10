@@ -45,9 +45,11 @@ DEFAULT_MATRIX = {
     ],
     "lectura": ["ver_resumen", "ver_empresas", "ver_usuarios", "ver_demos"],
 }
-PLANS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía"}
+PLANS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía",
+         "demo": "Demo (2 semanas)"}  # fmt: skip
+DEMO_DAYS = 14
 DEFAULT_APP: dict[str, Any] = {
-    "signup_open": True,
+    "signup_open": False,  # solo por invitación: cada cliente lo aprueba la dueña
     "maintenance": False,
     "maintenance_message": "Estamos mejorando ORKESTA. Volvemos en unos minutos.",
     "announcement": {"active": False, "text": "", "tone": "blue"},
@@ -56,6 +58,8 @@ DEFAULT_APP: dict[str, Any] = {
         "pro": {"contacts": 50000, "emails_per_day": 300, "users": 15},
         "empresa": {"contacts": 500000, "emails_per_day": 2000, "users": 100},
         "cortesia": {"contacts": 50000, "emails_per_day": 300, "users": 15},
+        # Demo: todas las funciones, con límites de un equipo real que prueba.
+        "demo": {"contacts": 50000, "emails_per_day": 300, "users": 15},
     },
 }
 

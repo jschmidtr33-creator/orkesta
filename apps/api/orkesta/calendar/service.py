@@ -235,7 +235,9 @@ def sync_all(factory: sessionmaker[Session]) -> int:
     """Una vuelta para todas las empresas (la llama el programador cada pocos minutos)."""
     total = 0
     with factory() as session:
-        tenants = list(session.scalars(select(Tenant.id)))
+        tenants = list(session.scalars(select(Tenant.id).where(
+            or_(Tenant.plan != "demo", Tenant.trial_ends_at.is_(None),
+                Tenant.trial_ends_at > now()))))  # fmt: skip
     for tenant_id in tenants:
         with factory.begin() as session:
             set_context(session, tenant_id=tenant_id)

@@ -18,6 +18,7 @@ import {
   Radar,
   Settings,
   ShieldCheck,
+  Sparkles,
   Sun,
   Users,
   UsersRound,
@@ -27,7 +28,7 @@ import {
 import { useTheme, type Theme } from "../lib/theme";
 import { useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
-import { api, type Session } from "../lib/api";
+import { api, type Session, type Workspace } from "../lib/api";
 import { useSession } from "../lib/session";
 import { ConcertinoProvider } from "./Concertino";
 import { NotificationBell } from "./Notifications";
@@ -319,10 +320,58 @@ export function AppLayout() {
         </div>
         <NewVersionBanner />
         <Announcement />
-        <ConcertinoProvider>
-          <Outlet />
-        </ConcertinoProvider>
+        {trialEnded(session.workspace) ? (
+          <TrialEnded name={session.workspace.name} />
+        ) : (
+          <>
+            <TrialBanner workspace={session.workspace} />
+            <ConcertinoProvider>
+              <Outlet />
+            </ConcertinoProvider>
+          </>
+        )}
       </main>
+    </div>
+  );
+}
+
+function trialEnded(w: Workspace): boolean {
+  return w.plan === "demo" && !!w.trial_ends_at && new Date(w.trial_ends_at) <= new Date();
+}
+
+/** Demo de 2 semanas: cuántos días quedan, con todo activo. */
+function TrialBanner({ workspace }: { workspace: Workspace }) {
+  if (workspace.plan !== "demo" || !workspace.trial_ends_at) return null;
+  const ends = new Date(workspace.trial_ends_at);
+  const days = Math.max(1, Math.ceil((ends.getTime() - Date.now()) / 86_400_000));
+  const date = ends.toLocaleDateString("es", { day: "numeric", month: "long" });
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-ork-blue/20 bg-ork-blue/5 px-4 py-2.5 text-[13.5px] text-ork-graphite">
+      <Sparkles className="size-4 shrink-0 text-ork-blue" />
+      <span>
+        <strong className="text-ork-ink">Demo de ORKESTA:</strong>{" "}
+        {days === 1 ? "queda 1 día" : `quedan ${days} días`} (hasta el {date}) con todas las funciones activas.
+      </span>
+    </div>
+  );
+}
+
+/** La demo terminó: el trabajo queda guardado y vuelve tal cual al contratar. */
+function TrialEnded({ name }: { name: string }) {
+  return (
+    <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-ork-line bg-ork-card p-8 text-center shadow-sm">
+      <Sparkles className="mx-auto size-8 text-ork-blue" />
+      <h1 className="mt-4 text-[22px] font-semibold text-ork-ink">Tu demo de ORKESTA terminó</h1>
+      <p className="mt-2 text-[14.5px] text-ork-graphite">
+        Gracias por probar ORKESTA en {name}. Todo lo que hiciste (contactos, campañas, propuestas y
+        conversaciones) queda guardado y vuelve tal cual apenas contraten un plan.
+      </p>
+      <a
+        href="/#demo"
+        className="ork-focus mt-6 inline-flex h-10 items-center rounded-xl bg-ork-blue px-5 text-[14px] font-semibold text-white hover:opacity-90"
+      >
+        Hablar con ORKESTA para contratar
+      </a>
     </div>
   );
 }
