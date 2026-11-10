@@ -11,7 +11,25 @@ const GOOGLE_ERRORS: Record<string, string> = {
   google_cancelado: "Cancelaste el inicio de sesión con Google.",
   google: "Google no confirmó el inicio de sesión. Inténtalo de nuevo.",
   cuenta_inactiva: "Tu cuenta está desactivada. Habla con tu administrador.",
+  registro_cerrado: "Esa cuenta no tiene acceso. ORKESTA funciona solo por invitación: solicita una demo y te enviaremos el acceso.",
 };
+
+function useSignupOpen(): boolean | undefined {
+  const config = useQuery({ queryKey: ["auth-config"], queryFn: () => api<{ google: boolean; signup_open: boolean }>("/api/auth/config") });
+  return config.data?.signup_open;
+}
+
+function InvitationOnly() {
+  return (
+    <div className="rounded-2xl border border-ork-line bg-ork-surface/60 p-5 text-[14px] text-ork-graphite">
+      <p className="font-semibold text-ork-ink">ORKESTA funciona solo por invitación.</p>
+      <p className="mt-1">Cada empresa recibe su acceso cuando contrata o cuando le habilitamos una demo. Si te invitaron, abre el enlace que te llegó.</p>
+      <a href="/#demo" className="ork-focus mt-4 inline-flex h-10 items-center rounded-xl bg-ork-blue px-4 text-[14px] font-semibold text-white hover:opacity-90">
+        Solicitar una demo
+      </a>
+    </div>
+  );
+}
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -160,6 +178,7 @@ export function LoginPage() {
       </AuthLayout>
     );
   const googleError = GOOGLE_ERRORS[params.get("error") ?? ""];
+  const signupOpen = useSignupOpen();
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit.mutate(form);
@@ -180,9 +199,15 @@ export function LoginPage() {
       </form>
       <p className="mt-6 text-center text-[14px] text-ork-mist">
         ¿Tu empresa aún no usa ORKESTA?{" "}
-        <Link to="/registro" className="font-semibold text-ork-blue hover:underline">
-          Crea tu espacio de trabajo
-        </Link>
+        {signupOpen ? (
+          <Link to="/registro" className="font-semibold text-ork-blue hover:underline">
+            Crea tu espacio de trabajo
+          </Link>
+        ) : (
+          <a href="/#demo" className="font-semibold text-ork-blue hover:underline">
+            Solicita una demo
+          </a>
+        )}
       </p>
     </AuthLayout>
   );
@@ -192,7 +217,21 @@ export function RegisterPage() {
   const { session } = useSession();
   const { submit } = useAuthSubmit("/api/auth/register");
   const [form, setForm] = useState({ company: "", full_name: "", email: "", password: "" });
+  const signupOpen = useSignupOpen();
   if (session) return <Navigate to="/" replace />;
+  if (signupOpen === false)
+    return (
+      <AuthLayout>
+        <h2 className="mb-6 text-[26px] font-bold tracking-tight text-ork-ink">Acceso a ORKESTA</h2>
+        <InvitationOnly />
+        <p className="mt-6 text-center text-[14px] text-ork-mist">
+          ¿Ya tienes cuenta?{" "}
+          <Link to="/ingresar" className="font-semibold text-ork-blue hover:underline">
+            Ingresa
+          </Link>
+        </p>
+      </AuthLayout>
+    );
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   return (
     <AuthLayout>
@@ -250,6 +289,15 @@ export function WelcomePage() {
     },
   });
   if (!session) return <Navigate to="/ingresar" replace />;
+  if (!session.user.can_create_workspace)
+    return (
+      <AuthLayout>
+        <h2 className="mb-6 text-[26px] font-bold tracking-tight text-ork-ink">
+          Hola{session.user.full_name ? `, ${session.user.full_name.split(" ")[0]}` : ""}
+        </h2>
+        <InvitationOnly />
+      </AuthLayout>
+    );
   return (
     <AuthLayout>
       <h2 className="text-[26px] font-bold tracking-tight text-ork-ink">

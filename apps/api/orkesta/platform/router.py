@@ -114,6 +114,10 @@ class DemoIn(BaseModel):
     consent: bool = False
 
 
+def _trial(t: Tenant) -> str | None:
+    return t.trial_ends_at.isoformat() if t.plan == "demo" and t.trial_ends_at else None
+
+
 def _with_logos(db: Db, user: User, workspaces: list[dict[str, Any]],
                 tenant_id: uuid.UUID | None) -> None:  # fmt: skip
     """El logo de cada empresa (de su marca de propuestas) para mostrarlo en el menú. Solo se
@@ -131,7 +135,14 @@ def _with_logos(db: Db, user: User, workspaces: list[dict[str, Any]],
 
 def _session_payload(db: Db, user: User, tenant_id: uuid.UUID | None) -> dict[str, Any]:
     workspaces = [
-        {"id": str(t.id), "name": t.name, "role": m.role, "role_label": ROLE_LABELS[m.role]}
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "role": m.role,
+            "role_label": ROLE_LABELS[m.role],
+            "plan": t.plan,
+            "trial_ends_at": _trial(t),
+        }
         for m, t in svc.active_memberships(db, user.id)
     ]
     _with_logos(db, user, workspaces, tenant_id)
@@ -145,7 +156,8 @@ def _session_payload(db: Db, user: User, tenant_id: uuid.UUID | None) -> dict[st
             "avatar_url": user.avatar_url,
             "platform_admin": user.is_platform_admin,
             "has_password": user.password_hash is not None,
-            "can_create_workspace": svc.many_workspaces(user) or not workspaces,
+            "can_create_workspace": svc.many_workspaces(user)
+            or (not workspaces and not _signup_closed(db)),
         },
         "workspace": current,
         "workspaces": workspaces,
@@ -182,6 +194,12 @@ def auth_config(db: Db) -> dict[str, Any]:
     }
 
 
+CLOSED = (
+    "ORKESTA funciona solo por invitación. "
+    "Solicita una demo y te enviaremos el acceso de tu empresa."
+)
+
+
 def _signup_closed(db: Db) -> bool:
     from orkesta.admin.service import app_settings
 
@@ -193,7 +211,7 @@ def register(body: RegisterIn, request: Request, response: Response, db: Db) -> 
     ip = client_ip(request)
     register_limiter.check(ip or "?")
     if _signup_closed(db):
-        raise HTTPException(403, "El registro de nuevas cuentas está cerrado por ahora.")
+        raise HTTPException(403, CLOSED)
     try:
         user, tenant = svc.register(
             db, company=body.company, full_name=body.full_name, email=body.email,
@@ -383,6 +401,8 @@ def google_callback(
 def create_workspace(
     body: WorkspaceIn, request: Request, response: Response, principal: CurrentPrincipal, db: Db
 ) -> dict[str, Any]:
+    if _signup_closed(db) and not svc.many_workspaces(principal.user):
+        raise HTTPException(403, CLOSED)
     try:
         svc.ensure_single_workspace(db, principal.user)
         tenant = svc.create_tenant(db, owner=principal.user, name=body.name, ip=client_ip(request))

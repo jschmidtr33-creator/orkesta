@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit
@@ -1294,7 +1294,10 @@ def tick(factory: sessionmaker[Session]) -> int:
     toca) y revisión de respuestas. Un candado global evita que dos procesos envíen a la vez."""
     sent = 0
     with factory() as session:
-        tenants = list(session.scalars(select(Tenant.id)))
+        # Una demo vencida queda en pausa: no envía ni revisa respuestas hasta que contrate.
+        tenants = list(session.scalars(select(Tenant.id).where(
+            or_(Tenant.plan != "demo", Tenant.trial_ends_at.is_(None),
+                Tenant.trial_ends_at > now()))))  # fmt: skip
     for tenant_id in tenants:
         with factory.begin() as session:
             got = session.scalar(

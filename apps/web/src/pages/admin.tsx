@@ -40,7 +40,7 @@ const NAV: Item[] = [
   { to: "/admin", label: "Resumen", icon: LayoutDashboard, perm: "ver_resumen", end: true },
   { to: "/admin/empresas", label: "Empresas", icon: Building2, perm: "ver_empresas" },
   { to: "/admin/usuarios", label: "Usuarios", icon: Users, perm: "ver_usuarios" },
-  { to: "/admin/demos", label: "Solicitudes de demo", icon: Inbox, perm: "ver_demos" },
+  { to: "/admin/demos", label: "Demos", icon: Inbox, perm: "ver_demos" },
   { to: "/admin/configuracion", label: "Configuración", icon: Settings2, perm: "configuracion" },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug, perm: "integraciones" },
   { to: "/admin/directorio", label: "Directorio de empresas", icon: Database, perm: "directorio" },
@@ -105,7 +105,7 @@ export function AdminApp() {
         <Route index element={<Guard me={me.data} perm="ver_resumen"><Overview /></Guard>} />
         <Route path="empresas" element={<Guard me={me.data} perm="ver_empresas"><Tenants me={me.data!} /></Guard>} />
         <Route path="usuarios" element={<Guard me={me.data} perm="ver_usuarios"><UsersPage me={me.data!} /></Guard>} />
-        <Route path="demos" element={<Guard me={me.data} perm="ver_demos"><Demos /></Guard>} />
+        <Route path="demos" element={<Guard me={me.data} perm="ver_demos"><Demos me={me.data!} /></Guard>} />
         <Route path="configuracion" element={<Guard me={me.data} perm="configuracion"><SettingsPage /></Guard>} />
         <Route path="integraciones" element={<Guard me={me.data} perm="integraciones"><Integrations /></Guard>} />
         <Route path="directorio" element={<Guard me={me.data} perm="directorio"><DirectoryPage /></Guard>} />
@@ -690,40 +690,195 @@ function UsersPage({ me }: { me: Me }) {
 
 // --- Demos e integraciones ------------------------------------------------------------------
 
-function Demos() {
-  const q = useQuery({ queryKey: ["admin-demos"], queryFn: () => api<{ id: string; at: string; name: string; email: string; company: string; job_title: string; country: string; message: string }[]>("/api/admin/demos") });
+type DemoRequest = { id: string; at: string; name: string; email: string; company: string; job_title: string; country: string; message: string };
+type Trial = { id: string; name: string; created_at: string; trial_ends_at: string | null; days_left: number | null; expired: boolean; status: string; members: number; owner: { name: string; email: string } | null; contacts: number; emails_sent: number; deals: number; proposals: number };
+type DemoStarted = { name: string; link: string; trial_ends_at: string | null; message: string };
+
+function Demos({ me }: { me: Me }) {
+  const client = useQueryClient();
+  const manage = can(me, "gestionar_empresas");
+  const requests = useQuery({ queryKey: ["admin-demos"], queryFn: () => api<DemoRequest[]>("/api/admin/demos") });
+  const trials = useQuery({ queryKey: ["admin-trials"], queryFn: () => api<Trial[]>("/api/admin/trials"), enabled: can(me, "ver_empresas") });
+  const [form, setForm] = useState<{ company: string; email: string; days: number; request_id?: string } | null>(null);
+  const [started, setStarted] = useState<DemoStarted | null>(null);
+  const start = useMutation({
+    mutationFn: (json: { company: string; email: string; days: number; request_id?: string }) => api<DemoStarted>("/api/admin/demos/start", { method: "POST", json }),
+    onSuccess: (r) => {
+      setStarted(r);
+      setForm(null);
+      client.invalidateQueries({ queryKey: ["admin-trials"] });
+      client.invalidateQueries({ queryKey: ["admin-tenants"] });
+    },
+  });
+  const patch = useMutation({
+    mutationFn: ({ id, ...json }: { id: string; extend_days?: number; end_trial?: boolean; plan?: string }) => api(`/api/admin/tenants/${id}`, { method: "PATCH", json }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin-trials"] }),
+  });
+  const open = (r?: DemoRequest) => {
+    start.reset();
+    setStarted(null);
+    setForm(r ? { company: r.company, email: r.email, days: 14, request_id: r.id } : { company: "", email: "", days: 14 });
+  };
   return (
     <>
-      <Title title="Solicitudes de demo" description="Lo que llega desde el formulario del sitio web." />
+      <Title
+        title="Demos"
+        description="Demos de 2 semanas para empresas: acceso completo a todas las funciones de ORKESTA. Al vencer, el espacio se pausa y sus datos quedan guardados."
+        action={manage && <Button onClick={() => open()}>Crear demo</Button>}
+      />
+      {form && (
+        <Card className="mb-5">
+          <CardHeader title="Nueva demo" description="Se crea el espacio de la empresa y se invita a su administración. Te damos el enlace y un mensaje listo para enviar." />
+          <form
+            className="grid gap-3 sm:grid-cols-[1fr_1fr_140px]"
+            onSubmit={(e) => {
+              e.preventDefault();
+              start.mutate(form);
+            }}
+          >
+            <TextField label="Empresa" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} required minLength={2} />
+            <TextField label="Correo de quien la administra" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            <TextField label="Días" type="number" min={1} max={60} value={form.days} onChange={(e) => setForm({ ...form, days: Number(e.target.value) || 14 })} />
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-3">
+              <Button type="submit" disabled={start.isPending}>{start.isPending ? "Creando…" : "Crear demo"}</Button>
+              <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancelar</Button>
+              {start.error && <Alert>{start.error.message}</Alert>}
+            </div>
+          </form>
+        </Card>
+      )}
+      {started && <DemoReady demo={started} onClose={() => setStarted(null)} />}
+
+      {can(me, "ver_empresas") && (
+        <Card className="mb-5 overflow-x-auto p-0">
+          <div className="px-5 pt-5">
+            <CardHeader title="Demos en curso" description="Días que quedan y lo que cada empresa alcanzó a usar." />
+            {patch.error && <Alert>{patch.error.message}</Alert>}
+          </div>
+          {trials.isLoading ? (
+            <Spinner />
+          ) : !trials.data?.length ? (
+            <p className="px-5 pb-6 text-[13.5px] text-ork-mist">Todavía no hay demos. Crea una arriba o desde una solicitud.</p>
+          ) : (
+            <table className="w-full min-w-[900px] text-left text-[13.5px]">
+              <thead className="border-y border-ork-line bg-ork-surface/60 text-[11.5px] uppercase tracking-wide text-ork-mist">
+                <tr>
+                  <th className="px-5 py-2.5 font-semibold">Empresa</th>
+                  <th className="py-2.5 font-semibold">Vence</th>
+                  <th className="py-2.5 text-right font-semibold">Usuarios</th>
+                  <th className="py-2.5 text-right font-semibold">Contactos</th>
+                  <th className="py-2.5 text-right font-semibold">Correos</th>
+                  <th className="py-2.5 text-right font-semibold">Propuestas</th>
+                  <th className="px-5 py-2.5" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ork-line">
+                {trials.data.map((t) => (
+                  <tr key={t.id}>
+                    <td className="px-5 py-3">
+                      <p className="font-semibold text-ork-ink">{t.name}</p>
+                      <p className="text-[12px] text-ork-mist">{t.owner ? `${t.owner.name} · ${t.owner.email}` : "Invitación sin aceptar"}</p>
+                    </td>
+                    <td className="py-3">
+                      {t.expired ? (
+                        <Badge tone="bad">Vencida</Badge>
+                      ) : (
+                        <Badge tone={(t.days_left ?? 0) <= 3 ? "warn" : "ok"}>{t.days_left === 1 ? "Queda 1 día" : `Quedan ${t.days_left} días`}</Badge>
+                      )}
+                      {t.trial_ends_at && <p className="mt-1 text-[12px] text-ork-mist">{new Date(t.trial_ends_at).toLocaleDateString("es", { day: "numeric", month: "short" })}</p>}
+                    </td>
+                    <td className="py-3 text-right">{t.members}</td>
+                    <td className="py-3 text-right">{n(t.contacts)}</td>
+                    <td className="py-3 text-right">{n(t.emails_sent)}</td>
+                    <td className="py-3 text-right">{n(t.proposals)}</td>
+                    <td className="space-x-2 whitespace-nowrap px-5 py-3 text-right">
+                      {manage && (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => patch.mutate({ id: t.id, extend_days: 7 })}>
+                            +7 días
+                          </Button>
+                          <select
+                            value=""
+                            onChange={(e) => e.target.value && window.confirm(`¿Pasar «${t.name}» al plan ${e.target.selectedOptions[0].text}? La demo deja de vencer.`) && patch.mutate({ id: t.id, plan: e.target.value })}
+                            className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[12.5px]"
+                          >
+                            <option value="">Convertir a plan…</option>
+                            <option value="inicial">Inicial</option>
+                            <option value="pro">Pro</option>
+                            <option value="empresa">Empresa</option>
+                          </select>
+                          {!t.expired && (
+                            <Button size="sm" variant="danger" onClick={() => window.confirm(`¿Terminar hoy la demo de «${t.name}»? Sus datos quedan guardados.`) && patch.mutate({ id: t.id, end_trial: true })}>
+                              Terminar
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
+
       <Card>
-        {q.isLoading ? (
+        <CardHeader title="Solicitudes del sitio web" description="Lo que llega desde el formulario de la landing." />
+        {requests.isLoading ? (
           <Spinner />
-        ) : !q.data?.length ? (
+        ) : !requests.data?.length ? (
           <p className="py-8 text-center text-[13.5px] text-ork-mist">Todavía no hay solicitudes.</p>
         ) : (
           <ul className="divide-y divide-ork-line">
-            {q.data.map((d) => (
-              <li key={d.id} className="py-3 text-[13.5px]">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold text-ork-ink">
-                    {d.name} · {d.company}
+            {requests.data.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-start justify-between gap-3 py-3 text-[13.5px]">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-semibold text-ork-ink">
+                      {d.name} · {d.company}
+                    </p>
+                    <span className="text-[12px] text-ork-mist">{formatWhen(d.at)}</span>
+                  </div>
+                  <p className="text-ork-graphite">
+                    <a href={`mailto:${d.email}`} className="text-ork-blue hover:underline">
+                      {d.email}
+                    </a>
+                    {d.job_title && ` · ${d.job_title}`}
+                    {d.country && ` · ${d.country}`}
                   </p>
-                  <span className="text-[12px] text-ork-mist">{formatWhen(d.at)}</span>
+                  {d.message && <p className="mt-1 text-ork-mist">«{d.message}»</p>}
                 </div>
-                <p className="text-ork-graphite">
-                  <a href={`mailto:${d.email}`} className="text-ork-blue hover:underline">
-                    {d.email}
-                  </a>
-                  {d.job_title && ` · ${d.job_title}`}
-                  {d.country && ` · ${d.country}`}
-                </p>
-                {d.message && <p className="mt-1 text-ork-mist">«{d.message}»</p>}
+                {manage && (
+                  <Button size="sm" variant="secondary" onClick={() => open(d)}>
+                    Crear demo
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </Card>
     </>
+  );
+}
+
+function DemoReady({ demo, onClose }: { demo: DemoStarted; onClose: () => void }) {
+  const [copied, setCopied] = useState("");
+  const copy = (what: string, text: string) => {
+    void navigator.clipboard?.writeText(text).then(() => setCopied(what));
+  };
+  return (
+    <Card className="mb-5 border-ok/30">
+      <CardHeader title={`Demo lista para ${demo.name}`} description="Envíale este mensaje (por tu correo o WhatsApp). Al entrar crea su contraseña y ya tiene todo activo." />
+      <textarea readOnly value={demo.message} rows={10} className="w-full rounded-xl border border-ork-line bg-ork-surface/50 p-3 text-[13.5px]" />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={() => copy("mensaje", demo.message)}>Copiar mensaje</Button>
+        <Button variant="secondary" onClick={() => copy("enlace", demo.link)}>Copiar solo el enlace</Button>
+        <Button variant="secondary" onClick={onClose}>Listo</Button>
+        {copied && <span className="text-[13px] text-ok">Copiado el {copied}.</span>}
+      </div>
+    </Card>
   );
 }
 
@@ -1426,7 +1581,7 @@ function SettingsPage() {
         <Card>
           <CardHeader title="Acceso" />
           <div className="flex flex-col gap-3">
-            <Toggle label="Registro abierto" hint="Si lo apagas, nadie nuevo puede crear cuenta (las invitaciones siguen funcionando)." checked={draft.signup_open} onChange={(v) => setDraft({ ...draft, signup_open: v })} />
+            <Toggle label="Registro abierto" hint="Apagado (recomendado): ORKESTA es solo por invitación; solo entra quien invites desde Demos o Equipo. Encendido: cualquiera puede crear su empresa." checked={draft.signup_open} onChange={(v) => setDraft({ ...draft, signup_open: v })} />
             <Toggle label="Modo mantenimiento" hint="Los clientes ven el mensaje y no pueden usar la app. El equipo de ORKESTA sí entra." checked={draft.maintenance} onChange={(v) => setDraft({ ...draft, maintenance: v })} />
             <TextField label="Mensaje de mantenimiento" value={draft.maintenance_message} onChange={(e) => setDraft({ ...draft, maintenance_message: e.target.value })} />
           </div>

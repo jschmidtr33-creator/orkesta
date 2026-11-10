@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from orkesta.core.db import unscoped
 from orkesta.platform.models import Invitation, Membership, Tenant, User
 
-PLAN_LABELS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía"}
+PLAN_LABELS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía",
+               "demo": "Demo"}  # fmt: skip
 
 
 class LimitError(ValueError):
