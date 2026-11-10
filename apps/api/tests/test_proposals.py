@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
 from tests.conftest import register
 
@@ -255,3 +256,25 @@ def test_options_mode_has_no_total_and_client_picks_one(client: TestClient) -> N
     assert any("Eligió la opción «Plan Pro»" in b for b in timeline)
     copy = client.post(f"/api/proposals/{p['id']}/duplicate").json()
     assert copy["pricing_mode"] == "opciones" and copy["chosen_item"] is None
+
+
+def test_catalog_each_person_edits_what_they_added(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Todo el equipo suma productos al catálogo; cada quien edita y elimina solo los suyos."""
+    from tests.test_supervision import _join, _pro
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    mine = luis.post("/api/products", json={"name": "Asesoría", "unit_price": 300})
+    assert mine.status_code == 201, mine.text
+    pid = mine.json()["id"]
+    assert luis.patch(f"/api/products/{pid}", json={"name": "Asesoría premium",
+                                                    "unit_price": 450}).status_code == 200  # fmt: skip
+    # Ni la administración edita lo que agregó otra persona.
+    assert client.patch(f"/api/products/{pid}", json={"name": "Otro"}).status_code == 403
+    assert client.delete(f"/api/products/{pid}").status_code == 403
+    hers = client.post("/api/products", json={"name": "Licencia", "unit_price": 100}).json()["id"]
+    assert luis.delete(f"/api/products/{hers}").status_code == 403
+    assert luis.delete(f"/api/products/{pid}").status_code == 200
