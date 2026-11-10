@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from orkesta.admin import service as svc
 from orkesta.admin.models import AdminAudit
@@ -351,6 +351,91 @@ def update_user(
         )
     svc.log(db, principal.user, "user.active" if body.is_active else "user.suspended", user.email)
     return {"ok": True}
+
+
+class UserAddIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    tenant_id: uuid.UUID
+    role: str = "vendedor"
+
+
+@router.post("/users", status_code=201)
+def add_user(
+    body: UserAddIn,
+    request: Request,
+    principal: Annotated[Principal, Depends(require("gestionar_usuarios"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Suma una persona a una empresa: crea su invitación y devuelve el enlace para enviárselo."""
+    from orkesta.platform import service as platform
+
+    email = normalize_email(body.email)
+    if "@" not in email:
+        raise HTTPException(400, "Escribe un correo válido.")
+    tenant = db.get(Tenant, body.tenant_id)
+    if tenant is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    set_context(db, tenant_id=tenant.id, user_id=principal.user.id)
+    try:
+        _, token = platform.invite(db, tenant_id=tenant.id, inviter_id=principal.user.id,
+                                   email=email, role=body.role, ip=client_ip(request))  # fmt: skip
+    except platform.PlatformError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    db.flush()  # la invitación se guarda dentro del espacio de esa empresa
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    link = f"{base}/app/invitacion/{token}"
+    svc.log(db, principal.user, "user.added", email, tenant=tenant.name, role=body.role)
+    message = (
+        f"Hola:\n\nTe dejo tu acceso a ORKESTA en {tenant.name}.\n\n"
+        f"1. Entra a este enlace y crea tu contraseña: {link}\n"
+        "2. Conecta tu correo en Configuración → Integraciones.\n\n"
+        "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
+    )
+    return {"email": email, "tenant": tenant.name, "link": link, "message": message}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require("gestionar_usuarios"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Elimina la cuenta por completo. Su trabajo (contactos, oportunidades, propuestas) queda
+    en la empresa sin dueño, para que la administración lo reasigne; sus buzones conectados se
+    borran y sus campañas activas se pausan."""
+    from orkesta.campaigns.models import Campaign, Mailbox
+    from orkesta.core.db import unscoped
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "Ese usuario no existe.")
+    if user.platform_role or user.id == principal.user.id:
+        raise HTTPException(409, "No se puede eliminar una cuenta del equipo de ORKESTA.")
+    email = user.email
+    paused = 0
+    for tid in db.scalars(select(Tenant.id)).all():
+        set_context(db, tenant_id=tid, user_id=principal.user.id)
+        member = db.scalar(
+            select(Membership.id).where(Membership.tenant_id == tid, Membership.user_id == user.id)
+        )
+        if member is None:
+            continue
+        with unscoped(db):
+            result = db.execute(
+                update(Campaign)
+                .where(Campaign.tenant_id == tid, Campaign.created_by == user.id,
+                       Campaign.status == "active")
+                .values(status="paused")
+            )  # fmt: skip
+            paused += int(getattr(result, "rowcount", 0) or 0)
+            db.execute(delete(Mailbox).where(Mailbox.tenant_id == tid, Mailbox.user_id == user.id))
+        db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    db.delete(user)
+    db.flush()
+    svc.log(db, principal.user, "user.deleted", email, paused_campaigns=paused)
+    return {"ok": True, "paused_campaigns": paused}
 
 
 @router.post("/users/{user_id}/logout")
