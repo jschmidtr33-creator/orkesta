@@ -190,6 +190,57 @@ class DemoStartIn(BaseModel):
     request_id: uuid.UUID | None = None
 
 
+class TenantDeleteIn(BaseModel):
+    confirm: str = Field(max_length=200)
+
+
+@router.post("/tenants/{tenant_id}/delete")
+def delete_tenant(
+    tenant_id: uuid.UUID,
+    body: TenantDeleteIn,
+    principal: Annotated[Principal, Depends(require("gestionar_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Borra la empresa con todos sus datos. Las cuentas que solo pertenecían a ella se borran
+    también; quien está en otras empresas conserva su cuenta. No se puede deshacer."""
+    from orkesta.crm.models import Deal
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    if tenant.id == principal.tenant_id:
+        raise HTTPException(409, "No puedes borrar la empresa desde la que administras ORKESTA.")
+    if " ".join(body.confirm.split()).lower() != " ".join(tenant.name.split()).lower():
+        raise HTTPException(400, "Escribe el nombre exacto de la empresa para confirmar.")
+    name = tenant.name
+    set_context(db, tenant_id=tenant.id, user_id=principal.user.id)
+    members = db.scalars(select(Membership.user_id).where(Membership.tenant_id == tenant.id)).all()
+    db.execute(delete(Deal).where(Deal.tenant_id == tenant.id))  # antes que sus etapas
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    db.delete(tenant)
+    db.flush()
+    removed = 0
+    for uid in members:
+        user = db.get(User, uid)
+        if user is None or user.platform_role:
+            continue
+        others = 0
+        for tid in db.scalars(select(Tenant.id)).all():
+            set_context(db, tenant_id=tid)
+            others += db.scalar(
+                select(func.count()).select_from(Membership)
+                .where(Membership.tenant_id == tid, Membership.user_id == uid)
+            ) or 0  # fmt: skip
+        set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+        if not others:
+            db.delete(user)
+            removed += 1
+    db.flush()
+    svc.log(db, principal.user, "tenant.deleted", name, users_removed=removed)
+    return {"ok": True, "users_removed": removed}
+
+
 @router.post("/demos/start", status_code=201)
 def start_demo(
     body: DemoStartIn,

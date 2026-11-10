@@ -128,3 +128,38 @@ def test_admin_adds_and_deletes_users(client: TestClient, database: tuple[str, s
             "SELECT owner_user_id FROM orkesta.contacts WHERE first_name = 'Mario'"
         ).fetchone()
     assert row is not None and row[0] is None
+
+
+def test_admin_deletes_a_company_with_all_its_data(
+    client: TestClient, database: tuple[str, str]
+) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    demo = client.post("/api/admin/demos/start",
+                       json={"company": "Pruebas Viejas", "email": "laura@viejas.co"}).json()  # fmt: skip
+    laura = _new_client(client)
+    laura.post(f"/api/invitations/{demo['link'].rsplit('/', 1)[1]}/accept",
+               json={"full_name": "Laura", "password": PASSWORD})  # fmt: skip
+    contact = laura.post("/api/contacts", json={"first_name": "Mario", "email": "m@x.co"}).json()
+    deal = laura.post("/api/crm/deals", json={"title": "Piloto", "contact_id": contact["id"]})
+    assert deal.status_code == 201, deal.text
+
+    url = f"/api/admin/tenants/{demo['tenant_id']}/delete"
+    assert client.post(url, json={"confirm": "otra"}).status_code == 400
+    done = client.post(url, json={"confirm": "pruebas viejas"})
+    assert done.status_code == 200, done.text
+    assert done.json()["users_removed"] == 1
+    assert all(
+        t["name"] != "Pruebas Viejas" for t in client.get("/api/admin/tenants").json()["items"]
+    )
+    assert client.get("/api/admin/users", params={"q": "laura"}).json()["items"] == []
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        left = conn.execute("SELECT count(*) FROM orkesta.contacts").fetchone()
+    assert left is not None and left[0] == 0
+    # La propia empresa no se puede borrar.
+    mine = next(
+        t for t in client.get("/api/admin/tenants").json()["items"] if t["name"] == "ORKESTA"
+    )
+    assert client.post(f"/api/admin/tenants/{mine['id']}/delete",
+                       json={"confirm": "ORKESTA"}).status_code == 409  # fmt: skip

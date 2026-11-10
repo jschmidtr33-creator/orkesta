@@ -443,6 +443,14 @@ function Tenants({ me }: { me: Me }) {
     mutationFn: ({ id, ...json }: { id: string; status?: string; plan?: string }) => api(`/api/admin/tenants/${id}`, { method: "PATCH", json }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["admin-tenants"] }),
   });
+  const remove = useMutation({
+    mutationFn: ({ id, confirm }: { id: string; confirm: string }) => api(`/api/admin/tenants/${id}/delete`, { method: "POST", json: { confirm } }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["admin-tenants"] });
+      client.invalidateQueries({ queryKey: ["admin-users"] });
+      client.invalidateQueries({ queryKey: ["admin-trials"] });
+    },
+  });
   const manage = can(me, "gestionar_empresas");
   const canMerge = manage && me.role === "owner";
   const [merging, setMerging] = useState<TenantRow | null>(null);
@@ -453,7 +461,7 @@ function Tenants({ me }: { me: Me }) {
       <Card className="overflow-x-auto p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar empresa…" className="ork-focus h-10 w-full max-w-xs rounded-xl border border-ork-line px-3 text-[14px]" />
-          {patch.error && <Alert>{patch.error.message}</Alert>}
+          {(patch.error || remove.error) && <Alert>{(patch.error ?? remove.error)?.message}</Alert>}
         </div>
         {list.isLoading ? (
           <Spinner />
@@ -514,6 +522,20 @@ function Tenants({ me }: { me: Me }) {
                           Reactivar
                         </Button>
                       ))}
+                    {manage && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => {
+                          const typed = window.prompt(
+                            `Vas a BORRAR «${t.name}» con todos sus datos: contactos, campañas, CRM, propuestas y archivos. Las cuentas que solo están en esta empresa también se borran. No se puede deshacer.\n\nEscribe el nombre de la empresa para confirmar:`,
+                          );
+                          if (typed) remove.mutate({ id: t.id, confirm: typed });
+                        }}
+                      >
+                        Eliminar
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1892,6 +1914,10 @@ const ACTIONS: Record<string, string> = {
   "tenant.active": "reactivó la empresa",
   "tenant.plan": "cambió el plan de",
   "tenant.merged": "unió las empresas",
+  "tenant.deleted": "eliminó la empresa",
+  "tenant.demo_started": "creó la demo de",
+  "user.added": "agregó a",
+  "user.deleted": "eliminó la cuenta de",
   "brain.train": "entrenó el modelo",
   "brain.activate": "activó la versión",
   "brain.teach": "enseñó el cargo",
