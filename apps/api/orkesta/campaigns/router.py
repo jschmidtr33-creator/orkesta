@@ -42,11 +42,12 @@ def _fail(exc: svc.CampaignError) -> HTTPException:
 
 
 @router.get("/api/mail/google/start")
-def mail_start(principal: Member) -> Response:
+def mail_start(principal: Member, volver: str = "") -> Response:
     if not gmail.enabled():
         return RedirectResponse(f"{INTEGRATIONS}?gmail=pendiente", status_code=303)
     nonce = secrets.token_urlsafe(16)
-    state = sign_state({"uid": str(principal.user.id), "tid": str(principal.tenant_id), "n": nonce})
+    state = sign_state({"uid": str(principal.user.id), "tid": str(principal.tenant_id), "n": nonce,
+                        "v": "calendario" if volver == "calendario" else ""})  # fmt: skip
     response = RedirectResponse(
         gmail.authorization_url(state, principal.user.email), status_code=303
     )
@@ -66,8 +67,11 @@ def mail_start(principal: Member) -> Response:
 def mail_callback(
     request: Request, db: Db, code: str = "", state: str = "", error: str = ""
 ) -> Response:
+    target = read_state(state) or {}
+
     def back(result: str) -> Response:
-        response = RedirectResponse(f"{INTEGRATIONS}?gmail={result}", status_code=303)
+        page = "/app/calendario" if target.get("v") == "calendario" else INTEGRATIONS
+        response = RedirectResponse(f"{page}?gmail={result}", status_code=303)
         response.delete_cookie(STATE_COOKIE, path="/api/mail/google")
         return response
 

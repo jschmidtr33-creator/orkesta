@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.admin.router import router as admin_router
 from orkesta.automation.router import router as automation_router
+from orkesta.calendar.router import router as calendar_router
 from orkesta.campaigns.router import router as campaigns_router
 from orkesta.campaigns.router import tracking as tracking_router
 from orkesta.concertino.router import router as concertino_router
@@ -175,6 +176,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(copy_router)
     app.include_router(templates_router)
     app.include_router(concertino_router)
+    app.include_router(calendar_router)
     app.include_router(tracking_router)
     _mount_frontends(app)
     return app

@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -70,6 +71,13 @@ class Mailbox(IdMixin, Base):
     )
     signature: Mapped[str] = mapped_column(Text, nullable=False, default="")
     next_send_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Google Calendar con el mismo permiso de Gmail (ver orkesta.calendar).
+    calendar_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    calendar_sync_token: Mapped[str | None] = mapped_column(Text)
+    calendar_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    calendar_error: Mapped[str | None] = mapped_column(String(300))
 
 
 class Campaign(IdMixin, Base):
