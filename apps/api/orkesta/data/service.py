@@ -720,6 +720,7 @@ def contact_detail(session: Session, contact: Contact) -> dict[str, Any]:
     ).tuples()
     return {
         **contact_dict(contact),
+        "owner_user_id": str(contact.owner_user_id) if contact.owner_user_id else None,
         "fields": [
             {
                 "field": name,
@@ -905,10 +906,17 @@ def update_contact(session: Session, *, contact: Contact, user: Any, data: Conta
     return contact
 
 
-def delete_contacts(session: Session, tenant_id: uuid.UUID, ids: Iterable[uuid.UUID]) -> int:
-    result = session.execute(
-        delete(Contact).where(Contact.tenant_id == tenant_id, Contact.id.in_(list(ids)))
-    )
+def delete_contacts(
+    session: Session,
+    tenant_id: uuid.UUID,
+    ids: Iterable[uuid.UUID],
+    owner_id: uuid.UUID | None = None,
+) -> int:
+    """Borra contactos. Con ``owner_id`` solo los de esa persona (y los que no tienen dueño)."""
+    query = delete(Contact).where(Contact.tenant_id == tenant_id, Contact.id.in_(list(ids)))
+    if owner_id is not None:
+        query = query.where(or_(Contact.owner_user_id.is_(None), Contact.owner_user_id == owner_id))
+    result = session.execute(query)
     return int(getattr(result, "rowcount", 0) or 0)
 
 

@@ -206,13 +206,15 @@ def update_contact(
 
 
 @router.post("/contacts/delete")
-def delete_contacts(body: IdsIn, request: Request, principal: Manager, db: Db) -> dict[str, int]:
-    deleted = svc.delete_contacts(db, principal.tenant_id, body.ids)
+def delete_contacts(body: IdsIn, request: Request, principal: Member, db: Db) -> dict[str, int]:
+    # Cada quien borra lo suyo; la administración puede borrar cualquier contacto.
+    owner = None if principal.role == "admin" else principal.user.id
+    deleted = svc.delete_contacts(db, principal.tenant_id, body.ids, owner)
     audit(
         db, tenant_id=principal.tenant_id, actor_id=principal.user.id, action="contacts.deleted",
         entity_type="contact", ip=client_ip(request), count=deleted,
     )  # fmt: skip
-    return {"deleted": deleted}
+    return {"deleted": deleted, "skipped": len(set(body.ids)) - deleted}
 
 
 # --- Importaciones -------------------------------------------------------------------------
