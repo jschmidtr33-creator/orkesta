@@ -605,3 +605,32 @@ def test_keyword_that_is_a_company_searches_its_people(
         a for a in with_serper if a.get("q", "").startswith('site:linkedin.com/in "Banco Andino"')
     ]
     assert len(deep) >= 3
+
+
+def test_own_index_covers_the_search_without_the_paid_search_engine(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    with_serper: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Índice primero: si las fuentes propias ya cubren lo pedido, no se consulta a Serper."""
+    from orkesta.research import people
+
+    register(client, "ana@lacteos.co")
+    rows = [
+        {"key": f"n:CO|andes|{n}", "country": "CO", "full_name": n, "first_name": n.split()[0],
+         "last_name": n.split()[1], "title": "Director Comercial", "level": "director",
+         "area": "comercial", "company": "Andes Logística", "company_key": "andes logistica",
+         "domain": "andeslogistica.co", "location": "Bogotá", "linkedin": None, "email": None,
+         "email_status": None, "source": "sitio_oficial"}
+        for n in ("Laura Gómez", "Pedro Ruiz", "Marta Díaz")
+    ]  # fmt: skip
+    assert people.upsert(session_factory, rows) == 3
+    from orkesta.research import agent
+
+    monkeypatch.setattr(agent, "INDEX_ENOUGH", 3)
+    run = _run(client, session_factory)
+    assert run["status"] == "completed", run
+    assert {p["data"]["full_name"] for p in run["people"]} >= {"Laura Gómez", "Pedro Ruiz"}
+    assert run["totals"].get("source_indice") == 3
+    assert not run["totals"].get("serp_calls") and with_serper == []

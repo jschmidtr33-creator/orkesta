@@ -302,7 +302,7 @@ class Run:
         self.people: dict[str, list[Prospect]] = {}
         self.filtered_out = 0
         self.source_counts = {
-            "wikidata": 0, "sitio": 0, "noticia": 0, "web": 0, "perfil": 0,
+            "indice": 0, "wikidata": 0, "sitio": 0, "noticia": 0, "web": 0, "perfil": 0,
         }  # fmt: skip
         self.serp = serp.SerpStats()
         self.seen: dict[str, Candidate] = {}  # empresas encontradas: alimentan el directorio
@@ -1331,15 +1331,40 @@ def from_index(run: Run, filters: Filters) -> int:
                 prospect.email_status = "publicado"
         _publish(run, prospect, filters)
     if hits:
+        run.source_counts["indice"] += len(hits)
         run.log(f"{len(hits)} posibles clientes del índice propio de ORKESTA.", done=len(hits))
     return len(hits)
+
+
+# Con esta cantidad de posibles clientes del índice propio la búsqueda se da por cubierta y no
+# se gastan consultas al buscador pago.
+INDEX_ENOUGH = 50
+
+
+def _summary(run: Run, filters: Filters, companies: int, estimated: int) -> dict[str, int]:
+    shown = [p for people in run.people.values() for p in people if filters.wants(p)]
+    return {
+        "companies": companies,
+        "people": len(shown),
+        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
+        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "inferred": estimated,
+        "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
+        **{f"source_{k}": v for k, v in run.source_counts.items()},
+        **run.serp.totals(),
+    }
 
 
 def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
     run.filters = filters
     if filters.mode == "accounts":
         return execute_accounts(run, filters, fetcher)
-    from_index(run, filters)
+    indexed = from_index(run, filters)
+    if indexed >= min(filters.limit, INDEX_ENOUGH) and not filters.companies:
+        # Índice primero: si ya cubre lo pedido, no se gasta ni una consulta al buscador.
+        run.log("El índice propio de ORKESTA cubrió la búsqueda completa.", step="correos")
+        estimated = infer_emails(run, filters)
+        return _summary(run, filters, len(run.companies), estimated)
     if serp.enabled() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
