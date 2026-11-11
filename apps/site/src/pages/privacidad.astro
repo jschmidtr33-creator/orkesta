@@ -8,35 +8,58 @@ import Base from "../layouts/Base.astro";
     <div class="mx-auto flex h-16 max-w-3xl items-center px-5"><a href="/" aria-label="ORKESTA, inicio"><Logo size={26} /></a></div>
   </header>
   <main class="mx-auto max-w-3xl px-5 py-14 text-white/80">
-    <p class="text-[12.5px] font-semibold uppercase tracking-[0.18em] text-ork-mist">Versión preliminar · octubre de 2026</p>
+    <p class="text-[12.5px] font-semibold uppercase tracking-[0.18em] text-ork-mist">Versión preliminar · noviembre de 2026</p>
     <h1 class="mt-3 text-[34px] font-bold tracking-tight text-white">Política de privacidad</h1>
     <div class="mt-8 space-y-6 text-[15.5px] leading-relaxed">
-      <p>Esta versión describe cómo opera hoy ORKESTA. Se reemplazará por la versión definitiva, con los datos de la empresa responsable, antes del lanzamiento comercial.</p>
+      <p>Esta política describe cómo opera hoy ORKESTA (orkestaapp.com). Antes del lanzamiento comercial se completará con los datos de la sociedad responsable.</p>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Responsable y contacto</h2>
+        <p class="mt-2">Responsable: ORKESTA, Colombia. Para cualquier solicitud sobre tus datos escribe a <a class="text-ork-blue underline" href="mailto:jenn@orkestaapp.com">jenn@orkestaapp.com</a>. Respondemos en un máximo de 15 días hábiles.</p>
+      </section>
       <section>
         <h2 class="text-[19px] font-semibold text-white">Qué datos tratamos</h2>
-        <p class="mt-2">Del formulario «Solicitar demo»: nombre, correo, empresa, cargo, país y tu mensaje. De las cuentas: nombre, correo, empresa y registros de acceso. Dentro de cada espacio de trabajo, los datos comerciales que cada empresa cliente incorpora, de los que esa empresa es responsable.</p>
+        <ul class="mt-2 list-disc space-y-1.5 pl-5">
+          <li><strong class="text-white">Solicitudes de demo:</strong> nombre, correo, empresa, cargo, país y tu mensaje.</li>
+          <li><strong class="text-white">Cuentas:</strong> nombre, correo, cargo, teléfono y foto si los agregas, y registros de acceso (fecha, IP y navegador).</li>
+          <li><strong class="text-white">Datos de cada empresa cliente:</strong> contactos, campañas, oportunidades, propuestas y archivos que cada empresa incorpora. Esa empresa es la responsable de esos datos; ORKESTA los trata por su cuenta y solo para prestarle el servicio.</li>
+          <li><strong class="text-white">Índice de personas:</strong> datos profesionales públicos de personas en su rol laboral (nombre, cargo, empresa, ubicación, perfil profesional público y correo corporativo con su estado de verificación), tomados de resultados públicos de buscadores, sitios oficiales de empresas y bases autorizadas. Nunca correos personales. Ver «Índice de personas» más abajo.</li>
+        </ul>
       </section>
       <section>
         <h2 class="text-[19px] font-semibold text-white">Para qué</h2>
-        <p class="mt-2">Para responder solicitudes de demo, operar tu cuenta, mantener la seguridad de la plataforma y cumplir obligaciones legales. No vendemos datos personales.</p>
+        <p class="mt-2">Para operar las cuentas y el servicio, ayudar a las empresas cliente a encontrar y contactar a sus posibles clientes, responder solicitudes de demo, mantener la seguridad de la plataforma y cumplir obligaciones legales. No vendemos datos personales ni los usamos para publicidad.</p>
       </section>
-      <section>
-        <h2 class="text-[19px] font-semibold text-white">Tus derechos</h2>
-        <p class="mt-2">De acuerdo con la Ley 1581 de 2012 de Colombia y, cuando aplique, el RGPD, puedes conocer, actualizar, rectificar y suprimir tus datos, y revocar tu autorización. Los correos comerciales enviados desde ORKESTA incluyen un enlace de baja que se respeta de forma permanente.</p>
+      <section id="indice">
+        <h2 class="text-[19px] font-semibold text-white">Índice de personas y cómo salir de él</h2>
+        <p class="mt-2">ORKESTA guarda los perfiles profesionales públicos que encuentran sus búsquedas para que las siguientes sean más rápidas; estos datos pueden mostrarse a las empresas cliente que buscan personas con ese perfil. Si no quieres figurar, escribe a <a class="text-ork-blue underline" href="mailto:jenn@orkestaapp.com?subject=No%20quiero%20figurar%20en%20ORKESTA">jenn@orkestaapp.com</a> con el asunto «No quiero figurar» e indica tu correo o tu perfil profesional. Te retiramos y quedas en una lista de exclusión permanente para que no vuelvas a aparecer.</p>
       </section>
       <section id="google">
-        <h2 class="text-[19px] font-semibold text-white">Datos de Google (Gmail)</h2>
-        <p class="mt-2">Si conectas tu cuenta de Gmail para enviar campañas, ORKESTA solicita estos permisos: tu correo y nombre (para identificar el buzón), enviar correos (para enviar los mensajes de tus campañas en tu nombre) y leer metadatos de los hilos de esas campañas (para detectar respuestas y rebotes, y así detener la secuencia de quien respondió). No leemos otros correos de tu bandeja, no guardamos el contenido de los mensajes que recibes y no usamos estos datos para publicidad ni para entrenar modelos de inteligencia artificial.</p>
-        <p class="mt-2">Los tokens de acceso se guardan cifrados y solo se usan para estas funciones. Puedes desconectar el buzón en cualquier momento desde Configuración → Integraciones o revocar el acceso en <a class="text-ork-blue underline" href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+        <h2 class="text-[19px] font-semibold text-white">Datos de Google (Gmail y Google Calendar)</h2>
+        <p class="mt-2">Si conectas tu cuenta de Google, ORKESTA solicita estos permisos y los usa solo para lo que se indica:</p>
+        <ul class="mt-2 list-disc space-y-1.5 pl-5">
+          <li><strong class="text-white">Tu correo y nombre:</strong> para identificar tu cuenta y tu buzón.</li>
+          <li><strong class="text-white">Enviar correos (gmail.send):</strong> para enviar en tu nombre los mensajes de tus campañas, propuestas e invitaciones que tú programas.</li>
+          <li><strong class="text-white">Leer correos (gmail.readonly):</strong> solo para revisar los hilos de los correos que enviaste desde ORKESTA y detectar respuestas y rebotes, y así detener la secuencia de quien respondió. De cada respuesta guardamos hasta 500 caracteres del texto para clasificarla (por ejemplo «interesado» o «no interesado») y mostrártela. No leemos ni guardamos otros correos de tu bandeja.</li>
+          <li><strong class="text-white">Eventos de tu calendario (calendar.events):</strong> para mostrar en ORKESTA los eventos de tu calendario principal y crear, cambiar o cancelar los que agendas desde ORKESTA. Guardamos título, fecha, hora, asistentes, descripción y enlace de cada evento.</li>
+        </ul>
+        <p class="mt-2">No usamos datos de Google para publicidad, no los vendemos y no los usamos para entrenar modelos de inteligencia artificial generales. Ninguna persona lee tus correos, salvo que tú lo autorices para darte soporte, por seguridad o por obligación legal. Los tokens de acceso se guardan cifrados. Puedes desconectar tu cuenta en Configuración → Integraciones o revocar el acceso en <a class="text-ork-blue underline" href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>; al hacerlo dejamos de acceder de inmediato.</p>
         <p class="mt-2">El uso y la transferencia a cualquier otra aplicación de la información recibida de las API de Google se ajustan a la <a class="text-ork-blue underline" href="https://developers.google.com/terms/api-services-user-data-policy">Política de datos de usuario de los servicios de API de Google</a>, incluidos los requisitos de uso limitado.</p>
       </section>
       <section>
-        <h2 class="text-[19px] font-semibold text-white">Contacto</h2>
-        <p class="mt-2">Para cualquier solicitud sobre tus datos escríbenos desde el <a class="text-ork-blue underline" href="/#demo">formulario de contacto</a>.</p>
+        <h2 class="text-[19px] font-semibold text-white">Dónde se guardan y por cuánto tiempo</h2>
+        <p class="mt-2">Los datos se alojan en Amazon Web Services, en Estados Unidos; al usar ORKESTA autorizas esa transferencia internacional, con las medidas de seguridad descritas abajo. Conservamos los datos mientras la cuenta o el contrato estén activos. Cuando una empresa cliente termina el servicio o pide borrar sus datos, los eliminamos en un máximo de 30 días, y de las copias de respaldo cuando estas venzan.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Tus derechos</h2>
+        <p class="mt-2">De acuerdo con la Ley 1581 de 2012 de Colombia y, cuando aplique, el RGPD y otras leyes de protección de datos, puedes conocer, actualizar, rectificar y suprimir tus datos, y revocar tu autorización, escribiendo al correo de contacto. Los correos comerciales enviados desde ORKESTA incluyen un enlace de baja que se respeta de forma permanente.</p>
       </section>
       <section>
         <h2 class="text-[19px] font-semibold text-white">Seguridad</h2>
-        <p class="mt-2">Cada empresa tiene su espacio de trabajo aislado en la base de datos, las contraseñas se guardan cifradas con Argon2 y los accesos quedan registrados en una bitácora de auditoría.</p>
+        <p class="mt-2">Cada empresa tiene su espacio aislado en la base de datos y los contactos de cada persona son privados. Las contraseñas se guardan cifradas con Argon2, las conexiones usan HTTPS, los tokens de correo se guardan cifrados y los accesos quedan registrados en una bitácora de auditoría.</p>
+      </section>
+      <section>
+        <h2 class="text-[19px] font-semibold text-white">Cambios</h2>
+        <p class="mt-2">Si cambiamos esta política, publicaremos la nueva versión aquí con su fecha y avisaremos a las cuentas activas cuando el cambio sea importante.</p>
       </section>
     </div>
   </main>

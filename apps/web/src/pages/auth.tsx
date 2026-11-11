@@ -193,6 +193,9 @@ export function LoginPage() {
         {submit.error && <Alert>{submit.error.message}</Alert>}
         <TextField label="Correo" type="email" autoComplete="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         <TextField label="Contraseña" type="password" autoComplete="current-password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        <Link to="/recuperar" className="-mt-2 self-end text-[13px] font-semibold text-ork-blue hover:underline">
+          ¿Olvidaste tu contraseña?
+        </Link>
         <Button type="submit" size="lg" loading={submit.isPending} className="mt-1 w-full">
           Ingresar
         </Button>
@@ -411,6 +414,88 @@ export function InvitationPage() {
             </form>
           )}
         </>
+      )}
+    </AuthLayout>
+  );
+}
+
+
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState("");
+  const send = useMutation({ mutationFn: () => api("/api/auth/password/forgot", { method: "POST", json: { email } }) });
+  return (
+    <AuthLayout>
+      <h2 className="text-[26px] font-bold tracking-tight text-ork-ink">Recupera tu contraseña</h2>
+      <p className="mb-6 mt-1 text-[14.5px] text-ork-mist">Te enviamos un enlace para crear una nueva.</p>
+      {send.isSuccess ? (
+        <Alert tone="ok">
+          Si {email} tiene una cuenta en ORKESTA, en unos minutos te llega un correo con el enlace (vence en 60 minutos). Revisa también spam.
+        </Alert>
+      ) : (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            send.mutate();
+          }}
+        >
+          <TextField label="Correo" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Button type="submit" size="lg" loading={send.isPending} className="w-full">
+            Enviar enlace
+          </Button>
+          {send.error && <Alert>{send.error.message}</Alert>}
+        </form>
+      )}
+      <p className="mt-6 text-center text-[14px] text-ork-mist">
+        <Link to="/ingresar" className="font-semibold text-ork-blue hover:underline">
+          Volver a ingresar
+        </Link>
+      </p>
+    </AuthLayout>
+  );
+}
+
+export function ResetPasswordPage() {
+  const { token = "" } = useParams();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const reset = useMutation({ mutationFn: () => api<{ email: string }>("/api/auth/password/reset", { method: "POST", json: { token, password } }) });
+  const mismatch = confirm.length > 0 && confirm !== password;
+  return (
+    <AuthLayout>
+      <h2 className="text-[26px] font-bold tracking-tight text-ork-ink">Crea tu nueva contraseña</h2>
+      <p className="mb-6 mt-1 text-[14.5px] text-ork-mist">Al menos 10 caracteres, con mayúsculas, minúsculas y un número.</p>
+      {reset.isSuccess ? (
+        <div className="flex flex-col gap-4">
+          <Alert tone="ok">Listo: tu contraseña cambió. Por seguridad cerramos tus otras sesiones.</Alert>
+          <Button size="lg" className="w-full" onClick={() => navigate("/ingresar")}>
+            Ingresar
+          </Button>
+        </div>
+      ) : (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (!mismatch) reset.mutate();
+          }}
+        >
+          <TextField label="Nueva contraseña" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <TextField label="Repítela" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          {mismatch && <Alert>Las contraseñas no coinciden.</Alert>}
+          <Button type="submit" size="lg" loading={reset.isPending} className="w-full">
+            Guardar contraseña
+          </Button>
+          {reset.error && (
+            <Alert>
+              {reset.error.message}{" "}
+              <Link to="/recuperar" className="font-semibold underline">
+                Pedir otro enlace
+              </Link>
+            </Alert>
+          )}
+        </form>
       )}
     </AuthLayout>
   );

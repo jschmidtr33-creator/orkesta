@@ -153,6 +153,13 @@ def save_app_settings(session: Session, raw: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def set_system_mail(session: Session, value: dict[str, str] | None) -> dict[str, Any]:
+    data = app_settings(session)
+    data["system_mail"] = value
+    _put(session, "app", data)
+    return data
+
+
 def log(session: Session, actor: User, action: str, target: str = "", **detail: Any) -> None:
     session.add(AdminAudit(actor_id=actor.id, action=action, target=target[:200], detail=detail))
 

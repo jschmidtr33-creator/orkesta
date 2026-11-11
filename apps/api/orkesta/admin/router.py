@@ -589,6 +589,62 @@ def send_access(
     return {"ok": True, "from": mailbox.email, "to": email}
 
 
+@router.get("/system-mail")
+def get_system_mail(
+    principal: Annotated[Principal, Depends(require("configuracion"))], db: Db
+) -> dict[str, Any]:
+    from orkesta.core import system_mail
+
+    data = system_mail.config(db)
+    return {"configured": data is not None, "email": data.get("email") if data else None}
+
+
+@router.post("/system-mail")
+def use_my_mailbox(
+    principal: Annotated[Principal, Depends(require("configuracion"))], db: Db
+) -> dict[str, Any]:
+    """El correo del sistema sale del buzón que esta persona conectó en su espacio actual."""
+    from orkesta.campaigns.models import Mailbox
+
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    mailbox = db.scalar(
+        select(Mailbox)
+        .where(Mailbox.tenant_id == principal.tenant_id, Mailbox.user_id == principal.user.id,
+               Mailbox.status == "active")
+        .order_by(Mailbox.created_at).limit(1)
+    )  # fmt: skip
+    if mailbox is None:
+        raise HTTPException(409, "Conecta primero tu correo en Configuración → Integraciones.")
+    value = {
+        "tenant_id": str(principal.tenant_id),
+        "user_id": str(principal.user.id),
+        "mailbox_id": str(mailbox.id),
+        "email": mailbox.email,
+    }
+    svc.set_system_mail(db, value)
+    svc.log(db, principal.user, "system_mail.set", mailbox.email)
+    return {"configured": True, "email": mailbox.email}
+
+
+@router.post("/users/{user_id}/reset-link")
+def user_reset_link(
+    user_id: uuid.UUID,
+    request: Request,
+    principal: Annotated[Principal, Depends(require("gestionar_usuarios"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Enlace para que la persona cree una contraseña nueva; se envía si hay correo del sistema."""
+    from orkesta.platform.router import RESET_MINUTES, reset_link, send_reset
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "Ese usuario no existe.")
+    sent = send_reset(db, request, user)
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    svc.log(db, principal.user, "user.reset_link", user.email, sent=sent)
+    return {"link": reset_link(request, user), "sent": sent, "minutes": RESET_MINUTES}
+
+
 @router.post("/users/{user_id}/logout")
 def logout_user(
     user_id: uuid.UUID,
