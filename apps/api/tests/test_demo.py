@@ -196,3 +196,47 @@ def test_access_mail_needs_a_connected_mailbox(
     sent = client.post("/api/admin/send-access",
                        json={"email": "dir@clinicasur.co", "message": made.json()["message"]})  # fmt: skip
     assert sent.status_code == 409 and "Integraciones" in sent.json()["detail"]
+
+
+def test_company_card_shows_team_invitations_and_activity(
+    client: TestClient, database: tuple[str, str]
+) -> None:
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    demo = client.post("/api/admin/demos/start",
+                       json={"company": "Rindegastos", "email": "ana@rindegastos.co"}).json()  # fmt: skip
+    tid = demo["tenant_id"]
+    card = client.get(f"/api/admin/tenants/{tid}").json()
+    assert card["name"] == "Rindegastos" and card["plan"] == "demo" and card["members"] == []
+    assert len(card["activity"]) == 14 and card["invitations"][0]["email"] == "ana@rindegastos.co"
+
+    # Se perdió el enlace: uno nuevo, y el anterior deja de servir.
+    old_token = demo["link"].rsplit("/", 1)[1]
+    renewed = client.post(
+        f"/api/admin/tenants/{tid}/invitations/{card['invitations'][0]['id']}/renew"
+    )
+    assert renewed.status_code == 200, renewed.text
+    assert (
+        renewed.json()["link"] != demo["link"]
+        and renewed.json()["link"] in renewed.json()["message"]
+    )
+    guest = _new_client(client)
+    assert guest.post(f"/api/invitations/{old_token}/accept",
+                      json={"full_name": "Ana", "password": PASSWORD}).status_code != 200  # fmt: skip
+    token = renewed.json()["link"].rsplit("/", 1)[1]
+    assert guest.post(f"/api/invitations/{token}/accept",
+                      json={"full_name": "Ana", "password": PASSWORD}).status_code == 200  # fmt: skip
+
+    # Sumar a otra persona y cambiarle el rol; la única administradora no se puede quitar.
+    client.post("/api/admin/users", json={"email": "luis@rindegastos.co", "tenant_id": tid,
+                                          "role": "vendedor"})  # fmt: skip
+    card = client.get(f"/api/admin/tenants/{tid}").json()
+    ana = card["members"][0]
+    assert ana["role"] == "admin" and card["invitations"][0]["email"] == "luis@rindegastos.co"
+    assert client.delete(f"/api/admin/tenants/{tid}/members/{ana['user_id']}").status_code == 409
+    assert client.patch(f"/api/admin/tenants/{tid}/members/{ana['user_id']}",
+                        json={"role": "vendedor"}).status_code == 409  # fmt: skip
+    inv = card["invitations"][0]["id"]
+    assert client.delete(f"/api/admin/tenants/{tid}/invitations/{inv}").status_code == 200
+    assert client.get(f"/api/admin/tenants/{tid}").json()["invitations"] == []

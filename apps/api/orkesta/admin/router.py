@@ -25,6 +25,7 @@ from orkesta.core.web import CurrentPrincipal, Db, Principal, client_ip
 from orkesta.platform.models import (
     AuthSession,
     DemoRequest,
+    Invitation,
     LoginAttempt,
     Membership,
     Tenant,
@@ -335,6 +336,209 @@ def start_demo(
             "trial_ends_at": ends_iso, "message": message}  # fmt: skip
 
 
+# --- Ficha de cada empresa ---------------------------------------------------------------------
+
+Companies = Annotated[Principal, Depends(require("gestionar_empresas"))]
+
+
+def _pairs(rows: Any) -> dict[Any, Any]:
+    return {r[0]: r[1] for r in rows}
+
+
+def _access_message(tenant: Tenant, link: str, role: str) -> str:
+    who = "administrar" if role == "admin" else "trabajar en"
+    return (
+        f"Hola:\n\nTe dejo tu acceso a ORKESTA para {who} el espacio de {tenant.name}.\n\n"
+        f"1. Entra a este enlace y crea tu contraseña: {link}\n"
+        "2. Conecta tu correo en Configuración → Integraciones.\n\n"
+        "El enlace vence en unos días; si se vence, te envío uno nuevo.\n\nSaludos,"
+    )
+
+
+@router.get("/tenants/{tenant_id}")
+def tenant_detail(
+    tenant_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require("ver_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Todo de una empresa: equipo, invitaciones pendientes, actividad diaria y uso."""
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    from orkesta.campaigns.models import Message as CampaignMessage
+    from orkesta.crm.models import Activity
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    usage = svc._tenant_usage(db, tenant.id)
+    set_context(db, tenant_id=tenant.id)
+    members = db.execute(
+        select(Membership, User)
+        .join(User, User.id == Membership.user_id)
+        .where(Membership.tenant_id == tenant.id)
+        .order_by(Membership.created_at)
+    ).all()
+    now = datetime.now(UTC)
+    invitations = db.scalars(
+        select(Invitation)
+        .where(Invitation.tenant_id == tenant.id, Invitation.accepted_at.is_(None),
+               Invitation.revoked_at.is_(None))
+        .order_by(Invitation.created_at.desc())
+    ).all()  # fmt: skip
+    since = now - timedelta(days=14)
+    day_of = func.date_trunc("day", func.timezone("America/Bogota", CampaignMessage.sent_at))
+    with unscoped(db):
+        sent: dict[Any, Any] = _pairs(db.execute(
+            select(day_of, func.count()).where(CampaignMessage.tenant_id == tenant.id,
+                                               CampaignMessage.sent_at >= since).group_by(day_of)
+        ).all())  # fmt: skip
+        act_day = func.date_trunc("day", func.timezone("America/Bogota", Activity.created_at))
+        acts: dict[Any, Any] = _pairs(db.execute(
+            select(act_day, func.count()).where(Activity.tenant_id == tenant.id,
+                                                Activity.created_at >= since).group_by(act_day)
+        ).all())  # fmt: skip
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    user_ids = [u.id for _, u in members]
+    login_day = func.date_trunc("day", func.timezone("America/Bogota", AuthSession.created_at))
+    logins: dict[Any, Any] = _pairs(db.execute(
+        select(login_day, func.count(func.distinct(AuthSession.user_id)))
+        .where(AuthSession.user_id.in_(user_ids), AuthSession.created_at >= since)
+        .group_by(login_day)
+    ).all()) if user_ids else {}  # fmt: skip
+
+    def key(d: Any) -> str:
+        return str(d.date().isoformat())
+
+    days = []
+    for i in range(13, -1, -1):
+        d = (now - timedelta(days=i)).astimezone(ZoneInfo("America/Bogota")).date().isoformat()
+        days.append({
+            "day": d,
+            "emails": next((int(v) for k, v in sent.items() if key(k) == d), 0),
+            "activities": next((int(v) for k, v in acts.items() if key(k) == d), 0),
+            "people": next((int(v) for k, v in logins.items() if key(k) == d), 0),
+        })  # fmt: skip
+    last_login = max((u.last_login_at for _, u in members if u.last_login_at), default=None)
+    return {
+        "id": str(tenant.id), "name": tenant.name, "plan": tenant.plan, "status": tenant.status,
+        "created_at": tenant.created_at.isoformat(),
+        "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
+        "trial_expired": tenant.trial_expired, "usage": usage,
+        "last_login_at": last_login.isoformat() if last_login else None,
+        "members": [{
+            "user_id": str(u.id), "name": u.full_name or "", "email": u.email, "role": m.role,
+            "status": m.status if u.is_active else "suspendido",
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+            "joined_at": m.created_at.isoformat(),
+        } for m, u in members],
+        "invitations": [{
+            "id": str(i.id), "email": i.email, "role": i.role,
+            "created_at": i.created_at.isoformat(), "expires_at": i.expires_at.isoformat(),
+            "expired": i.expires_at <= now,
+        } for i in invitations],
+        "activity": days,
+        "plans": svc.PLANS,
+    }  # fmt: skip
+
+
+@router.post("/tenants/{tenant_id}/invitations/{invitation_id}/renew")
+def renew_invitation(
+    tenant_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    request: Request,
+    principal: Companies,
+    db: Db,
+) -> dict[str, Any]:
+    """Nuevo enlace para una invitación pendiente (el anterior deja de servir)."""
+    from orkesta.platform import service as platform
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    set_context(db, tenant_id=tenant.id, user_id=principal.user.id)
+    old = db.get(Invitation, invitation_id)
+    if old is None or old.tenant_id != tenant.id or old.accepted_at or old.revoked_at:
+        raise HTTPException(404, "Esa invitación ya no está pendiente.")
+    email, role = old.email, old.role
+    try:
+        _, token = platform.invite(db, tenant_id=tenant.id, inviter_id=principal.user.id,
+                                   email=email, role=role, ip=client_ip(request))  # fmt: skip
+    except platform.PlatformError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    link = f"{base}/app/invitacion/{token}"
+    svc.log(db, principal.user, "invitation.renewed", email, tenant=tenant.name)
+    return {"name": f"{email} ({tenant.name})", "email": email, "link": link,
+            "trial_ends_at": None, "message": _access_message(tenant, link, role)}  # fmt: skip
+
+
+@router.delete("/tenants/{tenant_id}/invitations/{invitation_id}")
+def revoke_invitation(
+    tenant_id: uuid.UUID, invitation_id: uuid.UUID, principal: Companies, db: Db
+) -> dict[str, bool]:
+    set_context(db, tenant_id=tenant_id, user_id=principal.user.id)
+    inv = db.get(Invitation, invitation_id)
+    if inv is None or inv.tenant_id != tenant_id or inv.accepted_at:
+        raise HTTPException(404, "Esa invitación ya no está pendiente.")
+    inv.revoked_at = svc.now()
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    svc.log(db, principal.user, "invitation.revoked", inv.email)
+    return {"ok": True}
+
+
+class MemberPatch(BaseModel):
+    role: str = Field(pattern="^(admin|supervisor|vendedor)$")
+
+
+@router.patch("/tenants/{tenant_id}/members/{user_id}")
+def change_member_role(
+    tenant_id: uuid.UUID, user_id: uuid.UUID, body: MemberPatch, principal: Companies, db: Db
+) -> dict[str, bool]:
+    set_context(db, tenant_id=tenant_id, user_id=principal.user.id)
+    member = db.scalar(select(Membership).where(Membership.tenant_id == tenant_id,
+                                                Membership.user_id == user_id))  # fmt: skip
+    if member is None:
+        raise HTTPException(404, "Esa persona no está en la empresa.")
+    if member.role == "admin" and body.role != "admin":
+        admins = db.scalar(select(func.count()).select_from(Membership).where(
+            Membership.tenant_id == tenant_id, Membership.role == "admin",
+            Membership.status == "active"))  # fmt: skip
+        if (admins or 0) <= 1:
+            raise HTTPException(409, "La empresa debe conservar al menos un administrador.")
+    member.role = body.role
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    svc.log(db, principal.user, "member.role", str(user_id), role=body.role)
+    return {"ok": True}
+
+
+@router.delete("/tenants/{tenant_id}/members/{user_id}")
+def remove_member(
+    tenant_id: uuid.UUID, user_id: uuid.UUID, principal: Companies, db: Db
+) -> dict[str, bool]:
+    """Saca a la persona de esta empresa (su cuenta sigue si está en otras)."""
+    set_context(db, tenant_id=tenant_id, user_id=principal.user.id)
+    member = db.scalar(select(Membership).where(Membership.tenant_id == tenant_id,
+                                                Membership.user_id == user_id))  # fmt: skip
+    if member is None:
+        raise HTTPException(404, "Esa persona no está en la empresa.")
+    if member.role == "admin":
+        admins = db.scalar(select(func.count()).select_from(Membership).where(
+            Membership.tenant_id == tenant_id, Membership.role == "admin",
+            Membership.status == "active"))  # fmt: skip
+        if (admins or 0) <= 1:
+            raise HTTPException(409, "Es el único administrador: asigna otro antes de sacarlo.")
+    db.delete(member)
+    db.flush()
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    svc.log(db, principal.user, "member.removed", str(user_id))
+    return {"ok": True}
+
+
 @router.get("/trials")
 def trials(
     principal: Annotated[Principal, Depends(require("ver_empresas"))], db: Db
@@ -569,6 +773,13 @@ def send_access(
         .order_by(Mailbox.created_at).limit(1)
     )  # fmt: skip
     if mailbox is None:
+        from orkesta.core import system_mail
+
+        if system_mail.send(db, to=email, subject=body.subject, text=body.message):
+            set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+            svc.log(db, principal.user, "access.sent", email)
+            sender = (system_mail.config(db) or {}).get("email", "")
+            return {"ok": True, "from": sender, "to": email}
         raise HTTPException(
             409,
             "Conecta tu correo en Configuración → Integraciones para enviar el acceso desde "
