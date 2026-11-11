@@ -29,6 +29,7 @@ TEAM = f"""<html><body><h1>Equipo directivo</h1>
 <div><h3>Laura Gómez</h3><p>Gerente General</p>
 <a href="/cdn-cgi/l/email-protection#{_cf("lgomez@andeslogistica.co")}">[email protected]</a></div>
 <div><h3>Pedro Ruiz</h3><p>Director Financiero</p><p>pruiz [at] andeslogistica [dot] co</p></div>
+<div><h3>Marta Díaz</h3><p>Gerente de Mercadeo</p></div>
 </body></html>"""
 
 
@@ -64,6 +65,19 @@ def test_crawler_reads_company_site(session_factory: sessionmaker[Session]) -> N
         assert row.email_pattern == "flast"
         overview = crawler.overview(session)
         assert overview["by_status"]["leido"] == 1 and overview["patterns"] == 1
+        # Las personas que la empresa publica quedan en el índice propio, con su correo.
+        from sqlalchemy import select
+
+        from orkesta.research.models import PersonIndex
+
+        found = {p.full_name: p for p in session.scalars(select(PersonIndex))}
+        assert found["Laura Gómez"].email == "lgomez@andeslogistica.co"
+        assert found["Laura Gómez"].email_status == "publicado"
+        assert found["Laura Gómez"].source == "sitio_oficial" and found["Laura Gómez"].level
+        assert found["Marta Díaz"].email == "mdiaz@andeslogistica.co"
+        assert found["Marta Díaz"].email_status == "estimado"
+        assert found["Pedro Ruiz"].company == "ANDES LOGISTICA S.A.S."
+        assert crawler.overview(session)["people_from_sites"] == 3
     # El formato quedó en la memoria: la próxima búsqueda lo usa sin leer el sitio.
     assert memory.known_pattern(session_factory, "andeslogistica.co")[0] == "flast"
     # Ya leído: no se vuelve a rastrear hasta dentro de 60 días.

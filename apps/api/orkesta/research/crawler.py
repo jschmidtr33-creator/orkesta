@@ -2,7 +2,9 @@
 el sitio oficial de cada empresa del directorio y guarda lo que la empresa publica de sí misma:
 teléfono, correo general, LinkedIn, tamaño, descripción y su formato de correo.
 
-Solo datos de empresas; las personas que aparezcan en los sitios no se guardan aquí.
+También cosecha a las personas que la empresa publica con su cargo (equipo directivo, junta,
+gobierno corporativo) y las suma al índice propio de personas con su correo publicado o
+estimado con el formato de la empresa. Así el índice crece cada día sin buscadores pagos.
 """
 
 from __future__ import annotations
@@ -54,6 +56,38 @@ def due(session: Session, limit: int) -> list[CompanyDirectory]:
     ))  # fmt: skip
 
 
+def harvest(row: CompanyDirectory, result: Any, pattern: str) -> list[dict[str, Any]]:
+    """Personas con cargo reconocido en el sitio oficial → filas del índice de personas."""
+    from orkesta.engine.taxonomy.titles import classify_title
+    from orkesta.research.extract import apply_pattern, email_matches_person
+    from orkesta.research.people import person_key
+
+    domain = row.domain or ""
+    pattern = pattern or row.email_pattern or ""
+    personal = [e for e in result.emails if not is_generic_email(e) and e.endswith("@" + domain)]
+    rows: dict[str, dict[str, Any]] = {}
+    for person, _url in result.people:
+        level, area = classify_title(person.title)
+        if not person.title or level is None:
+            continue  # sin cargo reconocible no sirve para prospectar
+        first, last = person.first_name, person.last_name
+        email = next((e for e in personal if email_matches_person(e, first, last)), "")
+        status = "publicado" if email else None
+        if not email and pattern and domain:
+            email = apply_pattern(pattern, person.first_name, person.last_name, domain) or ""
+            status = "estimado" if email else None
+        key = person_key(row.country, row.name_key, person.full_name)
+        rows[key] = {
+            "key": key, "country": row.country, "full_name": person.full_name[:200],
+            "first_name": person.first_name[:120], "last_name": person.last_name[:160],
+            "title": person.title[:300], "level": level, "area": area,
+            "company": row.name[:300], "company_key": row.name_key[:300],
+            "domain": domain or None, "location": (row.city or "")[:200], "linkedin": None,
+            "email": email or None, "email_status": status, "source": "sitio_oficial",
+        }  # fmt: skip
+    return list(rows.values())
+
+
 def crawl_one(fetcher: Fetcher, row: CompanyDirectory) -> dict[str, Any]:
     from orkesta.research import website
 
@@ -61,6 +95,7 @@ def crawl_one(fetcher: Fetcher, row: CompanyDirectory) -> dict[str, Any]:
     pattern = website.learn_patterns(fetcher, result) if result.pages_read else ""
     general = sorted(e for e in result.emails if is_generic_email(e))
     return {
+        "people": harvest(row, result, pattern),
         "site_status": "leido" if result.pages_read else ("bloqueado" if result.blocked
                                                            else "sin_acceso"),
         "phone": next(iter(result.phones), None),
@@ -78,6 +113,7 @@ def crawl_batch(factory: sessionmaker[Session], limit: int = BATCH) -> int:
     if not _RUNNING.acquire(blocking=False):
         return 0
     done = 0
+    harvested: list[dict[str, Any]] = []
     try:
         with factory() as session:
             rows = [(r.key, r.domain) for r in due(session, limit)]
@@ -97,6 +133,7 @@ def crawl_batch(factory: sessionmaker[Session], limit: int = BATCH) -> int:
                         found = {"site_status": "error"}
                     row.crawled_at = datetime.now(UTC)
                     row.site_status = found["site_status"]
+                    harvested += found.get("people") or []
                     for attr in ("phone", "company_email", "description", "email_pattern"):
                         if found.get(attr):
                             setattr(row, attr, found[attr])
@@ -111,7 +148,13 @@ def crawl_batch(factory: sessionmaker[Session], limit: int = BATCH) -> int:
                         if code:
                             row.industry_code, row.industry_source = code, "sitio"
                     done += 1
-        STATS.update(last_run=datetime.now(UTC).isoformat(), last_batch=done)
+        if harvested:
+            from orkesta.research import people
+
+            added = people.upsert(factory, harvested)
+            STATS["people_total"] = int(STATS.get("people_total", 0)) + added
+        STATS.update(last_run=datetime.now(UTC).isoformat(), last_batch=done,
+                     last_people=len(harvested))  # fmt: skip
         return done
     finally:
         _RUNNING.release()
@@ -132,5 +175,11 @@ def overview(session: Session) -> dict[str, Any]:
     patterns = session.scalar(
         select(func.count()).where(CompanyDirectory.email_pattern.is_not(None))
     )
+    from orkesta.research.models import PersonIndex
+
+    from_sites = session.scalar(
+        select(func.count()).select_from(PersonIndex).where(PersonIndex.source == "sitio_oficial")
+    )
     return {"by_status": by, "patterns": int(patterns or 0),
-            "running": _RUNNING.locked(), **STATS}  # fmt: skip
+            "people_from_sites": int(from_sites or 0), "running": _RUNNING.locked(),
+            **STATS}  # fmt: skip

@@ -1306,6 +1306,43 @@ function TrainCard({ onDone }: { onDone: () => void }) {
   );
 }
 
+type Independence = {
+  runs: number;
+  people: number;
+  from_index: number;
+  serp_calls: number;
+  serp_failed_runs: number;
+  index_only_runs: number;
+  own_share: number;
+  goal: number;
+  days: number;
+  crawler: { people_from_sites: number };
+};
+
+/** Cuánto de la prospección sale de fuentes propias y cuánto del buscador pago. */
+function IndependenceCard() {
+  const q = useQuery({ queryKey: ["admin-independence"], queryFn: () => api<Independence>("/api/admin/search-independence?dias=7") });
+  const d = q.data;
+  if (!d) return null;
+  return (
+    <Card className="mt-4">
+      <CardHeader
+        title="Independencia del buscador pago"
+        description={`Últimos ${d.days} días. Meta: que el ${d.goal} % de los posibles clientes salga del índice propio (sitios oficiales, búsquedas anteriores y bases autorizadas), sin gastar Serper.`}
+      />
+      <div className="mb-3 h-3 w-full overflow-hidden rounded-full bg-ork-surface">
+        <div className="h-full rounded-full bg-ork-blue" style={{ width: `${Math.min(100, d.own_share)}%` }} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Stat label="Del índice propio" value={`${d.own_share} %`} hint={`${n(d.from_index)} de ${n(d.people)} posibles clientes`} />
+        <Stat label="Consultas a Serper" value={n(d.serp_calls)} hint={`${n(d.index_only_runs)} de ${n(d.runs)} búsquedas sin Serper`} />
+        <Stat label="Personas de sitios oficiales" value={n(d.crawler.people_from_sites)} hint="Cosechadas por el rastreador" />
+        <Stat label="Búsquedas con Serper caído" value={n(d.serp_failed_runs)} hint={d.serp_failed_runs ? "Revisa créditos o la clave" : "Sin fallas"} />
+      </div>
+    </Card>
+  );
+}
+
 function DirectoryPage() {
   const client = useQueryClient();
   const q = useQuery({
@@ -1364,6 +1401,7 @@ function DirectoryPage() {
           ))}
         </ul>
       </Card>
+      <IndependenceCard />
       {d?.crawler && <CrawlerCard crawler={d.crawler} onStart={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       {d?.people && <PeopleCard stats={d.people} onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />

@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select, update
 from orkesta.admin import service as svc
 from orkesta.admin.models import AdminAudit
 from orkesta.core.config import get_settings
-from orkesta.core.db import set_context
+from orkesta.core.db import set_context, unscoped
 from orkesta.core.security import (
     ADMIN_UNLOCK_MINUTES,
     issue_admin_token,
@@ -587,6 +587,41 @@ def send_access(
         raise HTTPException(502, f"No se pudo enviar desde {mailbox.email}: {exc}") from exc
     svc.log(db, principal.user, "access.sent", email)
     return {"ok": True, "from": mailbox.email, "to": email}
+
+
+@router.get("/search-independence")
+def search_independence(
+    principal: Annotated[Principal, Depends(require("ia"))], db: Db, dias: int = 7
+) -> dict[str, Any]:
+    """Cuánto de la prospección sale de fuentes propias y cuánto del buscador pago (Serper)."""
+    from datetime import UTC, datetime
+
+    from orkesta.research import crawler
+    from orkesta.research.models import ResearchRun
+
+    since = datetime.now(UTC) - timedelta(days=max(1, min(dias, 90)))
+    totals = {"runs": 0, "people": 0, "from_index": 0, "serp_calls": 0, "serp_failed_runs": 0,
+              "index_only_runs": 0}  # fmt: skip
+    for tid in db.scalars(select(Tenant.id)).all():
+        set_context(db, tenant_id=tid)
+        with unscoped(db):
+            rows = db.scalars(
+                select(ResearchRun.totals).where(ResearchRun.created_at >= since,
+                                                 ResearchRun.status == "completed")
+            ).all()  # fmt: skip
+        for t in rows:
+            t = t or {}
+            totals["runs"] += 1
+            totals["people"] += int(t.get("people", 0) or 0)
+            totals["from_index"] += int(t.get("source_indice", 0) or 0)
+            totals["serp_calls"] += int(t.get("serp_calls", 0) or 0)
+            totals["serp_failed_runs"] += int(any(k.startswith("serp_fatal_") for k in t))
+            totals["index_only_runs"] += int(not t.get("serp_calls"))
+    set_context(db, tenant_id=principal.tenant_id, user_id=principal.user.id)
+    own = round(100 * min(totals["from_index"], totals["people"]) / totals["people"]) if (
+        totals["people"]) else 0  # fmt: skip
+    return {**totals, "own_share": own, "goal": 80, "days": dias,
+            "crawler": crawler.overview(db)}  # fmt: skip
 
 
 @router.get("/system-mail")
