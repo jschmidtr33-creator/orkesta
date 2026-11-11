@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
-import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Logo, SelectField, Spinner, TextField } from "../components/ui";
+import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Logo, Modal, SelectField, Spinner, TextField } from "../components/ui";
 import { ADMIN_LOCKED_EVENT, api, ApiError, hasAdminToken, setAdminToken } from "../lib/api";
 import { ThemeSwitch } from "../components/AppLayout";
 import { useSession } from "../lib/session";
@@ -456,6 +456,7 @@ function Tenants({ me }: { me: Me }) {
   const [merging, setMerging] = useState<TenantRow | null>(null);
   const [adding, setAdding] = useState(false);
   const [created, setCreated] = useState<DemoStarted | null>(null);
+  const [card, setCard] = useState<string | null>(null);
   return (
     <>
       <Title
@@ -487,6 +488,7 @@ function Tenants({ me }: { me: Me }) {
         />
       )}
       {created && <DemoReady demo={created} title={`Empresa lista: ${created.name}`} onClose={() => setCreated(null)} />}
+      {card && <CompanyCard id={card} me={me} onClose={() => setCard(null)} />}
       {merging && <MergeDialog source={merging} tenants={list.data?.items ?? []} onClose={() => setMerging(null)} />}
       <Card className="overflow-x-auto p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
@@ -513,7 +515,9 @@ function Tenants({ me }: { me: Me }) {
               {(list.data?.items ?? []).map((t) => (
                 <tr key={t.id}>
                   <td className="px-5 py-3">
-                    <p className="font-semibold text-ork-ink">{t.name}</p>
+                    <button type="button" onClick={() => setCard(t.id)} className="ork-focus rounded text-left font-semibold text-ork-ink hover:text-ork-blue hover:underline">
+                      {t.name}
+                    </button>
                     <p className="text-[12px] text-ork-mist">
                       {t.owner ? `${t.owner.name} · ${t.owner.email}` : "Sin administrador"} · desde {formatWhen(t.created_at)}
                     </p>
@@ -816,6 +820,7 @@ function Demos({ me }: { me: Me }) {
   const trials = useQuery({ queryKey: ["admin-trials"], queryFn: () => api<Trial[]>("/api/admin/trials"), enabled: can(me, "ver_empresas") });
   const [form, setForm] = useState<{ company: string; email: string; days: number; request_id?: string } | null>(null);
   const [started, setStarted] = useState<DemoStarted | null>(null);
+  const [card, setCard] = useState<string | null>(null);
   const start = useMutation({
     mutationFn: (json: { company: string; email: string; days: number; request_id?: string }) => api<DemoStarted>("/api/admin/demos/start", { method: "POST", json }),
     onSuccess: (r) => {
@@ -863,6 +868,7 @@ function Demos({ me }: { me: Me }) {
         </Card>
       )}
       {started && <DemoReady demo={started} onClose={() => setStarted(null)} />}
+      {card && <CompanyCard id={card} me={me} onClose={() => setCard(null)} />}
 
       {can(me, "ver_empresas") && (
         <Card className="mb-5 overflow-x-auto p-0">
@@ -891,8 +897,10 @@ function Demos({ me }: { me: Me }) {
                 {trials.data.map((t) => (
                   <tr key={t.id}>
                     <td className="px-5 py-3">
-                      <p className="font-semibold text-ork-ink">{t.name}</p>
-                      <p className="text-[12px] text-ork-mist">{t.owner ? `${t.owner.name} · ${t.owner.email}` : "Invitación sin aceptar"}</p>
+                      <button type="button" onClick={() => setCard(t.id)} className="ork-focus rounded text-left font-semibold text-ork-ink hover:text-ork-blue hover:underline">
+                        {t.name}
+                      </button>
+                      <p className="text-[12px] text-ork-mist">{t.owner ? `${t.owner.name} · ${t.owner.email}` : "Invitación sin aceptar · ábrela para ver el enlace"}</p>
                     </td>
                     <td className="py-3">
                       {t.expired ? (
@@ -975,6 +983,241 @@ function Demos({ me }: { me: Me }) {
         )}
       </Card>
     </>
+  );
+}
+
+type CompanyDetail = {
+  id: string;
+  name: string;
+  plan: string;
+  status: string;
+  created_at: string;
+  trial_ends_at: string | null;
+  trial_expired: boolean;
+  last_login_at: string | null;
+  usage: { contacts: number; emails_sent: number; deals: number; proposals: number; research_runs: number };
+  members: { user_id: string; name: string; email: string; role: string; status: string; last_login_at: string | null; joined_at: string }[];
+  invitations: { id: string; email: string; role: string; created_at: string; expires_at: string; expired: boolean }[];
+  activity: { day: string; emails: number; activities: number; people: number }[];
+  plans: Record<string, string>;
+};
+const ROLE_NAMES: Record<string, string> = { admin: "Administrador", supervisor: "Jefatura", vendedor: "Vendedor" };
+
+/** Ficha de una empresa: actividad diaria, equipo, invitaciones (con su enlace) y plan. */
+function CompanyCard({ id, me, onClose }: { id: string; me: Me; onClose: () => void }) {
+  const client = useQueryClient();
+  const manage = can(me, "gestionar_empresas");
+  const q = useQuery({ queryKey: ["admin-tenant", id], queryFn: () => api<CompanyDetail>(`/api/admin/tenants/${id}`) });
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["admin-tenant", id] });
+    client.invalidateQueries({ queryKey: ["admin-tenants"] });
+    client.invalidateQueries({ queryKey: ["admin-trials"] });
+  };
+  const [ready, setReady] = useState<DemoStarted | null>(null);
+  const [invite, setInvite] = useState({ email: "", role: "vendedor" });
+  const renew = useMutation({
+    mutationFn: (inv: string) => api<DemoStarted>(`/api/admin/tenants/${id}/invitations/${inv}/renew`, { method: "POST" }),
+    onSuccess: (r) => {
+      setReady(r);
+      refresh();
+    },
+  });
+  const revoke = useMutation({ mutationFn: (inv: string) => api(`/api/admin/tenants/${id}/invitations/${inv}`, { method: "DELETE" }), onSuccess: refresh });
+  const role = useMutation({
+    mutationFn: ({ user, value }: { user: string; value: string }) => api(`/api/admin/tenants/${id}/members/${user}`, { method: "PATCH", json: { role: value } }),
+    onSuccess: refresh,
+  });
+  const removeMember = useMutation({ mutationFn: (user: string) => api(`/api/admin/tenants/${id}/members/${user}`, { method: "DELETE" }), onSuccess: refresh });
+  const add = useMutation({
+    mutationFn: () => api<{ tenant: string; link: string; message: string; email: string }>("/api/admin/users", { method: "POST", json: { ...invite, tenant_id: id } }),
+    onSuccess: (r) => {
+      setReady({ name: `${r.email} (${r.tenant})`, link: r.link, message: r.message, trial_ends_at: null, email: r.email });
+      setInvite({ email: "", role: "vendedor" });
+      refresh();
+    },
+  });
+  const patch = useMutation({
+    mutationFn: (json: Record<string, unknown>) => api(`/api/admin/tenants/${id}`, { method: "PATCH", json }),
+    onSuccess: refresh,
+  });
+  const d = q.data;
+  const error = renew.error ?? revoke.error ?? role.error ?? removeMember.error ?? add.error ?? patch.error;
+  const peak = Math.max(1, ...(d?.activity ?? []).map((a) => a.emails + a.activities));
+  const activeDays = (d?.activity ?? []).filter((a) => a.people || a.emails || a.activities).length;
+  return (
+    <Modal open onOpenChange={(o) => !o && onClose()} title={d?.name ?? "Empresa"} description={d ? `${d.plans[d.plan] ?? d.plan} · ${d.status === "active" ? "Activa" : "Suspendida"} · desde ${formatWhen(d.created_at)}` : undefined} wide="xl">
+      {!d ? (
+        <Spinner />
+      ) : (
+        <div className="flex flex-col gap-5">
+          {error && <Alert>{error.message}</Alert>}
+          {ready && <DemoReady demo={ready} title={`Acceso listo: ${ready.name}`} onClose={() => setReady(null)} />}
+
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Stat label="Días con actividad" value={`${activeDays} de 14`} hint={d.last_login_at ? `Último ingreso ${formatWhen(d.last_login_at)}` : "Nadie ha ingresado"} />
+            <Stat label="Contactos" value={n(d.usage.contacts)} />
+            <Stat label="Correos enviados" value={n(d.usage.emails_sent)} />
+            <Stat label="Oportunidades / propuestas" value={`${n(d.usage.deals)} / ${n(d.usage.proposals)}`} />
+          </div>
+
+          <Card>
+            <CardHeader title="Actividad diaria (14 días)" description="Barras: correos enviados + acciones en el CRM. Puntos: personas que ingresaron ese día." />
+            <div className="flex h-28 items-end gap-1.5">
+              {d.activity.map((a) => {
+                const value = a.emails + a.activities;
+                return (
+                  <div key={a.day} className="flex flex-1 flex-col items-center gap-1" title={`${a.day}: ${a.emails} correos, ${a.activities} acciones, ${a.people} personas`}>
+                    <span className="text-[10.5px] text-ork-mist">{a.people ? "●".repeat(Math.min(a.people, 3)) : ""}</span>
+                    <div className="w-full rounded-t bg-ork-blue/80" style={{ height: `${Math.max(value ? 6 : 2, (value / peak) * 80)}px`, opacity: value ? 1 : 0.25 }} />
+                    <span className="text-[10px] text-ork-mist">{a.day.slice(8)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card className="overflow-x-auto p-0">
+            <div className="px-5 pt-5">
+              <CardHeader title={`Equipo (${d.members.length})`} description="Cambia roles o saca a alguien de esta empresa. La empresa siempre conserva al menos un administrador." />
+            </div>
+            {d.members.length === 0 ? (
+              <p className="px-5 pb-5 text-[13.5px] text-ork-mist">Todavía nadie aceptó la invitación.</p>
+            ) : (
+              <table className="w-full min-w-[720px] text-left text-[13.5px]">
+                <tbody className="divide-y divide-ork-line border-t border-ork-line">
+                  {d.members.map((m) => (
+                    <tr key={m.user_id}>
+                      <td className="px-5 py-3">
+                        <p className="font-semibold text-ork-ink">{m.name || m.email}</p>
+                        <p className="text-[12px] text-ork-mist">{m.email}</p>
+                      </td>
+                      <td className="py-3 text-[12.5px] text-ork-mist">{m.last_login_at ? `Ingresó ${formatWhen(m.last_login_at)}` : "Nunca ingresó"}</td>
+                      <td className="py-3">
+                        {manage ? (
+                          <select
+                            value={m.role}
+                            onChange={(e) => role.mutate({ user: m.user_id, value: e.target.value })}
+                            className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
+                          >
+                            {Object.entries(ROLE_NAMES).map(([v, l]) => (
+                              <option key={v} value={v}>
+                                {l}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          ROLE_NAMES[m.role] ?? m.role
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {manage && (
+                          <Button size="sm" variant="ghost" onClick={() => window.confirm(`¿Sacar a ${m.email} de ${d.name}?`) && removeMember.mutate(m.user_id)}>
+                            Quitar de la empresa
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader title="Invitaciones pendientes" description="¿Se perdió el enlace o no le llegó el correo? «Nuevo enlace» genera uno y te muestra el mensaje para copiar o enviar; el anterior deja de servir." />
+            {d.invitations.length === 0 ? (
+              <p className="text-[13.5px] text-ork-mist">No hay invitaciones pendientes.</p>
+            ) : (
+              <ul className="divide-y divide-ork-line">
+                {d.invitations.map((i) => (
+                  <li key={i.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5 text-[13.5px]">
+                    <div>
+                      <p className="font-semibold text-ork-ink">{i.email}</p>
+                      <p className="text-[12px] text-ork-mist">
+                        {ROLE_NAMES[i.role] ?? i.role} · enviada {formatWhen(i.created_at)} · {i.expired ? <span className="text-bad">vencida</span> : `vence ${formatWhen(i.expires_at)}`}
+                      </p>
+                    </div>
+                    {manage && (
+                      <div className="flex gap-2">
+                        <Button size="sm" loading={renew.isPending && renew.variables === i.id} onClick={() => renew.mutate(i.id)}>
+                          Nuevo enlace
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => window.confirm(`¿Cancelar la invitación de ${i.email}?`) && revoke.mutate(i.id)}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {manage && (
+              <form
+                className="mt-4 grid gap-3 border-t border-ork-line pt-4 sm:grid-cols-[1fr_180px_auto]"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  add.mutate();
+                }}
+              >
+                <TextField label="Agregar persona (correo)" type="email" required value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} />
+                <label className="text-[13px] font-semibold text-ork-graphite">
+                  Rol
+                  <select
+                    value={invite.role}
+                    onChange={(e) => setInvite({ ...invite, role: e.target.value })}
+                    className="ork-focus mt-1.5 h-11 w-full rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] font-normal"
+                  >
+                    {Object.entries(ROLE_NAMES).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <Button type="submit" loading={add.isPending}>
+                    Invitar
+                  </Button>
+                </div>
+              </form>
+            )}
+          </Card>
+
+          {manage && (
+            <Card>
+              <CardHeader title="Plan" description={d.plan === "demo" && d.trial_ends_at ? `Demo: ${d.trial_expired ? "vencida" : "vence"} el ${new Date(d.trial_ends_at).toLocaleDateString("es", { day: "numeric", month: "long" })}.` : undefined} />
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={d.plan}
+                  onChange={(e) => window.confirm(`¿Cambiar «${d.name}» al plan ${e.target.selectedOptions[0].text}?`) && patch.mutate({ plan: e.target.value })}
+                  className="ork-focus h-9 rounded-lg border border-ork-line bg-ork-card px-2 text-[13px]"
+                >
+                  {Object.entries(d.plans).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+                {d.plan === "demo" && (
+                  <Button size="sm" variant="secondary" onClick={() => patch.mutate({ extend_days: 7 })}>
+                    +7 días de demo
+                  </Button>
+                )}
+                {d.status === "active" ? (
+                  <Button size="sm" variant="danger" onClick={() => window.confirm(`¿Suspender «${d.name}»? Sus usuarios no podrán entrar.`) && patch.mutate({ status: "suspended" })}>
+                    Suspender
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={() => patch.mutate({ status: "active" })}>
+                    Reactivar
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 
