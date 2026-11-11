@@ -14,9 +14,11 @@ import { ApiError } from "./lib/api";
 import { applyTheme } from "./lib/theme";
 import { SessionProvider } from "./lib/session";
 import {
+  ForgotPasswordPage,
   InvitationPage,
   LoginPage,
   RegisterPage,
+  ResetPasswordPage,
   WelcomePage,
 } from "./pages/auth";
 import { DashboardPage } from "./pages/dashboard";
@@ -104,6 +106,8 @@ createRoot(document.getElementById("root")!).render(
           <Routes>
             <Route path="/ingresar" element={<LoginPage />} />
             <Route path="/registro" element={<RegisterPage />} />
+            <Route path="/recuperar" element={<ForgotPasswordPage />} />
+            <Route path="/restablecer/:token" element={<ResetPasswordPage />} />
             <Route path="/bienvenida" element={<WelcomePage />} />
             <Route path="/invitacion/:token" element={<InvitationPage />} />
             <Route path="/p/:publicId" element={<PublicProposalPage />} />

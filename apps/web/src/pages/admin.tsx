@@ -667,6 +667,7 @@ function UsersPage({ me }: { me: Me }) {
   const patch = useMutation({ mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => api(`/api/admin/users/${id}`, { method: "PATCH", json: { is_active } }), onSuccess: refresh });
   const logout = useMutation({ mutationFn: (id: string) => api(`/api/admin/users/${id}/logout`, { method: "POST" }), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => api(`/api/admin/users/${id}`, { method: "DELETE" }), onSuccess: refresh });
+  const resetLink = useMutation({ mutationFn: (id: string) => api<{ link: string; sent: boolean; minutes: number }>(`/api/admin/users/${id}/reset-link`, { method: "POST" }) });
   const manage = can(me, "gestionar_usuarios");
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState<DemoStarted | null>(null);
@@ -699,6 +700,23 @@ function UsersPage({ me }: { me: Me }) {
         />
       )}
       {added && <DemoReady demo={added} title={`Acceso listo para ${added.name}`} onClose={() => setAdded(null)} />}
+      {resetLink.data && (
+        <Card className="mb-5">
+          <CardHeader
+            title="Enlace para restablecer la contraseña"
+            description={resetLink.data.sent ? `Ya se lo enviamos por correo. Vence en ${resetLink.data.minutes} minutos; si no le llega, copia el enlace y envíaselo.` : `No hay correo del sistema configurado: copia el enlace y envíaselo. Vence en ${resetLink.data.minutes} minutos.`}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="max-w-full flex-1 truncate rounded-lg bg-ork-surface px-3 py-2 text-[12.5px]">{resetLink.data.link}</code>
+            <Button size="sm" variant="secondary" onClick={() => void navigator.clipboard?.writeText(resetLink.data!.link)}>
+              Copiar
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => resetLink.reset()}>
+              Listo
+            </Button>
+          </div>
+        </Card>
+      )}
       <Card className="overflow-x-auto p-0">
         <div className="px-5 pt-5">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o correo…" className="ork-focus h-10 w-full max-w-xs rounded-xl border border-ork-line px-3 text-[14px]" />
@@ -746,6 +764,9 @@ function UsersPage({ me }: { me: Me }) {
                       <div className="flex justify-end gap-1 whitespace-nowrap">
                         <Button size="sm" variant="ghost" onClick={() => logout.mutate(u.id)}>
                           Cerrar sesiones
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => resetLink.mutate(u.id)}>
+                          Restablecer contraseña
                         </Button>
                         {u.is_active ? (
                           <Button size="sm" variant="danger" onClick={() => window.confirm(`¿Suspender a ${u.email}?`) && patch.mutate({ id: u.id, is_active: false })}>
@@ -1757,6 +1778,30 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint: strin
   );
 }
 
+function SystemMailCard() {
+  const client = useQueryClient();
+  const q = useQuery({ queryKey: ["admin-system-mail"], queryFn: () => api<{ configured: boolean; email: string | null }>("/api/admin/system-mail") });
+  const use = useMutation({
+    mutationFn: () => api("/api/admin/system-mail", { method: "POST" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["admin-system-mail"] }),
+  });
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader
+        title="Correo del sistema"
+        description="Desde aquí salen los correos de ORKESTA, como «Restablece tu contraseña». Usa el buzón que conectaste en tu espacio de trabajo (Configuración → Integraciones)."
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        {q.data?.configured ? <Badge tone="ok">Activo: {q.data.email}</Badge> : <Badge tone="warn">Sin configurar: nadie puede recuperar su contraseña</Badge>}
+        <Button size="sm" variant={q.data?.configured ? "secondary" : "primary"} loading={use.isPending} onClick={() => use.mutate()}>
+          {q.data?.configured ? "Cambiar a mi correo conectado" : "Usar mi correo conectado"}
+        </Button>
+        {use.error && <Alert>{use.error.message}</Alert>}
+      </div>
+    </Card>
+  );
+}
+
 function SettingsPage() {
   const client = useQueryClient();
   const q = useQuery({ queryKey: ["admin-settings"], queryFn: () => api<{ settings: AppSettings; plans: Record<string, string>; can_edit_plans: boolean }>("/api/admin/settings") });
@@ -1792,6 +1837,7 @@ function SettingsPage() {
         </div>
       )}
       <div className="grid gap-5 lg:grid-cols-2">
+        <SystemMailCard />
         <Card>
           <CardHeader title="Acceso" />
           <div className="flex flex-col gap-3">
@@ -2011,6 +2057,8 @@ const ACTIONS: Record<string, string> = {
   "tenant.deleted": "eliminó la empresa",
   "tenant.created": "creó la empresa",
   "access.sent": "envió el acceso a",
+  "user.reset_link": "generó un enlace de contraseña para",
+  "system_mail.set": "configuró el correo del sistema",
   "tenant.demo_started": "creó la demo de",
   "user.added": "agregó a",
   "user.deleted": "eliminó la cuenta de",

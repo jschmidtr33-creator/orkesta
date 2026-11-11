@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -10,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from orkesta.core.config import get_settings
 from orkesta.core.db import set_context
@@ -41,6 +42,7 @@ from orkesta.platform.models import (
     ROLE_HELP,
     ROLE_LABELS,
     AuditLog,
+    AuthSession,
     DemoRequest,
     Invitation,
     LoginAttempt,
@@ -50,6 +52,7 @@ from orkesta.platform.models import (
     User,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 demo_limiter = RateLimiter(limit=5, window_seconds=3600)
 register_limiter = RateLimiter(limit=10, window_seconds=3600)
@@ -244,6 +247,85 @@ def login(body: LoginIn, request: Request, response: Response, db: Db) -> Any:
     except svc.PlatformError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
     return _issue(db, tokens, response)
+
+
+# --- Recuperar la contraseña ------------------------------------------------------------------
+
+reset_limiter = RateLimiter(5, 3600)
+RESET_MINUTES = 60
+
+
+def _fingerprint(user: User) -> str:
+    """Cambia en cuanto cambia la contraseña: el enlace sirve una sola vez."""
+    import hashlib
+
+    return hashlib.sha256((user.password_hash or "sin-clave").encode()).hexdigest()[:16]
+
+
+def reset_link(request: Request, user: User) -> str:
+    token = sign_state({"uid": str(user.id), "p": "reset", "fp": _fingerprint(user)},
+                       RESET_MINUTES)  # fmt: skip
+    base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
+    return f"{base}/app/restablecer/{token}"
+
+
+def send_reset(db: Db, request: Request, user: User) -> bool:
+    from orkesta.core import system_mail
+
+    link = reset_link(request, user)
+    first = (user.full_name or "").split(" ")[0]
+    text = (
+        f"Hola{(' ' + first) if first else ''}:\n\n"
+        "Recibimos una solicitud para restablecer tu contraseña de ORKESTA. "
+        f"Crea una nueva en este enlace (vence en {RESET_MINUTES} minutos):\n\n{link}\n\n"
+        "Si no lo pediste, ignora este correo: tu contraseña sigue igual.\n\nEquipo ORKESTA"
+    )
+    return system_mail.send(db, to=user.email, subject="Restablece tu contraseña de ORKESTA",
+                            text=text)  # fmt: skip
+
+
+class ForgotIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+@router.post("/auth/password/forgot")
+def forgot_password(body: ForgotIn, request: Request, db: Db) -> dict[str, Any]:
+    """Siempre responde igual, exista o no la cuenta (no revela quién tiene cuenta)."""
+    reset_limiter.check(client_ip(request) or "?")
+    email = svc.normalize_email(body.email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None and user.is_active:
+        sent = send_reset(db, request, user)
+        if not sent:
+            logger.warning("password_reset_not_sent")
+    return {"ok": True}
+
+
+class ResetIn(BaseModel):
+    token: str = Field(max_length=2000)
+    password: str = Field(max_length=200)
+
+
+@router.post("/auth/password/reset")
+def reset_password(body: ResetIn, request: Request, db: Db) -> dict[str, Any]:
+    from orkesta.core.security import hash_password, validate_password
+
+    data = read_state(body.token)
+    user = db.get(User, uuid.UUID(data["uid"])) if data and data.get("p") == "reset" else None
+    if user is None or not user.is_active or data is None or data.get("fp") != _fingerprint(user):
+        raise HTTPException(400, "El enlace venció o ya se usó. Pide uno nuevo.")
+    try:
+        validate_password(body.password)
+    except PasswordPolicyError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    user.password_hash = hash_password(body.password)
+    # Por seguridad se cierran todas sus sesiones abiertas.
+    db.execute(
+        update(AuthSession)
+        .where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )
+    return {"ok": True, "email": user.email}
 
 
 class MfaIn(BaseModel):
