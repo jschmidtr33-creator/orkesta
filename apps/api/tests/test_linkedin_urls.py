@@ -3,6 +3,7 @@ propio y el nombre de la dirección, y deja el resto al enriquecimiento. Datos s
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -54,3 +55,48 @@ def test_add_from_linkedin_uses_index_and_queues_enrichment(
     assert again["created"] == 0 and again["existing"] == 1
     bad = client.post("/api/contacts/linkedin", json={"urls": "hola"})
     assert bad.status_code == 400
+
+
+def test_profile_without_hyphens_gets_name_title_and_company_from_google(
+    client: TestClient, session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«/in/santiagojoyaibarra»: el resultado público de Google da nombre, cargo, empresa y
+    ciudad; ORKESTA no entra a LinkedIn."""
+    import json
+
+    import httpx
+
+    from orkesta.core.config import get_settings
+    from orkesta.research import fetch
+
+    monkeypatch.setattr(get_settings(), "serper_api_key", "clave-serper")
+    asked: list[str] = []
+
+    def route(request: httpx.Request) -> httpx.Response:
+        q = json.loads(request.content)["q"]
+        asked.append(q)
+        if q == "site:linkedin.com/in/santiagojoyaibarra":
+            return httpx.Response(200, json={"organic": [{
+                "title": "Santiago Joya Ibarra - Gerente Comercial - Banco Andino | LinkedIn",
+                "link": "https://co.linkedin.com/in/santiagojoyaibarra",
+                "snippet": "Ubicación: Bogotá, Colombia · Experiencia: Banco Andino",
+            }]})  # fmt: skip
+        return httpx.Response(200, json={"organic": []})
+
+    monkeypatch.setattr(fetch, "TRANSPORT", httpx.MockTransport(route))
+    monkeypatch.setattr(fetch, "RESOLVER", lambda h: ["93.184.216.34"])
+    register(client, "ana@lacteos.co")
+    # Ya se había agregado incompleto (como antes de este cambio): se completa, sin duplicarlo.
+    monkeypatch.setattr(get_settings(), "serper_api_key", "")
+    client.post("/api/contacts/linkedin", json={"urls": "linkedin.com/in/santiagojoyaibarra"})
+    monkeypatch.setattr(get_settings(), "serper_api_key", "clave-serper")
+    r = client.post("/api/contacts/linkedin",
+                    json={"urls": "https://www.linkedin.com/in/santiagojoyaibarra/"})  # fmt: skip
+    body = r.json()
+    assert r.status_code == 200 and body["from_search"] == 1 and body["updated"] == 1
+    items = client.get("/api/contacts").json()["items"]
+    assert len(items) == 1
+    item = items[0]
+    assert (item["first_name"], item["last_name"]) == ("Santiago", "Joya Ibarra")
+    assert item["job_title"] == "Gerente Comercial" and item["company"] == "Banco Andino"
+    assert item["country_code"] == "CO"

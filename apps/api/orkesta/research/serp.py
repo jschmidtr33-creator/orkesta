@@ -1005,3 +1005,56 @@ def find_profile(
         location = lead_location(snippet, link, country, country_name) if country else ""
         return Profile(link, role if looks_like_title(role) else "", location)
     return None
+
+
+@dataclass
+class UrlProfile:
+    name: str
+    role: str
+    employer: str
+    city: str
+    country: str
+
+
+def profile_by_url(fetcher: Fetcher, stats: SerpStats, slug: str) -> UrlProfile | None:
+    """Nombre, cargo, empresa y ubicación de un perfil según el resultado PÚBLICO de Google para
+    su dirección (ORKESTA no entra a LinkedIn)."""
+    from orkesta.engine.normalize.location import COUNTRIES, parse_location
+
+    slug = slug.strip("/").lower()
+    if not slug:
+        return None
+    for query in (f"site:linkedin.com/in/{slug}", f'"linkedin.com/in/{slug}"'):
+        data = call(fetcher, "search", {"q": query, "num": 5, "hl": "es"}, stats)
+        for row in (data or {}).get("organic", []) or []:
+            if not isinstance(row, dict):
+                continue
+            link = str(row.get("link", ""))
+            path = urlsplit(link).path.rstrip("/").lower()
+            if not path.endswith(f"/in/{slug}"):
+                continue
+            snippet = str(row.get("snippet", ""))
+            name, role, employer = parse_profile(str(row.get("title", "")), snippet)
+            loc = None
+            for text in [m.group(1) for m in _LOCATION_LABEL.finditer(snippet)] + [
+                part for part in re.split(r"[·|]", snippet) if len(part) < 80
+            ]:
+                found = parse_location(text)
+                if found.country_code:
+                    loc = found
+                    break
+            host = urlsplit(link).hostname or ""
+            country = loc.country_code if loc and loc.country_code else ""
+            if not country:
+                for code, sub in LINKEDIN_SUBDOMAIN.items():
+                    if sub and sub != "www" and host.startswith(f"{sub}."):
+                        country = code
+                        break
+            with stats.lock:
+                stats.accepted += 1
+            return UrlProfile(
+                name=name, role=role if looks_like_title(role) else "", employer=employer,
+                city=(loc.city or "") if loc else "",
+                country=country if country in COUNTRIES else "",
+            )  # fmt: skip
+    return None

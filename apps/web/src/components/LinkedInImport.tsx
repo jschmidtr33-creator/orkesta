@@ -9,6 +9,8 @@ type Result = {
   created: number;
   existing: number;
   from_index: number;
+  from_search?: number;
+  search_off?: boolean;
   with_email: number;
   no_company: number;
   invalid: string[];
@@ -66,7 +68,7 @@ export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onO
       open={open}
       onOpenChange={close}
       title="Agregar desde LinkedIn"
-      description="Pega direcciones de perfiles (una por línea, hasta 200). ORKESTA no entra a LinkedIn: si ya conoce a la persona trae sus datos; si no, toma el nombre de la dirección y busca su correo con el enriquecimiento."
+      description="Pega direcciones de perfiles (una por línea, hasta 200). ORKESTA no entra a LinkedIn: usa su índice propio y el resultado público de Google de cada perfil para traer nombre, cargo, empresa y ciudad, y luego busca y verifica el correo."
       wide
     >
       {!r ? (
@@ -106,7 +108,7 @@ export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onO
               ))}
             </SelectField>
           </div>
-          <p className="text-[12.5px] text-ork-mist">Sin empresa, ORKESTA solo puede buscar el correo de quienes ya están en su índice. Con la empresa (y el país), encuentra su sitio web y arma y verifica el correo.</p>
+          <p className="text-[12.5px] text-ork-mist">La empresa y el país son opcionales: sirven cuando Google no muestra el perfil.</p>
           {add.error && <Alert>{add.error.message}</Alert>}
           <div className="flex justify-end">
             <Button type="submit" loading={add.isPending} disabled={count === 0}>
@@ -121,6 +123,8 @@ export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onO
           </p>
           <ul className="list-disc pl-5">
             <li>{r.from_index} ya estaban en el índice de ORKESTA ({r.with_email} con correo publicado).</li>
+            {(r.from_search ?? 0) > 0 && <li>{r.from_search} con nombre, cargo, empresa y ciudad tomados del resultado público de Google de su perfil.</li>}
+            {r.search_off && <li className="text-warn">El buscador no está disponible: sin él solo se completa lo que ya conoce el índice.</li>}
             {r.existing > 0 && <li>{r.existing} ya estaban en tus contactos.</li>}
             {r.enrichment_id && <li>El resto se está enriqueciendo: busca su sitio web y su correo. Lo verás en Contactos en unos minutos.</li>}
             {r.enrichment_busy && <li>Hay otro enriquecimiento en curso: cuando termine, usa «Enriquecer» en Contactos para completar estos.</li>}

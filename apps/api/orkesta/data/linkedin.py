@@ -85,6 +85,62 @@ def _from_index(session: Session, profiles: list[Profile], company: str,
     return out
 
 
+def _search_on() -> bool:
+    from orkesta.research import serp
+
+    return serp.enabled()
+
+
+def _from_search(session: Session, profiles: list[Profile]) -> dict[str, Any]:
+    """Cargo, empresa y ubicación del resultado público de Google para cada dirección (en
+    paralelo). Vacío si el buscador no está configurado."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy.orm import sessionmaker
+
+    from orkesta.research import serp
+    from orkesta.research.fetch import Fetcher
+
+    if not profiles or not _search_on():
+        return {}
+    factory = sessionmaker(bind=session.get_bind(), expire_on_commit=False)
+    stats = serp.SerpStats(budget=len(profiles) * 2 + 5)
+    out: dict[str, Any] = {}
+    with Fetcher(factory) as fetcher, ThreadPoolExecutor(max_workers=8) as pool:
+        hits = pool.map(lambda p: (p.slug, serp.profile_by_url(fetcher, stats, p.slug)), profiles)
+        for slug, hit in hits:
+            if hit is not None:
+                out[slug] = hit
+    return out
+
+
+def _refresh(session: Session, tenant_id: uuid.UUID, url: str, data: Any) -> uuid.UUID | None:
+    """Un contacto que ya se agregó por su dirección y quedó incompleto se completa ahora."""
+    from orkesta.data.models import Contact
+    from orkesta.data.service import _clean_input, search_text
+    from orkesta.engine.taxonomy.titles import classify_title
+
+    contact = session.scalar(select(Contact).where(Contact.tenant_id == tenant_id,
+                                                   Contact.linkedin_url == url))  # fmt: skip
+    if contact is None:
+        return None
+    values = _clean_input(data)
+    changed = False
+    if not contact.last_name and values["last_name"]:
+        contact.first_name, contact.last_name = values["first_name"], values["last_name"]
+        contact.full_name = values["full_name"]
+        changed = True
+    for field in ("job_title", "company_name", "city", "country_code"):
+        if values.get(field) and not getattr(contact, field):
+            setattr(contact, field, values[field])
+            changed = True
+    if changed:
+        contact.level_code, contact.area_code = classify_title(contact.job_title)
+        contact.search_text = search_text(contact.full_name, contact.email, contact.company_name,
+                                          contact.job_title, contact.city)  # fmt: skip
+    return contact.id if changed else None
+
+
 def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company: str = "",
         country: str = "", list_id: uuid.UUID | None = None) -> dict[str, Any]:  # fmt: skip
     """Crea los contactos y devuelve el resumen (los nuevos sin correo quedan para enriquecer)."""
@@ -99,25 +155,46 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
     code = country.strip().upper()
     code = code if code in COUNTRIES else ""
     known = _from_index(session, profiles, company, code)
+    found = _from_search(session, [p for p in profiles if p.slug not in known])
     created: list[uuid.UUID] = []
     existing = 0
     errors: list[str] = []
     from_index = with_email = 0
+    from_search = updated = 0
+    touched: list[uuid.UUID] = []
     for p in profiles:
         row = known.get(p.slug)
+        hit = found.get(p.slug)
         first, last = (
             (row.first_name or p.first, row.last_name or p.last) if row else (p.first, p.last)
         )
+        if row is None and hit is not None:
+            from_search += 1
+        if row is None and hit is not None and hit.name:
+            from orkesta.engine.normalize.names import split_full_name
+
+            split = split_full_name(hit.name)
+            first, last = split.first or first, split.last or last
         email = ""
         if row is not None and row.email and row.email_status in ("publicado", "confirmado"):
             email = row.email
+        found_country = (row.country if row else "") or (hit.country if hit else "") or code
         data = ContactInput(
             first_name=first, last_name=last,
-            job_title=(row.title or "") if row else "",
-            company=(row.company if row else "") or company,
+            job_title=(row.title or "") if row else (hit.role if hit else ""),
+            company=(row.company if row else "") or (hit.employer if hit else "") or company,
             email=email,
-            country=COUNTRIES.get((row.country if row else "") or code, ("",))[0],
+            city=(hit.city if hit and not row else ""),
+            country=COUNTRIES.get(found_country, ("",))[0],
         )  # fmt: skip
+        # Ya se agregó antes por su dirección: se completa lo que faltaba, sin duplicarlo.
+        if session.scalar(select(Contact.id).where(Contact.tenant_id == tenant_id,
+                                                   Contact.linkedin_url == p.url)):  # fmt: skip
+            existing += 1
+            if (refreshed := _refresh(session, tenant_id, p.url, data)) is not None:
+                updated += 1
+                touched.append(refreshed)
+            continue
         try:
             contact = create_contact(session, tenant_id=tenant_id, user=user, data=data)
         except DataError as exc:
@@ -142,7 +219,7 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
     if list_id and created:
         add_to_list(session, tenant_id=tenant_id, list_id=list_id, contact_ids=created)
     pending = [
-        cid for cid in created
+        cid for cid in [*created, *touched]
         if (c := session.get(Contact, cid)) is not None and not c.email and c.company_name
     ]  # fmt: skip
     no_company = sum(
@@ -150,7 +227,9 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
     )
     return {
         "received": len(profiles), "created": len(created), "existing": existing,
-        "from_index": from_index, "with_email": with_email, "to_enrich": pending,
+        "updated": updated,
+        "from_index": from_index, "from_search": from_search, "search_off": not _search_on(),
+        "with_email": with_email, "to_enrich": pending,
         "no_company": no_company, "invalid": invalid[:20], "errors": errors[:20],
         "contact_ids": [str(c) for c in created],
     }  # fmt: skip
