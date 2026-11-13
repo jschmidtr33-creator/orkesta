@@ -51,7 +51,7 @@ jobs:
             SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
             SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';" </dev/null
           echo "==> Dirección pública"; grep -E '^(DOMAIN|PUBLIC_BASE_URL)=' .env
-          docker compose exec -T app printenv PUBLIC_BASE_URL
+          docker compose exec -T app printenv PUBLIC_BASE_URL </dev/null
           echo "==> Datos que aún apuntan a Render"
           for t in proposals proposal_brands products automation_rules campaigns campaign_messages mailboxes users tenants platform_settings email_assets; do
             n=$(docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT count(*) FROM orkesta.$t x WHERE x::text ILIKE '%onrender%'" </dev/null 2>&1)
