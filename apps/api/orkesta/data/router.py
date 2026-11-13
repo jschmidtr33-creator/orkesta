@@ -157,6 +157,62 @@ def create_contact(
     return svc.contact_detail(db, contact)
 
 
+class LinkedInIn(BaseModel):
+    urls: str = Field(max_length=60_000)
+    company: str = Field(default="", max_length=200)
+    country: str = Field(default="", max_length=2)
+    list_id: uuid.UUID | None = None
+    enrich: bool = True
+
+
+@router.post("/contacts/linkedin")
+def contacts_from_linkedin(
+    body: LinkedInIn, request: Request, principal: Member, db: Db
+) -> dict[str, Any]:
+    """Agrega contactos pegando direcciones de perfiles de LinkedIn (ORKESTA no abre LinkedIn:
+    usa su índice propio y el motor de enriquecimiento)."""
+    from sqlalchemy import func, select
+
+    from orkesta.core.jobs import enqueue
+    from orkesta.data import linkedin
+    from orkesta.enrichment.agent import ENRICH_JOB
+    from orkesta.enrichment.models import EnrichmentRun
+
+    try:
+        result = linkedin.add(db, tenant_id=principal.tenant_id, user=principal.user,
+                              text=body.urls, company=body.company, country=body.country,
+                              list_id=body.list_id)  # fmt: skip
+    except svc.DataError as exc:
+        raise _fail(exc) from exc
+    pending = result.pop("to_enrich")
+    result["enrichment_id"] = None
+    result["enrichment_busy"] = False
+    if body.enrich and pending:
+        busy = db.scalar(select(func.count()).where(
+            EnrichmentRun.tenant_id == principal.tenant_id,
+            EnrichmentRun.status.in_(("queued", "running"))))  # fmt: skip
+        if busy:
+            result["enrichment_busy"] = True
+        else:
+            run = EnrichmentRun(
+                tenant_id=principal.tenant_id, created_by=principal.user.id,
+                scope={"profiles": False, "ids": [str(i) for i in pending]},
+                summary=f"{len(pending)} contactos desde LinkedIn",
+                progress={"done": 0, "total": 0, "log": []},
+            )  # fmt: skip
+            db.add(run)
+            db.flush()
+            enqueue(db, tenant_id=principal.tenant_id, kind=ENRICH_JOB,
+                    payload={"run_id": str(run.id)}, max_attempts=1)  # fmt: skip
+            result["enrichment_id"] = str(run.id)
+    audit(
+        db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
+        action="contacts.linkedin", entity_type="contact", entity_id=None,
+        ip=client_ip(request),
+    )  # fmt: skip
+    return result
+
+
 @router.get("/contacts/export")
 def export(principal: Member, db: Db, filters: Filters, request: Request) -> Response:
     content = svc.export_csv(db, principal.tenant_id, filters)

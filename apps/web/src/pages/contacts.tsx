@@ -36,6 +36,7 @@ import {
   TextField,
 } from "../components/ui";
 import { AskConcertino } from "../components/Concertino";
+import { LinkedInImportButton } from "../components/LinkedInImport";
 import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -240,6 +241,7 @@ export function ContactsPage() {
             >
               <FileUp className="size-4" aria-hidden /> Importar
             </Link>
+            <LinkedInImportButton />
             <Button
               variant="secondary"
               icon={<Sparkles className="size-4" aria-hidden />}
