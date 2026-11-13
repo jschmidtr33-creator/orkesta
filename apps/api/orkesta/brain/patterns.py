@@ -85,12 +85,12 @@ def _directory(
 
 def _label(stats: list[Any]) -> str | None:
     """El formato que la evidencia respalda en un dominio (o ninguno si no es clara)."""
-    from orkesta.research.memory import _bad
+    from orkesta.research.memory import _bad, weight
 
-    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen >= 1)]
+    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen or st.delivered)]
     if not good:
         return None
-    best = max(good, key=lambda s: (s.confirmed * 5 + s.seen * 2 - s.bounced * 3, s.confirmed))
+    best = max(good, key=lambda s: (weight(s), s.confirmed))
     return str(best.pattern)
 
 

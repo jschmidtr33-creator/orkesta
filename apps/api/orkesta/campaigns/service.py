@@ -847,10 +847,17 @@ def _learn(session: Session, recipient: Recipient, outcome: str) -> None:
     contact = session.get(Contact, recipient.contact_id)
     if contact is None or contact.email != recipient.email:
         return
+    pattern = detect_pattern(contact.first_name or "", contact.last_name or "", recipient.email)
     if contact.email_status == "estimado" or outcome == "replied":
-        pattern = detect_pattern(contact.first_name or "", contact.last_name or "", recipient.email)
         if pattern:
             feedback(session, recipient.email, pattern, outcome)
+        elif outcome == "bounced":
+            feedback(session, recipient.email, "", outcome)
+    elif outcome == "bounced":
+        # Un correo de la base que rebotó (la persona ya no está): no culpa al formato, pero la
+        # dirección no se vuelve a proponer y el índice de personas la marca como rebotada.
+        feedback(session, recipient.email, "", outcome)
+    recipient.learned_at = now()
     if outcome == "replied" and contact.email_status in ("estimado", "sin_validar", "desconocido"):
         contact.email_status = "valido"  # respondió: el correo existe
     if outcome == "bounced" and contact.email_status == "estimado":

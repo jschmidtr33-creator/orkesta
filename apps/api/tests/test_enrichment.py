@@ -111,3 +111,40 @@ def test_existing_data_is_never_overwritten(
     p = client.get(f"/api/contacts/{pedro}").json()
     assert p["job_title"] == "Gerente de Innovación" and p["city"] == "Bogotá"
     assert p["linkedin_url"] == "https://co.linkedin.com/in/pedro-rios"
+
+
+def test_enrichment_uses_index_and_skips_bounced_addresses(
+    client: TestClient, session_factory: sessionmaker[Session], serper: list[str],
+    database: tuple[str, str],
+) -> None:  # fmt: skip
+    """El correo publicado del índice de personas gana a cualquier estimado, y nunca se vuelve
+    a proponer una dirección que ya rebotó."""
+    import psycopg
+
+    from orkesta.research import memory, people
+    from orkesta.research.directory import name_key
+
+    register(client, "ana@lacteos.co")
+    a = _contact(client, first_name="Laura", last_name="Gomez", company="Indice SAS", country="CO")
+    b = _contact(client, first_name="Mario", last_name="Paz", company="Indice SAS", country="CO")
+    people.upsert(session_factory, [{
+        "key": people.person_key("CO", name_key("Indice SAS"), "Laura Gomez"), "country": "CO",
+        "full_name": "Laura Gomez", "first_name": "Laura", "last_name": "Gomez",
+        "title": "Gerente", "level": None, "area": None, "company": "Indice SAS",
+        "company_key": name_key("Indice SAS"), "domain": "indice.co", "location": "",
+        "linkedin": None, "email": "laura.g@indice.co", "email_status": "publicado",
+        "source": "bases",
+    }])  # fmt: skip
+    memory.remember_pattern(session_factory, "indice.co", "first.last", 3)
+    with session_factory.begin() as session:
+        memory.feedback(session, "mario.paz@indice.co", "", "bounced")
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.companies SET domain = 'indice.co'")
+    run = _enrich(client, session_factory, ids=[a, b], profiles=False)
+    assert run["status"] == "completed", run
+    assert run["totals"].get("from_index") == 1
+    laura = client.get(f"/api/contacts/{a}").json()
+    mario = client.get(f"/api/contacts/{b}").json()
+    assert laura["email"] == "laura.g@indice.co" and laura["email_status"] == "sin_validar"
+    assert mario["email"] and mario["email"] != "mario.paz@indice.co"
+    assert mario["email_status"] == "estimado"

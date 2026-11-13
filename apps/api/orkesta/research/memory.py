@@ -2,8 +2,8 @@
 
 - Dominio oficial de cada empresa ya identificada: la siguiente búsqueda no gasta consultas.
 - Formato de correo por dominio, reforzado con evidencia: correos públicos vistos (+1),
-  respuestas a correos estimados (confirmado) y rebotes (resta confianza). Así los correos
-  estimados mejoran con el uso de todos los clientes.
+  correos estimados que llegaron sin rebotar (entregado), respuestas (confirmado) y rebotes
+  (resta confianza). Así los correos estimados mejoran con el uso de todos los clientes.
 
 Solo guarda datos de empresas (dominio y formato), nunca datos de personas.
 """
@@ -88,7 +88,13 @@ def address_hash(email: str) -> str:
 
 def _bad(stat: PatternStat) -> bool:
     """La evidencia en contra supera a la evidencia a favor: el formato no sirve aquí."""
-    return stat.bounced > stat.confirmed + stat.seen
+    return stat.bounced > stat.confirmed + stat.seen + (stat.delivered or 0)
+
+
+def weight(stat: PatternStat) -> int:
+    """Fuerza de la evidencia: una respuesta vale más que un correo que llegó, y este más que
+    uno visto publicado; cada rebote resta."""
+    return stat.confirmed * 5 + (stat.delivered or 0) * 3 + stat.seen * 2 - stat.bounced * 3
 
 
 def _stats(session: Session, domain: str) -> list[PatternStat]:
@@ -96,16 +102,22 @@ def _stats(session: Session, domain: str) -> list[PatternStat]:
 
 
 def _best(stats: list[PatternStat], domain: str) -> tuple[str, int, str]:
-    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen)]
+    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen or st.delivered)]
     if not good:
         return "", 0, ""
-    st = max(good, key=lambda x: (x.confirmed * 5 + x.seen * 2 - x.bounced * 3, x.confirmed))
+    st = max(good, key=lambda x: (weight(x), x.confirmed))
     label = PATTERN_LABELS.get(st.pattern, st.pattern)
     if st.confirmed:
         return (
             st.pattern,
             75,
             f"Formato {label}@{domain} confirmado por {st.confirmed} respuesta(s)",
+        )
+    if st.delivered:
+        return (
+            st.pattern,
+            65 if st.delivered > 1 else 60,
+            f"Formato {label}@{domain}: {st.delivered} correo(s) enviados llegaron sin rebotar",
         )
     confidence = 55 if st.seen > 1 else 45
     return st.pattern, confidence, f"Formato {label}@{domain} visto en {st.seen} correo(s) públicos"
@@ -145,9 +157,10 @@ def domain_suffix(domain: str) -> str:
 
 
 def _ranking(session: Session, suffix: str) -> list[tuple[str, int]]:
-    total = func.sum(PatternStat.confirmed + PatternStat.seen)
-    query = select(PatternStat.pattern, total).where(PatternStat.bounced <= PatternStat.confirmed
-                                                     + PatternStat.seen)  # fmt: skip
+    total = func.sum(PatternStat.confirmed + PatternStat.seen + PatternStat.delivered)
+    query = select(PatternStat.pattern, total).where(
+        PatternStat.bounced <= PatternStat.confirmed + PatternStat.seen + PatternStat.delivered
+    )
     if suffix:
         query = query.where(PatternStat.domain.endswith(f".{suffix}"))
     rows = session.execute(query.group_by(PatternStat.pattern).order_by(total.desc())).all()
@@ -239,9 +252,19 @@ def remember_pattern(
 
 
 def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
-    """Aprende de una campaña: una respuesta confirma el formato; un rebote le resta confianza y
-    la dirección no se vuelve a proponer."""
-    if "@" not in email or outcome not in ("replied", "bounced"):
+    """Aprende de una campaña: una respuesta confirma el formato; un correo estimado que llegó
+    lo refuerza; un rebote le resta confianza y la dirección no se vuelve a proponer.
+    Sin ``pattern`` (correo que no era estimado) solo se recuerda la dirección."""
+    if "@" not in email or outcome not in ("replied", "bounced", "delivered"):
+        return
+    if outcome == "delivered":
+        if pattern:
+            domain = email.rsplit("@", 1)[1].lower()
+            stmt = pg_insert(PatternStat).values(domain=domain, pattern=pattern, delivered=1)
+            session.execute(stmt.on_conflict_do_update(
+                index_elements=["domain", "pattern"],
+                set_={"delivered": PatternStat.delivered + 1, "updated_at": func.now()},
+            ))  # fmt: skip
         return
     from orkesta.research import people
 
