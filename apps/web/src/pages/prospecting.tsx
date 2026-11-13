@@ -116,7 +116,8 @@ type RunDetail = Run & { companies: Item<CompanyData>[]; people: Item<PersonData
 
 const EMPTY: Filters = {
   mode: "leads",
-  country: "CO",
+  country: "",
+  countries: [],
   cities: [],
   sectors: [],
   exclude_sectors: [],
@@ -571,8 +572,8 @@ function FilterPanel({
         </label>
         <CountryPicker
           options={options.countries}
-          value={filters.countries?.length ? filters.countries : [filters.country]}
-          onChange={(codes) => set({ countries: codes, country: codes[0] ?? filters.country })}
+          value={filters.countries?.length ? filters.countries : filters.country ? [filters.country] : []}
+          onChange={(codes) => set({ countries: codes, country: codes[0] ?? "" })}
         />
         <Button type="submit" size="lg" loading={loading} icon={<Search className="size-4" aria-hidden />}>
           Buscar
@@ -1527,7 +1528,7 @@ function CountryPicker({ options, value, onChange }: { options: Option[]; value:
   const [open, setOpen] = useState(false);
   const all = value.length >= options.length;
   const fold = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const matches = options.filter((o) => !value.includes(o.value) && fold(o.label).includes(fold(text))).slice(0, 8);
+  const matches = options.filter((o) => !value.includes(o.value) && fold(o.label).includes(fold(text)));
   const label = (code: string) => options.find((o) => o.value === code)?.label ?? code;
   const add = (code: string) => {
     onChange([...value.filter((v) => v !== code), code]);
@@ -1537,9 +1538,9 @@ function CountryPicker({ options, value, onChange }: { options: Option[]; value:
     <div className="relative sm:w-80">
       <div className="ork-focus flex min-h-11 flex-wrap items-center gap-1.5 rounded-xl border border-ork-line bg-ork-card px-2 py-1.5">
         {all ? (
-          <Chip text="Todos los países" onRemove={() => onChange([options[0]?.value ?? "CO"])} />
+          <Chip text="Todos los países" onRemove={() => onChange([])} />
         ) : (
-          value.map((c) => <Chip key={c} text={label(c)} onRemove={value.length > 1 ? () => onChange(value.filter((v) => v !== c)) : undefined} />)
+          value.map((c) => <Chip key={c} text={label(c)} onRemove={() => onChange(value.filter((v) => v !== c))} />)
         )}
         {!all && (
           <input
@@ -1556,7 +1557,7 @@ function CountryPicker({ options, value, onChange }: { options: Option[]; value:
                 e.preventDefault();
                 add(matches[0].value);
               }
-              if (e.key === "Backspace" && !text && value.length > 1) onChange(value.slice(0, -1));
+              if (e.key === "Backspace" && !text && value.length) onChange(value.slice(0, -1));
             }}
             placeholder={value.length ? "+ país" : "Escribe un país"}
             className="h-8 min-w-[80px] flex-1 bg-transparent px-1 text-[14px] outline-none placeholder:text-ork-mist"

@@ -43,6 +43,7 @@ COUNTRIES: dict[str, tuple[str, tuple[str, ...]]] = {
         ("republica dominicana", "dominican republic", "do", "dom", "rep dominicana", "rd"),
     ),
     "PR": ("Puerto Rico", ("puerto rico", "pr", "pri")),
+    "HT": ("Haití", ("haiti", "haití", "ht", "hti")),
     "CU": ("Cuba", ("cuba", "cu", "cub")),
     "ES": ("España", ("espana", "spain", "es", "esp")),
     "US": (

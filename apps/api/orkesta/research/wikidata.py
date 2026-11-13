@@ -27,7 +27,7 @@ COUNTRY_QIDS: dict[str, str] = {
     "VE": "Q717", "BO": "Q750", "PY": "Q733", "UY": "Q77", "BR": "Q155", "PA": "Q804",
     "CR": "Q800", "GT": "Q774", "HN": "Q783", "SV": "Q792", "NI": "Q811", "DO": "Q786",
     "PR": "Q1183", "CU": "Q241", "ES": "Q29", "US": "Q30", "CA": "Q16", "PT": "Q45",
-    "GB": "Q145",
+    "GB": "Q145", "HT": "Q790",
 }  # fmt: skip
 
 # Tipos de entidad que cuentan como empresa aunque no declaren industria.

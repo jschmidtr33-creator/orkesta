@@ -29,3 +29,16 @@ def absolute(text: str | None, base: str) -> str:
     if not base:
         return text or ""
     return _RELATIVE.sub(lambda m: f"{m.group(1)}{base}{m.group(2)}", relative(text))
+
+
+# Direcciones antiguas de ORKESTA (Render y la IP temporal de AWS): los enlaces guardados o
+# pegados con ellas pasan a la dirección pública actual.
+_OLD_HOST = re.compile(r"https?://(?:[a-z0-9-]+\.onrender\.com|[0-9-]+\.sslip\.io)(?=[/\s\"'<>)]|$)",
+                       re.IGNORECASE)  # fmt: skip
+SQL_OLD_HOST = r"https?://([a-z0-9-]+\.onrender\.com|[0-9-]+\.sslip\.io)"
+
+
+def current_links(text: str | None, base: str) -> str:
+    """«https://orkesta-web.onrender.com/app/p/x» → «https://orkestaapp.com/app/p/x»."""
+    base = (base or "").rstrip("/")
+    return _OLD_HOST.sub(base, text or "") if base else (text or "")

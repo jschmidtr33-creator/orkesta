@@ -55,6 +55,10 @@ def send_by_email(session: Session, proposal: Proposal, user: User, *, mailbox_i
     recipients, copies = _emails(to), _emails(cc)
     if not recipients:
         raise ProposalError("Escribe el correo del cliente.")
+    from orkesta.core.assets import current_links
+
+    base = link.split("/app/p/", 1)[0]
+    body = current_links(body, base)  # un enlace viejo pegado en el texto va al dominio actual
     values = {**variable_values(session, proposal), "enlace_propuesta": link}
     subject_text = " ".join(render(subject, values)[0].split())[:250]
     if not subject_text:
@@ -69,7 +73,7 @@ def send_by_email(session: Session, proposal: Proposal, user: User, *, mailbox_i
     button = (
         f'<p style="margin:24px 0"><a href="{html.escape(link)}" style="{style}">{label} →</a></p>'
     )
-    signature = as_html(mailbox.signature)
+    signature = current_links(as_html(mailbox.signature), base)
     content = (
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;'
         f'color:#1f2937">{body_html}{button if link not in body_html else ""}'
