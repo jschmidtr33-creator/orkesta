@@ -50,6 +50,35 @@ jobs:
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
             SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname IN ('orkesta','postgres');
             SELECT tablename, tableowner FROM pg_tables WHERE schemaname='orkesta' AND tableowner <> 'orkesta';" </dev/null
+          echo "==> Calidad de datos (solo cifras)"
+          docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "
+            SELECT source, email_status, count(*) AS n,
+                   count(*) FILTER (WHERE email IS NOT NULL) AS con_correo,
+                   count(*) FILTER (WHERE email_domain IS NOT NULL AND email_domain !~ '(gmail|hotmail|outlook|yahoo|live|icloud)\.') AS corporativos
+            FROM orkesta.contacts GROUP BY 1,2 ORDER BY 3 DESC;
+            SELECT 'dominios en contactos' AS cifra, count(DISTINCT email_domain) FROM orkesta.contacts WHERE email_domain IS NOT NULL
+            UNION ALL SELECT 'de esos con formato aprendido', count(DISTINCT c.email_domain) FROM orkesta.contacts c JOIN orkesta.pattern_stats p ON p.domain=c.email_domain
+            UNION ALL SELECT 'empresas en contactos', count(*) FROM orkesta.companies
+            UNION ALL SELECT 'empresas de contactos sin dominio', count(*) FROM orkesta.companies WHERE domain IS NULL
+            UNION ALL SELECT 'importaciones', count(*) FROM orkesta.imports
+            UNION ALL SELECT 'formatos: dominios', count(DISTINCT domain) FROM orkesta.pattern_stats
+            UNION ALL SELECT 'formatos: vistos', coalesce(sum(seen),0) FROM orkesta.pattern_stats
+            UNION ALL SELECT 'formatos: confirmados', coalesce(sum(confirmed),0) FROM orkesta.pattern_stats
+            UNION ALL SELECT 'formatos: rebotes', coalesce(sum(bounced),0) FROM orkesta.pattern_stats
+            UNION ALL SELECT 'direcciones rebotadas', count(*) FROM orkesta.bounced_addresses
+            UNION ALL SELECT 'memoria de dominios', count(*) FROM orkesta.company_domains
+            UNION ALL SELECT 'directorio', count(*) FROM orkesta.company_directory
+            UNION ALL SELECT 'directorio con dominio', count(*) FROM orkesta.company_directory WHERE domain IS NOT NULL
+            UNION ALL SELECT 'indice personas', count(*) FROM orkesta.people_index
+            UNION ALL SELECT 'indice con correo', count(*) FROM orkesta.people_index WHERE email IS NOT NULL;
+            SELECT source, count(*) FROM orkesta.company_domains GROUP BY 1 ORDER BY 2 DESC;
+            SELECT source, email_status, count(*) FROM orkesta.people_index GROUP BY 1,2 ORDER BY 3 DESC;
+            SELECT c.email_status AS estado_contacto, r.status AS estado_envio, count(*)
+            FROM orkesta.campaign_recipients r JOIN orkesta.contacts c ON c.id=r.contact_id
+            WHERE r.sent_count > 0 GROUP BY 1,2 ORDER BY 1,3 DESC;
+            SELECT status, count(*), count(content) AS con_archivo FROM orkesta.imports GROUP BY 1;
+            SELECT left(created_at::text,16), status, totals FROM orkesta.enrichment_runs ORDER BY created_at DESC LIMIT 8;
+            SELECT task, version, active, n_train, round((metrics->>'accuracy')::numeric,3) acc FROM orkesta.brain_models WHERE active;" </dev/null 2>&1 | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/<correo>/g'
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"
