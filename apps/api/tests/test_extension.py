@@ -47,7 +47,7 @@ def test_extension_keys_contacts_and_revoke(
 
     zipped = client.get("/api/extension/download")
     names = zipfile.ZipFile(io.BytesIO(zipped.content)).namelist()
-    assert "orkesta-extension/manifest.json" in names and "orkesta-extension/popup.js" in names
+    assert "manifest.json" in names and "popup.js" in names and "icons/icon128.png" in names
 
     token_id = client.get("/api/extension/tokens").json()[0]["id"]
     assert client.delete(f"/api/extension/tokens/{token_id}").status_code == 200

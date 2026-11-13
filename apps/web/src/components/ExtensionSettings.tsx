@@ -8,7 +8,7 @@ import { Alert, Badge, Button, Card, CardHeader, TextField } from "./ui";
 type Token = { id: string; name: string; prefix: string; created_at: string | null; last_used_at: string | null };
 
 const STEPS = [
-  "Descarga la extensión con el botón y descomprime el archivo .zip.",
+  "Descarga la extensión con el botón y descomprime el archivo .zip (queda la carpeta «orkesta-extension»).",
   "En Chrome abre chrome://extensions y activa «Modo de desarrollador» (arriba a la derecha).",
   "Toca «Cargar descomprimida» y elige la carpeta «orkesta-extension».",
   "Fija la extensión en la barra (ícono de pieza de rompecabezas → alfiler).",
