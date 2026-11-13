@@ -111,20 +111,25 @@ def current_principal(request: Request, db: Db) -> Principal:
     user = db.get(User, claims.user_id)
     if user is None or not user.is_active:
         raise HTTPException(401, "Inicia sesión.")
-    set_context(db, tenant_id=claims.tenant_id, user_id=user.id)
+    return principal_for(db, user, claims.tenant_id)
+
+
+def principal_for(db: Session, user: User, tenant_id: uuid.UUID | None) -> Principal:
+    """Fija el contexto de seguridad (empresa, alcance y privacidad) para esta persona."""
+    set_context(db, tenant_id=tenant_id, user_id=user.id)
     tenant = membership = None
-    if claims.tenant_id is not None:
+    if tenant_id is not None:
         # El rol se lee de la base en cada solicitud: un cambio de rol o una baja rige al instante.
         membership = db.scalar(
             select(Membership).where(
-                Membership.tenant_id == claims.tenant_id,
+                Membership.tenant_id == tenant_id,
                 Membership.user_id == user.id,
                 Membership.status == "active",
             )
         )
         if membership is None:
             raise HTTPException(401, "Ya no tienes acceso a este espacio de trabajo.")
-        tenant = db.get(Tenant, claims.tenant_id)
+        tenant = db.get(Tenant, tenant_id)
         set_scope(db, visible_users(db, membership))
         set_private(db, user.id, admin=membership.role == "admin")
     return Principal(user=user, tenant=tenant, membership=membership)

@@ -16,6 +16,7 @@ import {
   Spinner,
   TextField,
 } from "../components/ui";
+import { ExtensionSettings } from "../components/ExtensionSettings";
 import { api, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
 import { GmailCard } from "./campaigns";
@@ -48,6 +49,7 @@ export function SettingsPage() {
     { to: "/configuracion/empresa", label: "Empresa" },
     { to: "/configuracion/equipo", label: "Equipo" },
     { to: "/configuracion/integraciones", label: "Integraciones" },
+    { to: "/configuracion/extension", label: "Extensión de Chrome" },
     ...(role !== "vendedor" ? [{ to: "/configuracion/auditoria", label: "Auditoría" }] : []),
   ];
   return (
@@ -75,6 +77,7 @@ export function SettingsPage() {
         <Route path="empresa" element={<CompanySettings />} />
         <Route path="equipo" element={<TeamSettings />} />
         <Route path="integraciones" element={<IntegrationSettings />} />
+        <Route path="extension" element={<ExtensionSettings />} />
         <Route path="auditoria" element={<AuditSettings />} />
         <Route path="plataforma" element={<Navigate to="/admin" replace />} />
       </Routes>

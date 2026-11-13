@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>ORKESTA</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="22" height="22" />
+    <strong>ORKESTA</strong>
+    <span id="who" class="muted"></span>
+  </header>
+
+  <section id="connect" hidden>
+    <h1>Conecta la extensión</h1>
+    <p class="muted">En ORKESTA ve a <b>Configuración → Extensión de Chrome</b>, genera tu clave y pégala aquí. Se guarda solo en este navegador.</p>
+    <input id="token" type="password" placeholder="ork_…" autocomplete="off" />
+    <button id="connectBtn">Conectar</button>
+    <p id="connectMsg" class="msg"></p>
+  </section>
+
+  <section id="linkedin" hidden>
+    <h1>Agregar este perfil</h1>
+    <p class="muted">ORKESTA no lee la página de LinkedIn: usa solo la dirección del perfil. Si la persona está en el índice trae sus datos; si no, busca su correo con la empresa.</p>
+    <label>Empresa (si la sabes)<input id="liCompany" /></label>
+    <label>País (código, ej. CO)<input id="liCountry" maxlength="2" /></label>
+    <button id="liBtn">Agregar a ORKESTA</button>
+    <p id="liMsg" class="msg"></p>
+  </section>
+
+  <section id="form" hidden>
+    <h1>Guardar contacto</h1>
+    <p class="muted" id="hint">Selecciona en la página el nombre, cargo o empresa y vuelve a abrir la extensión, o completa los campos.</p>
+    <div class="row">
+      <label>Nombre<input id="first_name" /></label>
+      <label>Apellido<input id="last_name" /></label>
+    </div>
+    <label>Cargo<input id="job_title" /></label>
+    <label>Empresa<input id="company" /></label>
+    <div class="row">
+      <label>Sitio web<input id="website" placeholder="empresa.com" /></label>
+      <label>País<input id="country" placeholder="Colombia" /></label>
+    </div>
+    <label>Correo<input id="email" type="email" /></label>
+    <label>Teléfono<input id="phone" /></label>
+    <label class="check"><input id="enrich" type="checkbox" checked /> Buscar y verificar su correo si falta</label>
+    <button id="saveBtn">Guardar en ORKESTA</button>
+    <p id="saveMsg" class="msg"></p>
+  </section>
+
+  <footer>
+    <a href="https://orkestaapp.com/app/contactos" target="_blank" rel="noopener">Abrir Contactos</a>
+    <a href="#" id="logout" hidden>Desconectar</a>
+  </footer>
+  <script src="capture.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
