@@ -68,6 +68,21 @@ export async function api<T>(path: string, options: RequestInit & { json?: unkno
   return (await response.json()) as T;
 }
 
+/** Descarga un archivo del panel (lleva el pase del panel, que un enlace normal no puede llevar). */
+export async function adminDownload(path: string, filename: string): Promise<void> {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    headers: adminToken ? { "X-Admin-Token": adminToken } : {},
+  });
+  if (!response.ok) throw new ApiError("No se pudo descargar el archivo.", response.status);
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export type Workspace = { id: string; name: string; role: string; role_label: string; logo_url?: string; plan?: string; trial_ends_at?: string | null };
 
 export type Session = {

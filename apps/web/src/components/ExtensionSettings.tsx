@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, KeyRound } from "lucide-react";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { adminDownload, api } from "../lib/api";
 import { formatWhen } from "../pages/dashboard";
 import { Alert, Badge, Button, Card, CardHeader, TextField } from "./ui";
 
@@ -12,18 +12,19 @@ const STEPS = [
   "En Chrome abre chrome://extensions y activa «Modo de desarrollador» (arriba a la derecha).",
   "Toca «Cargar descomprimida» y elige la carpeta «orkesta-extension».",
   "Fija la extensión en la barra (ícono de pieza de rompecabezas → alfiler).",
-  "Genera tu clave aquí abajo, ábrela en la extensión y pégala. Listo.",
+  "Genera tu clave aquí al lado, ábrela en la extensión y pégala. Los contactos se guardan en la empresa en la que estás en la app.",
 ];
 
-/** Configuración → Extensión de Chrome: descarga, instalación y claves personales. */
+/** Panel de administración → Extensión de Chrome (solo la plataforma): descarga, instalación y
+ * claves. Las claves conectan el navegador con la empresa en la que estás en la app. */
 export function ExtensionSettings() {
   const client = useQueryClient();
-  const tokens = useQuery({ queryKey: ["ext-tokens"], queryFn: () => api<Token[]>("/api/extension/tokens") });
+  const tokens = useQuery({ queryKey: ["ext-tokens"], queryFn: () => api<Token[]>("/api/admin/extension/tokens") });
   const [name, setName] = useState("Mi Chrome");
   const [created, setCreated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const create = useMutation({
-    mutationFn: () => api<Token & { token: string }>("/api/extension/tokens", { method: "POST", json: { name } }),
+    mutationFn: () => api<Token & { token: string }>("/api/admin/extension/tokens", { method: "POST", json: { name } }),
     onSuccess: (t) => {
       setCreated(t.token);
       setCopied(false);
@@ -31,7 +32,7 @@ export function ExtensionSettings() {
     },
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => api(`/api/extension/tokens/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => api(`/api/admin/extension/tokens/${id}`, { method: "DELETE" }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["ext-tokens"] }),
   });
   return (
@@ -41,9 +42,9 @@ export function ExtensionSettings() {
           title="Extensión «Guardar en ORKESTA»"
           description="Guarda contactos desde cualquier página con un clic: sitios de empresas, Gmail, noticias o directorios. Seleccionas el nombre o el cargo, clic derecho → «Guardar en ORKESTA», revisas y guardas. ORKESTA busca su correo y lo verifica. En LinkedIn agrega el perfil solo por su dirección, sin leer la página."
           action={
-            <a href="/api/extension/download" className="ork-focus inline-flex h-9 items-center gap-2 rounded-xl bg-gradient-to-r from-[#2563EB] to-[#8B5CF6] px-3.5 text-[13px] font-semibold text-white">
-              <Download className="size-4" aria-hidden /> Descargar
-            </a>
+            <Button icon={<Download className="size-4" aria-hidden />} onClick={() => adminDownload("/api/admin/extension/download", "orkesta-extension.zip")}>
+              Descargar
+            </Button>
           }
         />
         <ol className="list-decimal space-y-1.5 pl-5 text-[13.5px] text-ork-graphite">
