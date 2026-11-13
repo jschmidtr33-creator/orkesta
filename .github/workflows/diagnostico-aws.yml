@@ -58,6 +58,15 @@ jobs:
             echo "$t: $n"
           done
           docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT max(sent_at) FROM orkesta.campaign_messages WHERE campaign_messages::text ILIKE '%onrender%'" </dev/null
+          echo "==> Imágenes de productos y propuestas (origen, cuántas, cuántas existen)"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            WITH imgs AS (
+              SELECT 'producto' k, image_url u FROM orkesta.products WHERE image_url <> ''
+              UNION ALL SELECT 'propuesta', i->>'image_url' FROM orkesta.proposals, jsonb_array_elements(items) i WHERE coalesce(i->>'image_url','') <> '')
+            SELECT k, substring(u from '^(https?://[^/]+)?') AS host, (u ~ '/t/i/') AS propia, count(*),
+                   count(a.id) AS existen
+            FROM imgs LEFT JOIN orkesta.email_assets a ON a.id::text = substring(u from '/t/i/([0-9a-fA-F-]{36})')
+            GROUP BY 1,2,3;" </dev/null | sed -E 's#(https?://)[^.|]*\.#\1*.#'
           echo "==> Calidad de datos (solo cifras)"
           docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "
             SELECT source, email_status, count(*) AS n,
