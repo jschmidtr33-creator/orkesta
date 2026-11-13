@@ -53,11 +53,11 @@ jobs:
           echo "==> Dirección pública"; grep -E '^(DOMAIN|PUBLIC_BASE_URL)=' .env
           docker compose exec -T app printenv PUBLIC_BASE_URL
           echo "==> Datos que aún apuntan a Render"
-          docker compose exec -T db psql -U postgres -d orkesta -At -c "
-            SELECT t.relname, (xpath('/row/c/text()', query_to_xml(format(
-              'SELECT count(*) AS c FROM orkesta.%I x WHERE x::text ILIKE %L', t.relname, '%onrender%'),
-              false, true, '')))[1]::text
-            FROM pg_stat_user_tables t WHERE t.schemaname='orkesta' AND t.relname NOT IN ('web_cache','admin_audit');" </dev/null | grep -v '|0$'
+          for t in proposals proposal_brands products automation_rules campaigns campaign_messages mailboxes users tenants platform_settings email_assets; do
+            n=$(docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT count(*) FROM orkesta.$t x WHERE x::text ILIKE '%onrender%'" </dev/null 2>&1)
+            echo "$t: $n"
+          done
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT max(sent_at) FROM orkesta.campaign_messages WHERE campaign_messages::text ILIKE '%onrender%'" </dev/null
           echo "==> Calidad de datos (solo cifras)"
           docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "
             SELECT source, email_status, count(*) AS n,
