@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.research.models import WebPage
 
-USER_AGENT = "ORKESTA-Research/1.0 (+https://orkesta-web.onrender.com/; investigacion B2B)"
+USER_AGENT = "ORKESTA-Research/1.0 (+https://orkestaapp.com/; investigacion B2B)"
 MAX_BYTES = 1_500_000
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MAX_REDIRECTS = 5

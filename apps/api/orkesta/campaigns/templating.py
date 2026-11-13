@@ -180,7 +180,7 @@ def build(
     content = body_html + (f'<div style="margin-top:16px">{signature_html}</div>'
                            if signature_html.strip() else "")  # fmt: skip
     # Las imágenes subidas a ORKESTA viajan con la dirección pública actual.
-    content = assets.absolute(content, base)
+    content = assets.current_links(assets.absolute(content, base), base)
     text_body = html_to_text(content)
     if tracking and track_clicks:
         content = _HREF.sub(

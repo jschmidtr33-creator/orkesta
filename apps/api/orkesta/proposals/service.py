@@ -72,13 +72,29 @@ def plain(value: str) -> str:
 
 
 def safe_url(value: Any) -> str:
-    url = str(value or "").strip()[:500]
+    from orkesta.core.assets import relative
+
+    # Las imágenes subidas a ORKESTA se guardan relativas: siguen funcionando con cualquier dominio.
+    url = relative(str(value or "").strip())[:500]
     if url and not url.startswith(("https://", "http://", "/t/i/")):
         raise ProposalError("Los enlaces e imágenes deben empezar por https://")
     return url
 
 
 # --- Catálogo -------------------------------------------------------------------------------
+
+
+def _image(url: str | None) -> str:
+    from orkesta.core.assets import relative
+
+    return relative(url or "")
+
+
+def _items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Imágenes de los ítems con la dirección actual (las guardadas con un dominio antiguo
+    dejaban de verse)."""
+    return [{**i, "image_url": _image(i.get("image_url"))} if i.get("image_url") else i
+            for i in items]  # fmt: skip
 
 
 def product_dict(p: Product) -> dict[str, Any]:
@@ -89,7 +105,7 @@ def product_dict(p: Product) -> dict[str, Any]:
         "unit_price": float(p.unit_price),
         "currency": p.currency,
         "unit": p.unit,
-        "image_url": p.image_url,
+        "image_url": _image(p.image_url),
         "payment_url": p.payment_url,
         "active": p.active,
         "created_by": str(p.created_by) if p.created_by else None,
@@ -532,7 +548,7 @@ def update_proposal(session: Session, proposal: Proposal, data: dict[str, Any]) 
             {
                 "key": str(s.get("key") or f"s{i}")[:30],
                 "title": " ".join(str(s.get("title", "")).split())[:120],
-                "body": str(s.get("body", ""))[:10000],
+                "body": _current(str(s.get("body", "")))[:10000],
             }
             for i, s in enumerate(list(data["sections"] or [])[:20])
             if str(s.get("title", "")).strip()
@@ -657,7 +673,7 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
     }
     if full:
         brand = get_brand(session, p.tenant_id)
-        data.update(items=p.items, sections=p.sections, tax_rate=float(p.tax_rate),
+        data.update(items=_items(p.items), sections=p.sections, tax_rate=float(p.tax_rate),
                     design=p.design or {}, look=resolved(brand, p.design or {}),
                     variables=VARIABLES, values=variable_values(session, p))  # fmt: skip
     return data
@@ -730,6 +746,14 @@ def variable_values(session: Session, p: Proposal) -> dict[str, str]:
     }
 
 
+def _current(text: str) -> str:
+    """Enlaces pegados con la dirección antigua de ORKESTA pasan a la actual."""
+    from orkesta.core.assets import current_links
+    from orkesta.core.config import get_settings
+
+    return current_links(text, get_settings().public_base_url)
+
+
 def personalize(data: dict[str, Any], values: dict[str, str]) -> dict[str, Any]:
     """Reemplaza las {{variables}} en título, secciones y descripciones."""
 
@@ -738,7 +762,7 @@ def personalize(data: dict[str, Any], values: dict[str, str]) -> dict[str, Any]:
 
     out = dict(data)
     out["title"] = text(data["title"])
-    out["sections"] = [{**s, "title": text(s["title"]), "body": text(s["body"])}
+    out["sections"] = [{**s, "title": text(s["title"]), "body": _current(text(s["body"]))}
                        for s in data["sections"]]  # fmt: skip
     out["items"] = [
         {**i, "name": text(i["name"]),
@@ -783,7 +807,7 @@ def public_view(session: Session, proposal: Proposal, *, record: bool) -> dict[s
         "title": data["title"],
         "status": data["status"],
         "currency": data["currency"],
-        "items": data["items"],
+        "items": _items(data["items"]),
         "sections": data["sections"],
         "tax_rate": data["tax_rate"],
         "totals": data["totals"],
