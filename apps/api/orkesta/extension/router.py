@@ -132,7 +132,8 @@ def download(principal: Member) -> Response:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(FILES.rglob("*")):
             if path.is_file():
-                z.write(path, f"orkesta-extension/{path.relative_to(FILES)}")
+                # manifest.json en la raíz: así lo exige la Chrome Web Store.
+                z.write(path, str(path.relative_to(FILES)))
     return Response(buffer.getvalue(), media_type="application/zip", headers={
         "Content-Disposition": 'attachment; filename="orkesta-extension.zip"'})  # fmt: skip
 
