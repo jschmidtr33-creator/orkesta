@@ -100,3 +100,21 @@ def test_profile_without_hyphens_gets_name_title_and_company_from_google(
     assert (item["first_name"], item["last_name"]) == ("Santiago", "Joya Ibarra")
     assert item["job_title"] == "Gerente Comercial" and item["company"] == "Banco Andino"
     assert item["country_code"] == "CO"
+
+
+def test_glued_slug_is_split_by_known_first_names(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    from orkesta.research import people
+
+    base = {"country": "CO", "title": "", "level": None, "area": None, "company": "X",
+            "company_key": "x", "domain": None, "location": "", "linkedin": None, "email": None,
+            "email_status": None, "source": "bases"}  # fmt: skip
+    people.upsert(session_factory, [
+        {**base, "key": f"n:CO|x|santiago {i}", "full_name": f"Santiago P{i}",
+         "first_name": "Santiago", "last_name": f"P{i}"} for i in range(3)
+    ])  # fmt: skip
+    register(client, "ana@lacteos.co")
+    client.post("/api/contacts/linkedin", json={"urls": "linkedin.com/in/santiagojoyaibarra"})
+    item = client.get("/api/contacts").json()["items"][0]
+    assert (item["first_name"], item["last_name"]) == ("Santiago", "Joyaibarra")

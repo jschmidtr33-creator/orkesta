@@ -1024,14 +1024,20 @@ def profile_by_url(fetcher: Fetcher, stats: SerpStats, slug: str) -> UrlProfile 
     slug = slug.strip("/").lower()
     if not slug:
         return None
-    for query in (f"site:linkedin.com/in/{slug}", f'"linkedin.com/in/{slug}"'):
-        data = call(fetcher, "search", {"q": query, "num": 5, "hl": "es"}, stats)
+    wanted = re.compile(rf"/in/{re.escape(slug)}(/|$)")
+    # Google no siempre responde a «site:» con la ruta exacta: se prueban varias formas.
+    queries = (f"site:linkedin.com/in/{slug}", f'"linkedin.com/in/{slug}"',
+               f"linkedin {slug}", f'"{slug}"')  # fmt: skip
+    for query in queries:
+        if stats.fatal:
+            return None
+        data = call(fetcher, "search", {"q": query, "num": 10, "hl": "es"}, stats)
         for row in (data or {}).get("organic", []) or []:
             if not isinstance(row, dict):
                 continue
             link = str(row.get("link", ""))
-            path = urlsplit(link).path.rstrip("/").lower()
-            if not path.endswith(f"/in/{slug}"):
+            path = unquote(urlsplit(link).path).lower()
+            if "linkedin.com" not in link or not wanted.search(path):
                 continue
             snippet = str(row.get("snippet", ""))
             name, role, employer = parse_profile(str(row.get("title", "")), snippet)
