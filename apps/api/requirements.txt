@@ -11,7 +11,7 @@ PyJWT[crypto]==2.15.1
 cryptography==50.0.2
 httpx==0.28.1
 email-validator==2.3.0
-dnspython==2.9.1
+dnspython==2.9.2
 python-multipart==0.0.32
 nh3==0.3.7
 openpyxl==3.1.5

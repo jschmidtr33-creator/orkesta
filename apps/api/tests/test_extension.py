@@ -12,16 +12,21 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.platform.models import ApiToken
 from tests.conftest import register
+from tests.test_admin import _role, _unlock
 
 
 def test_extension_keys_contacts_and_revoke(
-    client: TestClient, session_factory: sessionmaker[Session]
+    client: TestClient, session_factory: sessionmaker[Session], database: tuple[str, str]
 ) -> None:
     register(client, "ana@lacteos.co")
-    made = client.post("/api/extension/tokens", json={"name": "Chrome oficina"})
+    # Un usuario de la app no ve ni usa esto: es del panel de la plataforma.
+    assert client.post("/api/admin/extension/tokens", json={}).status_code == 403
+    _role(database, "ana@lacteos.co", "owner")
+    _unlock(client, "ana@lacteos.co")
+    made = client.post("/api/admin/extension/tokens", json={"name": "Chrome oficina"})
     assert made.status_code == 201, made.text
     token = made.json()["token"]
-    assert token.startswith("ork_") and len(client.get("/api/extension/tokens").json()) == 1
+    assert token.startswith("ork_") and len(client.get("/api/admin/extension/tokens").json()) == 1
     with session_factory() as session:
         row = session.scalar(select(ApiToken))
         assert row is not None and token not in (row.token_hash, row.prefix)  # solo la huella
@@ -45,11 +50,11 @@ def test_extension_keys_contacts_and_revoke(
                        json={"url": "https://www.linkedin.com/in/pedro-ruiz-12ab34", "company": "Banco Andino"})  # fmt: skip
     assert profile.status_code == 200 and profile.json()["created"] == 1
 
-    zipped = client.get("/api/extension/download")
+    zipped = client.get("/api/admin/extension/download")
     names = zipfile.ZipFile(io.BytesIO(zipped.content)).namelist()
     assert "manifest.json" in names and "popup.js" in names and "icons/icon128.png" in names
 
-    token_id = client.get("/api/extension/tokens").json()[0]["id"]
-    assert client.delete(f"/api/extension/tokens/{token_id}").status_code == 200
+    token_id = client.get("/api/admin/extension/tokens").json()[0]["id"]
+    assert client.delete(f"/api/admin/extension/tokens/{token_id}").status_code == 200
     assert ext.get("/api/ext/me", headers=headers).status_code == 401
     assert ext.get("/api/ext/me").status_code == 401

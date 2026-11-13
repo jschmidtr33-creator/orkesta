@@ -18,12 +18,14 @@ import {
   Users,
   X,
   XCircle,
+  Puzzle,
 } from "lucide-react";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, cx, Logo, Modal, SelectField, Spinner, TextField } from "../components/ui";
 import { ADMIN_LOCKED_EVENT, api, ApiError, hasAdminToken, setAdminToken } from "../lib/api";
 import { ThemeSwitch } from "../components/AppLayout";
+import { ExtensionSettings } from "../components/ExtensionSettings";
 import { useSession } from "../lib/session";
 import { formatWhen } from "./dashboard";
 
@@ -43,6 +45,7 @@ const NAV: Item[] = [
   { to: "/admin/demos", label: "Demos", icon: Inbox, perm: "ver_demos" },
   { to: "/admin/configuracion", label: "Configuración", icon: Settings2, perm: "configuracion" },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug, perm: "integraciones" },
+  { to: "/admin/extension", label: "Extensión de Chrome", icon: Puzzle, perm: "configuracion" },
   { to: "/admin/directorio", label: "Directorio de empresas", icon: Database, perm: "directorio" },
   { to: "/admin/ia", label: "IA propia · Cerebro", icon: Brain, perm: "ia" },
   { to: "/admin/equipo", label: "Equipo y permisos", icon: UserCog, perm: "" },
@@ -109,6 +112,15 @@ export function AdminApp() {
         <Route path="configuracion" element={<Guard me={me.data} perm="configuracion"><SettingsPage /></Guard>} />
         <Route path="integraciones" element={<Guard me={me.data} perm="integraciones"><Integrations /></Guard>} />
         <Route path="directorio" element={<Guard me={me.data} perm="directorio"><DirectoryPage /></Guard>} />
+        <Route
+          path="extension"
+          element={
+            <Guard me={me.data} perm="configuracion">
+              <Title title="Extensión de Chrome" description="Herramienta de la plataforma: no la ven las empresas clientes." />
+              <ExtensionSettings />
+            </Guard>
+          }
+        />
         <Route path="ia" element={<Guard me={me.data} perm="ia"><BrainPage /></Guard>} />
         <Route path="equipo" element={<Team />} />
         <Route path="bitacora" element={<Guard me={me.data} perm="bitacora"><Audit /></Guard>} />

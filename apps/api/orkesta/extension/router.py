@@ -1,6 +1,7 @@
 """Extensión de Chrome «Guardar en ORKESTA».
 
-- Con la sesión de la app: crear, ver y revocar claves personales, y descargar la extensión.
+- Desde el panel de administración (solo la plataforma): crear, ver y revocar claves y descargar
+  la extensión. No es una función de la app para los usuarios.
 - Con la clave (``Authorization: Bearer ork_…``): quién soy, guardar un contacto que la persona
   eligió en una página, y agregar un perfil por su dirección de LinkedIn (sin leer LinkedIn).
 
@@ -35,7 +36,16 @@ from orkesta.platform.models import ApiToken, User
 from orkesta.platform.service import audit
 
 router = APIRouter(prefix="/api")
-Member = Annotated[Principal, Depends(require_roles("admin", "supervisor", "vendedor"))]
+
+
+def _owner() -> Any:
+    from orkesta.admin.router import require
+
+    return require("configuracion")
+
+
+# Solo la administración de la plataforma (desde el panel): no es una función de la app.
+Owner = Annotated[Principal, Depends(_owner())]
 limiter = RateLimiter(limit=600, window_seconds=3600)
 FILES = Path(__file__).resolve().parent / "chrome"
 PREFIX = "ork_"
@@ -78,8 +88,8 @@ def _token_dict(t: ApiToken) -> dict[str, Any]:
             "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None}  # fmt: skip
 
 
-@router.get("/extension/tokens")
-def list_tokens(principal: Member, db: Db) -> list[dict[str, Any]]:
+@router.get("/admin/extension/tokens")
+def list_tokens(principal: Owner, db: Db) -> list[dict[str, Any]]:
     rows = db.scalars(
         select(ApiToken)
         .where(ApiToken.user_id == principal.user.id, ApiToken.tenant_id == principal.tenant_id,
@@ -93,8 +103,10 @@ class TokenIn(BaseModel):
     name: str = Field(default="Extensión de Chrome", max_length=80)
 
 
-@router.post("/extension/tokens", status_code=201)
-def create_token(body: TokenIn, request: Request, principal: Member, db: Db) -> dict[str, Any]:
+@router.post("/admin/extension/tokens", status_code=201)
+def create_token(body: TokenIn, request: Request, principal: Owner, db: Db) -> dict[str, Any]:
+    if principal.tenant_id is None:
+        raise HTTPException(409, "Entra a una empresa en la app antes de generar la clave.")
     active = db.scalar(select(func.count()).where(
         ApiToken.user_id == principal.user.id, ApiToken.revoked_at.is_(None)))  # fmt: skip
     if (active or 0) >= MAX_TOKENS:
@@ -111,10 +123,8 @@ def create_token(body: TokenIn, request: Request, principal: Member, db: Db) -> 
     return {**_token_dict(row), "token": token}
 
 
-@router.delete("/extension/tokens/{token_id}")
-def revoke_token(
-    token_id: uuid.UUID, request: Request, principal: Member, db: Db
-) -> dict[str, Any]:
+@router.delete("/admin/extension/tokens/{token_id}")
+def revoke_token(token_id: uuid.UUID, request: Request, principal: Owner, db: Db) -> dict[str, Any]:
     row = db.get(ApiToken, token_id)
     if row is None or row.user_id != principal.user.id:
         raise HTTPException(404, "Esa clave no existe.")
@@ -125,8 +135,8 @@ def revoke_token(
     return {"revoked": True}
 
 
-@router.get("/extension/download")
-def download(principal: Member) -> Response:
+@router.get("/admin/extension/download")
+def download(principal: Owner) -> Response:
     """La extensión lista para cargar en Chrome (modo desarrollador), en un .zip."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
