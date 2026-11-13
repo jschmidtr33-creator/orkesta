@@ -150,6 +150,8 @@ class PatternStat(Base):
     seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     confirmed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     bounced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Correos estimados con este formato que llegaron (días sin rebote).
+    delivered: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

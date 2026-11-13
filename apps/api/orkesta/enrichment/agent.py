@@ -175,6 +175,35 @@ def _internal_pattern(session: Session, tenant_id: uuid.UUID, domain: str) -> tu
     return best, votes[best]
 
 
+def _from_index(factory: sessionmaker[Session], country: str, company: str,
+                members: list[Member]) -> dict[uuid.UUID, tuple[str, str]]:  # fmt: skip
+    """Correos publicados o confirmados que ya están en el índice propio de personas (bases
+    autorizadas, sitios oficiales y búsquedas anteriores): valen más que cualquier estimado."""
+    from orkesta.research.directory import name_key
+    from orkesta.research.models import PersonIndex
+    from orkesta.research.people import person_key
+
+    if not country or not company:
+        return {}
+    ckey = name_key(company)
+    keys = {person_key(country, ckey, f"{m.first} {m.last}".strip()): m.id
+            for m in members if not m.email and m.first and m.last}  # fmt: skip
+    if not keys:
+        return {}
+    try:
+        with factory() as session:
+            rows = session.execute(
+                select(PersonIndex.key, PersonIndex.email, PersonIndex.email_status).where(
+                    PersonIndex.key.in_(list(keys)), PersonIndex.email.is_not(None),
+                    PersonIndex.email_status.in_(("publicado", "confirmado")),
+                )
+            ).all()  # fmt: skip
+    except Exception:
+        logger.exception("enrich_index_lookup")
+        return {}
+    return {keys[k]: (email, status) for k, email, status in rows if email}
+
+
 def _site_pattern(fetcher: Fetcher, domain: str) -> tuple[str, int, str]:
     result = website.investigate(fetcher, domain)
     personal = [e for e in result.emails if not is_generic_email(e)]
@@ -188,6 +217,16 @@ def _site_pattern(fetcher: Fetcher, domain: str) -> tuple[str, int, str]:
         return "", 0, ""
     best = max(votes, key=lambda k: votes[k])
     return best, votes[best], result.home_url
+
+
+def _first_free(pattern: str, chain: list[str], bounced: set[str], member: Member,
+                domain: str) -> str:  # fmt: skip
+    """El correo del formato elegido, o el siguiente formato si esa dirección ya rebotó."""
+    for p in dict.fromkeys([pattern, *chain]):
+        email = apply_pattern(p, member.first, member.last, domain)
+        if email and memory.address_hash(email) not in bounced:
+            return email
+    return ""
 
 
 def _point(tenant_id: uuid.UUID, contact_id: uuid.UUID, field_name: str, value: str,
@@ -266,15 +305,30 @@ def _work(
     domain = group.domain if group.domain and not is_non_corporate(group.domain) else ""
     # 2. Formato de correo, de la evidencia más fuerte a la más débil.
     pattern, votes, label, confidence = "", 0, "", 0
+    chain: list[str] = []
+    bounced: set[str] = set()
     needs_email = [m for m in group.members if not m.email]
+    # 2a. Personas que ORKESTA ya conoce con correo publicado o confirmado.
+    known = _from_index(fetcher.factory, group.country, group.name, needs_email)
+    if known:
+        progress.add("from_index", len(known))
+    if domain and needs_email and memory.mail_servers(fetcher, domain) == []:
+        progress.add("no_mail")  # el dominio no recibe correo: no se inventan direcciones
+        domain = ""
     if domain and needs_email:
         with progress.tx() as session:
             pattern, votes = _internal_pattern(session, progress.tenant_id, domain)
         if pattern:
             label = f"Formato {pattern}@{domain} visto en {votes} correo(s) de tu base"
             confidence = 55
-        if not pattern:
-            pattern, confidence, label = memory.known_pattern(fetcher.factory, domain)
+        # Lo que aprendió ORKESTA de todas las bases y campañas manda si es más fuerte (o si
+        # el formato de tu base ya rebotó en ese dominio).
+        g_pattern, g_conf, g_label = memory.known_pattern(fetcher.factory, domain)
+        chain, bounced = memory.candidates(fetcher.factory, domain, g_pattern or pattern)
+        if pattern and (pattern not in chain or (g_pattern and g_conf >= 60 and votes < 3)):
+            pattern = ""
+        if not pattern and g_pattern:
+            pattern, confidence, label = g_pattern, g_conf, g_label
         if not pattern and use_serp:
             pattern, votes, _ = serp.email_pattern(fetcher, stats, domain)
             if pattern:
@@ -302,8 +356,16 @@ def _work(
     for member in group.members:
         updates: dict[str, Any] = {}
         points: list[DataPoint] = []
-        if not member.email and domain and pattern:
-            email = apply_pattern(pattern, member.first, member.last, domain)
+        if not member.email and member.id in known:
+            email, status = known[member.id]
+            src = ("Correo confirmado por una respuesta" if status == "confirmado"
+                   else "Correo publicado (índice de personas de ORKESTA)")  # fmt: skip
+            updates.update(email=email, email_domain=email.rsplit("@", 1)[1],
+                           email_status="sin_validar", email_check_reason=src)  # fmt: skip
+            points.append(_point(progress.tenant_id, member.id, "email", email, src, 85))
+            progress.add("emails")
+        elif not member.email and domain and pattern:
+            email = _first_free(pattern, chain, bounced, member, domain)
             if email:
                 updates.update(
                     email=email, email_domain=domain, email_status="estimado",

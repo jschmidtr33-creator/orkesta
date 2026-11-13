@@ -138,6 +138,8 @@ class Recipient(IdMixin, Base):
     click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Cuándo ORKESTA aprendió de este envío (correo estimado que llegó sin rebotar).
+    learned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(String(300))
     reply_category: Mapped[str | None] = mapped_column(String(20))
     reply_snippet: Mapped[str | None] = mapped_column(String(500))

@@ -1586,6 +1586,165 @@ function IndependenceCard() {
   );
 }
 
+type Learning = {
+  knows: { companies: number; with_site: number; formats: number; people: number; people_email: number; people_verified: number };
+  evidence: { seen: number; delivered: number; confirmed: number; bounced: number };
+  sources: { source: string; label: string; companies: number }[];
+  platform: { contacts: number; corporate: number; estimated: number; companies: number; companies_no_site: number };
+  sends: Record<"estimated" | "base", { sent: number; delivered: number; bounced: number; blocked: number; replied: number }>;
+  bounce_rate: number | null;
+  days: number;
+  tips: string[];
+  last_run: {
+    state: "running" | "done" | "error";
+    finished_at?: string;
+    trigger?: string;
+    contacts?: number;
+    corporate?: number;
+    pattern_domains?: number;
+    domains_added?: number;
+    directory_filled?: number;
+    companies_filled?: number;
+    delivered?: number;
+    bounced?: number;
+  } | null;
+};
+
+const share = (part: number, total: number) => (total ? Math.round((100 * part) / total) : 0);
+
+/** Barra de resultados de envíos: llegaron, frenados por filtro y rebotes. */
+function SendBar({ title, s }: { title: string; s: Learning["sends"]["estimated"] }) {
+  const waiting = Math.max(0, s.sent - s.delivered - s.bounced - s.blocked);
+  const parts = [
+    { label: "Llegaron", n: s.delivered, cls: "bg-ok" },
+    { label: "Esperando 3 días", n: waiting, cls: "bg-ork-mist/40" },
+    { label: "Frenados por filtro", n: s.blocked, cls: "bg-warn" },
+    { label: "Rebotaron", n: s.bounced, cls: "bg-bad" },
+  ];
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <p className="text-[13.5px] font-semibold text-ork-ink">{title}</p>
+        <p className="text-[12.5px] text-ork-mist">{n(s.sent)} enviados</p>
+      </div>
+      <div className="mt-1.5 flex h-3 w-full overflow-hidden rounded-full bg-ork-ink/5">
+        {s.sent > 0 && parts.map((p) => p.n > 0 && <div key={p.label} className={p.cls} style={{ width: `${(100 * p.n) / s.sent}%` }} title={`${p.label}: ${n(p.n)}`} />)}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ork-graphite">
+        {parts.map((p) => (
+          <span key={p.label} className="inline-flex items-center gap-1.5">
+            <span className={cx("size-2 rounded-full", p.cls)} />
+            {p.label}: <strong>{share(p.n, s.sent)} %</strong>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Lo que ORKESTA sabe, de dónde lo aprendió y qué tan bien acierta, en palabras simples. */
+function LearningOverview() {
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: ["admin-learning"],
+    queryFn: () => api<Learning>("/api/admin/learning"),
+    refetchInterval: (query) => (query.state.data?.last_run?.state === "running" ? 4000 : false),
+  });
+  const run = useMutation({
+    mutationFn: () => api<{ started: boolean }>("/api/admin/learning/run", { method: "POST" }),
+    onSuccess: () => setTimeout(() => client.invalidateQueries({ queryKey: ["admin-learning"] }), 800),
+  });
+  const d = q.data;
+  if (!d) return <Card><Spinner /></Card>;
+  const k = d.knows;
+  const r = d.last_run;
+  const running = r?.state === "running" || run.isPending;
+  const maxSource = Math.max(1, ...d.sources.map((s) => s.companies));
+  const ev = d.evidence;
+  return (
+    <Card className="border-ork-blue/20">
+      <CardHeader
+        title="Lo que ORKESTA sabe hoy"
+        description="Todo lo que cargas (bases de entrenamiento, contactos importados, búsquedas y campañas) se convierte en conocimiento de empresas: su sitio web y cómo arman sus correos. Así cada búsqueda y cada enriquecimiento salen mejor que el anterior."
+        action={
+          <Button loading={running} onClick={() => run.mutate()}>
+            {running ? "Repasando toda la data…" : "Usar toda la data ahora"}
+          </Button>
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Empresas conocidas" value={n(k.companies)} hint={`${n(k.with_site)} con sitio web (${share(k.with_site, k.companies)} %)`} />
+        <Stat label="Empresas con formato de correo" value={n(k.formats)} hint="Sabe cómo arman los correos (nombre.apellido, inicial…)" />
+        <Stat label="Personas en el índice" value={n(k.people)} hint={`${n(k.people_verified)} con correo publicado o confirmado`} />
+        <Stat label="Contactos en la plataforma" value={n(d.platform.contacts)} hint={`${n(d.platform.corporate)} con correo real de empresa · ${n(d.platform.estimated)} estimados`} />
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl bg-ork-ink/[0.03] p-4">
+          <p className="text-[14px] font-bold text-ork-ink">¿Qué tan bien acierta? · últimos {d.days} días</p>
+          <p className="mb-3 text-[12.5px] text-ork-mist">Un correo «llegó» cuando pasan 3 días sin rebote. Cada uno que llega o rebota le enseña a ORKESTA si el formato de esa empresa es el correcto.</p>
+          <div className="flex flex-col gap-4">
+            <SendBar title="Correos estimados por ORKESTA" s={d.sends.estimated} />
+            <SendBar title="Correos que venían en tus bases" s={d.sends.base} />
+          </div>
+        </div>
+        <div className="rounded-2xl bg-ork-ink/[0.03] p-4">
+          <p className="text-[14px] font-bold text-ork-ink">¿De dónde aprendió los sitios web?</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {d.sources.map((s) => (
+              <li key={s.source} className="text-[12.5px]">
+                <div className="flex justify-between">
+                  <span className="text-ork-graphite">{s.label}</span>
+                  <strong className="text-ork-ink">{n(s.companies)}</strong>
+                </div>
+                <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-ork-ink/5">
+                  <div className="h-full rounded-full bg-ork-blue" style={{ width: `${(100 * s.companies) / maxSource}%` }} />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-[14px] font-bold text-ork-ink">Pruebas de los formatos de correo</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[12.5px] sm:grid-cols-4">
+            <div><p className="text-ork-mist">Vistos en bases</p><p className="text-[16px] font-bold text-ork-ink">{n(ev.seen + ev.confirmed)}</p></div>
+            <div><p className="text-ork-mist">Llegaron sin rebotar</p><p className="text-[16px] font-bold text-ok">{n(ev.delivered)}</p></div>
+            <div><p className="text-ork-mist">Rebotes</p><p className="text-[16px] font-bold text-bad">{n(ev.bounced)}</p></div>
+            <div><p className="text-ork-mist">Empresas sin sitio</p><p className="text-[16px] font-bold text-ork-ink">{n(d.platform.companies_no_site)}</p></div>
+          </div>
+        </div>
+      </div>
+
+      {d.tips.length > 0 && (
+        <ul className="mt-4 flex flex-col gap-2">
+          {d.tips.map((t) => (
+            <li key={t} className="rounded-xl bg-ork-blue/5 px-3 py-2 text-[13px] text-ork-graphite">{t}</li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-4 text-[12.5px] text-ork-mist">
+        {r?.state === "running"
+          ? "Repasando todos los contactos, envíos y bases… puede tardar unos minutos."
+          : r?.finished_at
+            ? `Último repaso (${r.trigger === "manual" ? "a pedido" : "automático de la noche"}) ${formatWhen(r.finished_at)}: revisó ${n(r.contacts ?? 0)} contactos con ${n(r.corporate ?? 0)} correos de empresa, actualizó el formato de ${n(r.pattern_domains ?? 0)} empresas, sumó ${n(r.domains_added ?? 0)} sitios web nuevos a la memoria, completó ${n((r.companies_filled ?? 0) + (r.directory_filled ?? 0))} empresas sin sitio y aprendió de ${n((r.delivered ?? 0) + (r.bounced ?? 0))} envíos.`
+            : "Se repasa sola todas las noches. Pulsa «Usar toda la data ahora» para hacerlo ya."}
+      </p>
+      {run.data && !run.data.started && <p className="mt-1 text-[12.5px] text-ork-mist">Ya hay un repaso en curso.</p>}
+      {run.error && <Alert>{run.error.message}</Alert>}
+    </Card>
+  );
+}
+
+function Section({ step, title, children }: { step: string; title: string; children: ReactNode }) {
+  return (
+    <section className="mt-8">
+      <div className="flex items-center gap-2">
+        <span className="grid size-6 place-items-center rounded-full bg-ork-ink text-[12px] font-bold text-ork-card">{step}</span>
+        <h2 className="text-[16px] font-bold text-ork-ink">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function DirectoryPage() {
   const client = useQueryClient();
   const q = useQuery({
@@ -1621,33 +1780,12 @@ function DirectoryPage() {
     <>
       <Title
         title="Directorio de empresas"
-        description="Base propia de ORKESTA con registros públicos oficiales. La búsqueda de Cuentas la consulta primero, y crece sola con cada búsqueda."
+        description="Aquí ves lo que ORKESTA sabe, cargas datos para enseñarle y sigues cómo busca sola. Nada de esto lo ven los clientes."
       />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Empresas en el directorio" value={n(d?.total ?? 0)} />
-        <Stat label="Países" value={d?.countries.length ?? 0} />
-        <Stat label="Con sitio web identificado" value={n((d?.countries ?? []).reduce((a, c) => a + c.with_domain, 0))} />
-      </div>
-      <Card className="mt-4">
-        <CardHeader title="Registros oficiales automáticos" description="Se descargan solos la primera vez y se actualizan cada mes." />
-        <ul className="divide-y divide-ork-line">
-          {(d?.presets ?? []).map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-              <div>
-                <p className="text-[14px] font-semibold text-ork-ink">{p.label}</p>
-                <ImportStatus info={p.live?.status === "running" ? p.live : p.last} />
-              </div>
-              <Button size="sm" variant="secondary" loading={preset.isPending && preset.variables === p.id} disabled={p.live?.status === "running"} onClick={() => preset.mutate(p.id)}>
-                Actualizar ahora
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </Card>
-      <IndependenceCard />
-      {d?.crawler && <CrawlerCard crawler={d.crawler} onStart={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
-      {d?.people && <PeopleCard stats={d.people} onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
-      <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />
+      <LearningOverview />
+      <Section step="1" title="Enséñale con tus datos">
+        <p className="mt-1 text-[13px] text-ork-mist">Las bases con personas (Wiza, eventos, campañas) enseñan formatos de correo y suman personas al índice. Los registros públicos suman empresas. Los contactos que se importan en la plataforma también enseñan, solos.</p>
+        <TrainCard onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />
       <Card className="mt-4">
         <CardHeader
           title="Cargar un registro público (CSV)"
@@ -1682,6 +1820,35 @@ function DirectoryPage() {
           </ul>
         )}
       </Card>
+      <Card className="mt-4">
+        <CardHeader title="Registros oficiales automáticos" description="Se descargan solos la primera vez y se actualizan cada mes." />
+        <ul className="divide-y divide-ork-line">
+          {(d?.presets ?? []).map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-[14px] font-semibold text-ork-ink">{p.label}</p>
+                <ImportStatus info={p.live?.status === "running" ? p.live : p.last} />
+              </div>
+              <Button size="sm" variant="secondary" loading={preset.isPending && preset.variables === p.id} disabled={p.live?.status === "running"} onClick={() => preset.mutate(p.id)}>
+                Actualizar ahora
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      </Section>
+      <Section step="2" title="ORKESTA busca sola">
+        <p className="mt-1 text-[13px] text-ork-mist">El rastreador lee los sitios oficiales y las búsquedas guardan lo que encuentran. Mientras más crece, menos depende del buscador pago.</p>
+        {d?.crawler && <CrawlerCard crawler={d.crawler} onStart={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
+        <IndependenceCard />
+      </Section>
+      <Section step="3" title="Personas y empresas guardadas">
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <Stat label="Empresas en el directorio" value={n(d?.total ?? 0)} />
+          <Stat label="Países" value={d?.countries.length ?? 0} />
+          <Stat label="Con sitio web identificado" value={n((d?.countries ?? []).reduce((a, c) => a + c.with_domain, 0))} />
+        </div>
+        {d?.people && <PeopleCard stats={d.people} onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       {(d?.countries.length ?? 0) > 0 && (
         <Card className="mt-4">
           <CardHeader title="Por país" />
@@ -1705,6 +1872,7 @@ function DirectoryPage() {
           </table>
         </Card>
       )}
+      </Section>
     </>
   );
 }
@@ -1787,6 +1955,46 @@ function AccuracyBar({ label, value, tone }: { label: string; value: number | nu
   );
 }
 
+/** Qué hace cada capacidad, dicho sin palabras técnicas. */
+const PLAIN: Record<string, { what: string; uses: string }> = {
+  cargos: {
+    what: "Lee un cargo («Gerente de Siniestros», «Head of Growth») y dice a qué área pertenece.",
+    uses: "Sirve para que los filtros por área de Prospección y Contactos encuentren a la persona correcta.",
+  },
+  cargos_nivel: {
+    what: "Lee un cargo y dice qué tan alto está: dueño, director, gerente, jefe, analista…",
+    uses: "Sirve para el filtro por nivel y para el encaje alto, medio o bajo.",
+  },
+  respuestas: {
+    what: "Lee cada respuesta a una campaña y la clasifica: interesado, no interesado, otra persona, fuera de oficina…",
+    uses: "Mueve la oportunidad en el CRM y detiene la secuencia. Si duda, te pregunta.",
+  },
+  formato_correo: {
+    what: "Adivina cómo arma los correos una empresa que ORKESTA nunca vio (nombre.apellido, inicial + apellido…).",
+    uses: "Solo se usa cuando no hay ninguna prueba de esa empresa. Por eso, con correos estimados, primero se envía uno por empresa.",
+  },
+  puntaje: {
+    what: "Aprende qué perfiles responden y terminan en oportunidad en cada empresa cliente.",
+    uses: "Sube o baja el encaje de los posibles clientes con lo que de verdad funciona.",
+  },
+  redaccion: {
+    what: "Aprende qué asuntos y mensajes reciben más respuestas, entre todas las campañas.",
+    uses: "Da consejos al escribir una campaña.",
+  },
+  concertino_objecion: { what: "Reconoce el tipo de objeción de un cliente (precio, tiempo, competencia…).", uses: "Concertino responde con la técnica adecuada." },
+  concertino_tema: { what: "Reconoce de qué trata una pregunta a Concertino.", uses: "Concertino elige la lección correcta." },
+};
+
+function verdict(a: BrainTask["active"]): { text: string; tone: "ok" | "blue" | "warn" | "neutral" } {
+  if (!a || a.accuracy == null) return { text: "Aún sin datos suficientes", tone: "neutral" };
+  if (a.baseline != null && a.accuracy < a.baseline) return { text: "Usa las reglas: el modelo aún no las supera", tone: "warn" };
+  if (a.accuracy >= 0.85) return { text: "Funciona muy bien", tone: "ok" };
+  if (a.accuracy >= 0.65) return { text: "Funciona bien, sigue aprendiendo", tone: "blue" };
+  return { text: "Aprendiendo: necesita más ejemplos", tone: "warn" };
+}
+
+const ofTen = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 10)} de cada 10`);
+
 function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }) {
   const client = useQueryClient();
   const train = useMutation({ mutationFn: () => api(`/api/admin/brain/${task.name}/train`, { method: "POST" }), onSuccess: onChange });
@@ -1797,15 +2005,18 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
   const a = task.active;
   const running = task.running?.state === "running";
   const gain = a?.accuracy != null && a.baseline != null ? a.accuracy - a.baseline : null;
+  const plain = PLAIN[task.name];
+  const v = verdict(a);
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-2xl">
           <h2 className="text-[16px] font-bold text-ork-ink">{task.label}</h2>
-          <p className="mt-0.5 text-[13px] text-ork-mist">{task.description}</p>
+          <p className="mt-0.5 text-[13.5px] text-ork-graphite">{plain?.what ?? task.description}</p>
+          {plain && <p className="mt-0.5 text-[12.5px] text-ork-mist">{plain.uses}</p>}
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={a ? "violet" : "neutral"}>{task.method}</Badge>
+          <Badge tone={v.tone}>{v.text}</Badge>
           {task.trainable ? (
             <Button size="sm" variant="secondary" loading={running || train.isPending} onClick={() => train.mutate()}>
               {running ? "Entrenando…" : "Entrenar ahora"}
@@ -1819,6 +2030,13 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
       {task.running?.state === "error" && <div className="mt-3"><Alert>{task.running.error}</Alert></div>}
       {task.running?.state === "done" && task.running.active === false && (
         <div className="mt-3"><Alert tone="blue">La versión {task.running.version} se entrenó pero no se activó: no superó a la versión activa o a las reglas.</Alert></div>
+      )}
+      {a?.accuracy != null && (
+        <p className="mt-3 rounded-xl bg-ork-ink/[0.03] px-3 py-2 text-[13.5px] text-ork-graphite">
+          Acierta <strong className="text-ork-ink">{ofTen(a.accuracy)}</strong>
+          {a.baseline != null && <> · las reglas fijas, {ofTen(a.baseline)}</>}. Medido con {n(a.n_test)} casos reales que no usó para aprender.
+          {a.confident && <> Cuando está seguro ({pct(a.confident.coverage)} de los casos) acierta {ofTen(a.confident.accuracy)}; si duda, decide la regla o una persona.</>}
+        </p>
       )}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {task.status.map((s) => (
@@ -1835,7 +2053,9 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
         </div>
       </div>
       {a && (
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <details className="mt-4 rounded-xl border border-ork-line px-4 py-2">
+        <summary className="cursor-pointer text-[12.5px] font-semibold text-ork-mist">Ver detalles técnicos (versiones, exactitud, {task.method})</summary>
+        <div className="mt-3 grid gap-5 pb-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-3">
             <AccuracyBar label={`Modelo v${a.version}`} value={a.accuracy} tone="model" />
             <AccuracyBar label="Reglas (método anterior)" value={a.baseline} tone="rules" />
@@ -1907,6 +2127,7 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
             )}
           </div>
         </div>
+        </details>
       )}
       {task.name === "cargos" && <TitleTeacher onTaught={onChange} />}
     </Card>
@@ -1977,8 +2198,8 @@ function TitleTeacher({ onTaught }: { onTaught: () => void }) {
         )}
       </div>
       <div>
-        <p className="text-[13.5px] font-bold text-ork-ink">Cargos por enseñar</p>
-        <p className="text-[12.5px] text-ork-mist">Los más frecuentes del índice que aún quedan sin área. Cada respuesta enseña al modelo en el próximo entrenamiento.</p>
+        <p className="text-[13.5px] font-bold text-ork-ink">Enséñale cargos</p>
+        <p className="text-[12.5px] text-ork-mist">Los cargos más comunes que ORKESTA todavía no sabe a qué área asignar. Elige el área de cada uno: lo aprende esta noche.</p>
         {teach.error && <div className="mt-2"><Alert>{teach.error.message}</Alert></div>}
         <ul className="mt-2 max-h-72 divide-y divide-ork-line overflow-y-auto pr-1 text-[13px]">
           {(doubts.data?.items ?? []).map((d) => (
@@ -2022,8 +2243,27 @@ function BrainPage() {
     <>
       <Title
         title="IA propia · Cerebro"
-        description={`Lo que ORKESTA aprende de los datos de la plataforma, sin servicios externos. Un modelo nuevo solo se activa si acierta más que las reglas y que la versión anterior. Reentrenamiento automático: ${q.data?.schedule ?? "todas las noches"}.${q.data?.nightly ? ` Última revisión: ${q.data.nightly}.` : ""}`}
+        description={`Las pequeñas inteligencias que ORKESTA entrena con los datos de la plataforma, sin servicios externos. Cada noche (${q.data?.schedule ?? "todas las noches"}) repasa toda la data y vuelve a aprender; una versión nueva solo reemplaza a la anterior si acierta más.${q.data?.nightly ? ` Último repaso: ${q.data.nightly}.` : ""}`}
       />
+      {q.data && (
+        <Card className="mb-4">
+          <CardHeader title="Resumen" description="Qué tan bien acierta hoy cada una. No necesitas tocar nada: se entrenan solas. Donde sí ayudas es enseñando cargos (abajo) y corrigiendo respuestas mal clasificadas en Campañas." />
+          <ul className="divide-y divide-ork-line">
+            {q.data.tasks.map((t) => {
+              const v = verdict(t.active);
+              return (
+                <li key={t.name} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13.5px]">
+                  <span className="font-semibold text-ork-ink">{t.label}</span>
+                  <span className="flex items-center gap-3">
+                    <span className="text-ork-graphite">{t.active?.accuracy != null ? `Acierta ${ofTen(t.active.accuracy)}` : "Sin datos aún"}</span>
+                    <Badge tone={v.tone}>{v.text}</Badge>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
       {!q.data ? (
         <Card>
           <Spinner />

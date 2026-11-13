@@ -885,3 +885,67 @@ def test_estimated_emails_probe_one_per_company_before_the_rest(
         _rewind(database)
         _flush(session_factory)
     assert len(google.sent) == 3  # no rebotó: el formato sirve y salen los demás
+
+
+def test_delivered_estimated_emails_teach_the_format(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str],
+) -> None:  # fmt: skip
+    """Un correo estimado que llegó (3 días sin rebote) refuerza el formato del dominio, y los
+    contactos cargados enseñan formatos y dominios a toda la plataforma."""
+    from orkesta.brain import consolidate
+    from orkesta.research import memory
+    from orkesta.research.models import CompanyDomain, PatternStat
+
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    r = client.post("/api/contacts", json={"first_name": "Laura", "last_name": "Gomez",
+                                           "email": "lgomez@entrega.co", "company": "Entrega SAS",
+                                           "country": "CO"})  # fmt: skip
+    cid = r.json()["id"]
+    client.post("/api/contacts", json={"first_name": "Pedro", "last_name": "Diaz",
+                                       "email": "pdiaz@base.com.co", "company": "Base SAS",
+                                       "country": "CO"})  # fmt: skip
+    client.post("/api/contacts", json={"first_name": "Rosa", "last_name": "Vega",
+                                       "company": "Base SAS", "country": "CO"})  # fmt: skip
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET email_status = 'estimado' "
+                     "WHERE email LIKE '%@entrega.co'")  # fmt: skip
+        conn.execute("UPDATE orkesta.companies SET domain = NULL")
+    campaign = client.post("/api/campaigns", json={"name": "Prueba"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": [cid], "include_estimated": True},
+    })  # fmt: skip
+    assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
+    for _ in range(2):
+        _rewind(database)
+        _flush(session_factory)
+    assert len(google.sent) == 1
+    first = consolidate.run(session_factory)
+    assert first["delivered"] == 0  # aún no pasan 3 días
+    assert first["companies_filled"] >= 1  # Base SAS recupera su sitio web
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.campaign_messages SET sent_at = sent_at - interval '4 days'")
+    result = consolidate.run(session_factory)
+    assert result["delivered"] == 1
+    assert consolidate.run(session_factory)["delivered"] == 0  # cada envío se aprende una vez
+    with session_factory() as session:
+        stat = session.get(PatternStat, ("entrega.co", "flast"))
+        assert (
+            stat is not None and stat.delivered == 1 and stat.seen == 0
+        )  # el estimado no es «visto»
+        base = session.get(PatternStat, ("base.com.co", "flast"))
+        assert base is not None and base.seen == 1
+        learned = session.get(CompanyDomain, "CO|base")
+        assert learned is not None and learned.domain == "base.com.co"
+    pattern, confidence, why = memory.known_pattern(session_factory, "entrega.co")
+    assert (pattern, confidence) == ("flast", 60) and "llegaron sin rebotar" in why
+    from orkesta.admin.learning import summary
+
+    with session_factory() as session:
+        data = summary(session)
+    assert data["evidence"]["delivered"] == 1
+    assert data["sends"]["estimated"] == {"sent": 1, "delivered": 1, "bounced": 0, "blocked": 0,
+                                          "replied": 0}  # fmt: skip
+    assert data["last_run"]["delivered"] == 0 and data["platform"]["contacts"] == 3

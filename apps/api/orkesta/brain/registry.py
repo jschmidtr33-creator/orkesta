@@ -240,6 +240,12 @@ def train_due(factory: sessionmaker[Session], force: bool = False) -> list[str]:
         if not force and state.get("nightly") == today:
             return []
         _put(session, "brain", {**state, "nightly": today})
+    try:  # antes de entrenar: toda la data nueva se vuelve evidencia
+        from orkesta.brain.consolidate import run as consolidate
+
+        consolidate(factory)
+    except Exception:
+        logger.exception("consolidate_nightly_failed")
     trained = []
     for name, task in TASKS.items():
         if task.build is None:

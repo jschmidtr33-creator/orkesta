@@ -1095,6 +1095,24 @@ def directory_overview(principal: Directory, db: Db) -> dict[str, Any]:
     return directory.overview(db)
 
 
+@router.get("/learning")
+def learning_summary(principal: Directory, db: Db) -> dict[str, Any]:
+    """Lo que ORKESTA sabe, de dónde lo aprendió y qué tan bien acierta, en palabras simples."""
+    from orkesta.admin.learning import summary
+
+    return summary(db)
+
+
+@router.post("/learning/run")
+def learning_run(request: Request, principal: Directory, db: Db) -> dict[str, Any]:
+    """Repasa ya toda la data cargada (lo mismo que se hace cada noche)."""
+    from orkesta.brain.consolidate import start
+
+    started = start(request.app.state.session_factory)
+    svc.log(db, principal.user, "learning.run", "")
+    return {"started": started}
+
+
 @router.post("/directory/presets/{preset_id}")
 def directory_load_preset(
     preset_id: str, request: Request, principal: Directory, db: Db
