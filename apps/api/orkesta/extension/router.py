@@ -148,7 +148,45 @@ def download(principal: Owner) -> Response:
         "Content-Disposition": 'attachment; filename="orkesta-extension.zip"'})  # fmt: skip
 
 
+# --- Conectar la extensión con la cuenta (cualquier usuario, desde orkestaapp.com) -------------
+
+Member = Annotated[Principal, Depends(require_roles("admin", "supervisor", "vendedor"))]
+CONNECT_NAME = "Extensión de Chrome"
+
+
+@router.post("/extension/connect")
+def connect(request: Request, principal: Member, db: Db) -> dict[str, Any]:
+    """La persona inició sesión en ORKESTA y conecta la extensión: se crea su clave (la anterior
+    de la extensión queda revocada) y la página se la entrega a la extensión instalada."""
+    now = datetime.now(UTC)
+    for old in db.scalars(select(ApiToken).where(
+        ApiToken.user_id == principal.user.id, ApiToken.name == CONNECT_NAME,
+        ApiToken.revoked_at.is_(None),
+    )):  # fmt: skip
+        old.revoked_at = now
+    token = PREFIX + secrets.token_urlsafe(32)
+    row = ApiToken(tenant_id=principal.tenant_id, user_id=principal.user.id, name=CONNECT_NAME,
+                   token_hash=_hash(token), prefix=token[:10])  # fmt: skip
+    db.add(row)
+    db.flush()
+    audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
+          action="extension.connected", entity_type="api_token", entity_id=row.id,
+          ip=client_ip(request))  # fmt: skip
+    tenant = principal.tenant
+    return {"token": token, "company": tenant.name if tenant else ""}
+
+
 # --- Lo que usa la extensión (con la clave) ----------------------------------------------------
+
+
+@router.post("/ext/logout")
+def logout(request: Request, db: Db) -> dict[str, Any]:
+    """«Desconectar» en la extensión: la clave deja de servir."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    row = db.scalar(select(ApiToken).where(ApiToken.token_hash == _hash(token)))
+    if row is not None and row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+    return {"ok": True}
 
 
 @router.get("/ext/me")

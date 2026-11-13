@@ -58,3 +58,18 @@ def test_extension_keys_contacts_and_revoke(
     assert client.delete(f"/api/admin/extension/tokens/{token_id}").status_code == 200
     assert ext.get("/api/ext/me", headers=headers).status_code == 401
     assert ext.get("/api/ext/me").status_code == 401
+
+
+def test_any_user_connects_the_extension_by_logging_in(client: TestClient) -> None:
+    """Cualquier usuario instala la extensión y la conecta iniciando sesión en ORKESTA; volver
+    a conectar revoca la clave anterior; «Desconectar» la anula."""
+    register(client, "vendedor@lacteos.co")
+    first = client.post("/api/extension/connect").json()["token"]
+    second = client.post("/api/extension/connect").json()["token"]
+    ext = TestClient(client.app)
+    assert ext.get("/api/ext/me", headers={"Authorization": f"Bearer {first}"}).status_code == 401
+    headers = {"Authorization": f"Bearer {second}", "Origin": "chrome-extension://abcdef"}
+    assert ext.get("/api/ext/me", headers=headers).status_code == 200
+    assert ext.post("/api/ext/logout", headers=headers).status_code == 200
+    assert ext.get("/api/ext/me", headers=headers).status_code == 401
+    assert TestClient(client.app).post("/api/extension/connect").status_code == 401  # sin sesión

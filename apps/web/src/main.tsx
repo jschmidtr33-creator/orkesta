@@ -1,3 +1,4 @@
+import { ConnectExtensionPage } from "./pages/connectExtension";
 import "@orkesta/ui/theme.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -111,6 +112,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/bienvenida" element={<WelcomePage />} />
             <Route path="/invitacion/:token" element={<InvitationPage />} />
             <Route path="/p/:publicId" element={<PublicProposalPage />} />
+            <Route path="/conectar-extension" element={<ConnectExtensionPage />} />
             <Route path="/admin/*" element={<AdminApp />} />
             <Route element={<AppLayout />}>
               <Route index element={<DashboardPage />} />

@@ -85,7 +85,8 @@ async function main() {
   try {
     me = await call("/api/ext/me", token);
   } catch (e) {
-    $("connectMsg").textContent = e.message;
+    await chrome.storage.local.remove("token");
+    $("connectMsg").textContent = "Tu sesión de la extensión terminó. Vuelve a conectarla.";
     $("connectMsg").className = "msg bad";
     show("connect");
     return;
@@ -146,20 +147,18 @@ async function main() {
   };
 }
 
-$("connectBtn").onclick = async () => {
-  const token = $("token").value.trim();
-  try {
-    await call("/api/ext/me", token);
-    await chrome.storage.local.set({ token });
-    $("connectMsg").textContent = "";
-    main();
-  } catch (e) {
-    $("connectMsg").textContent = e.message;
-    $("connectMsg").className = "msg bad";
-  }
+$("connectBtn").onclick = () => {
+  chrome.tabs.create({ url: `${API}/app/conectar-extension` });
+  window.close();
 };
+// Si la conexión termina mientras la ventana está abierta, se actualiza sola.
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.token && changes.token.newValue) main();
+});
 $("logout").onclick = async (e) => {
   e.preventDefault();
+  const { token } = await chrome.storage.local.get("token");
+  if (token) await fetch(`${API}/api/ext/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
   await chrome.storage.local.remove("token");
   $("who").textContent = "";
   $("logout").hidden = true;
