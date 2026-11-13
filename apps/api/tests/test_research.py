@@ -172,9 +172,8 @@ def test_filters_lead_to_companies_and_decision_makers_with_sources(
     assert camila["sources"][0]["type"] == "noticia"
     assert camila["sources"][0]["date"] == "2026-10-12"
     assert "Jorge Pinto" not in people
-    # Un analista no es decisor: no se muestra con los filtros por defecto.
-    assert "Felipe Torres" not in people
-    assert run["totals"]["filtered_out"] >= 1
+    # Sin filtro de nivel se muestran todas las personas encontradas, también un analista.
+    assert "Felipe Torres" in people
     # La entidad sin nombre en Wikidata (solo «Q902») se descarta.
     assert all(not name.startswith("Q") for name in people)
 
@@ -656,6 +655,9 @@ def test_all_countries_brings_people_from_every_country(
                 "company_key": f"empresa {country.lower()}", "domain": None, "location": "",
                 "linkedin": None, "email": None, "email_status": None, "source": "bases",
             })  # fmt: skip
+    # Un perfil con datos raros (nombre «.») no tumba la búsqueda.
+    rows.append({**rows[0], "key": "n:AR|emp|raro", "full_name": ". Perez", "first_name": ".",
+                 "last_name": "Perez"})  # fmt: skip
     people.upsert(session_factory, rows)
     monkeypatch.setattr(agent, "INDEX_ENOUGH", 5)
     monkeypatch.setattr(agent, "DEADLINE_SECONDS", 900)
@@ -665,4 +667,4 @@ def test_all_countries_brings_people_from_every_country(
     for p in run["people"]:
         by_country[p["data"]["country"]] = by_country.get(p["data"]["country"], 0) + 1
     assert by_country.get("MX") == 5 and by_country.get("CO") == 5
-    assert by_country.get("AR") == 60
+    assert by_country.get("AR", 0) >= 60

@@ -35,7 +35,7 @@ from orkesta.research.wikidata import COUNTRY_QIDS
 MAX_ACTIVE_RUNS = 2
 # Sin tope visible: cada búsqueda trae todos los resultados que encuentre (techo técnico).
 MAX_RESULTS = 1000  # por país
-MAX_SHOWN = 8000  # resultados que se muestran de una búsqueda (varios países suman)
+MAX_SHOWN = 100_000  # sin tope práctico: se muestra todo lo encontrado
 LEVEL_CHOICES = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
 UNSAVED_TTL = timedelta(hours=12)
 
