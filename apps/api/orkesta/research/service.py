@@ -34,7 +34,8 @@ from orkesta.research.wikidata import COUNTRY_QIDS
 
 MAX_ACTIVE_RUNS = 2
 # Sin tope visible: cada búsqueda trae todos los resultados que encuentre (techo técnico).
-MAX_RESULTS = 1000
+MAX_RESULTS = 1000  # por país
+MAX_SHOWN = 8000  # resultados que se muestran de una búsqueda (varios países suman)
 LEVEL_CHOICES = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe")
 UNSAVED_TTL = timedelta(hours=12)
 
@@ -331,7 +332,7 @@ def items(
             ResearchItem.kind == kind,
         )
         .order_by(ResearchItem.score.desc(), ResearchItem.created_at)
-        .limit(2000)
+        .limit(MAX_SHOWN)
     ).all()
     return [
         {
