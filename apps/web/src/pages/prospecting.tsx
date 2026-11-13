@@ -42,6 +42,7 @@ type Options = {
 type Filters = {
   mode: "leads" | "accounts";
   country: string;
+  countries?: string[];
   cities: string[];
   sectors: string[];
   exclude_sectors: string[];
@@ -568,18 +569,11 @@ function FilterPanel({
             className="ork-focus h-11 w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
           />
         </label>
-        <select
-          aria-label="País"
-          value={filters.country}
-          onChange={(e) => set({ country: e.target.value })}
-          className="ork-focus h-11 rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] text-ork-ink sm:w-48"
-        >
-          {options.countries.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <CountryPicker
+          options={options.countries}
+          value={filters.countries?.length ? filters.countries : [filters.country]}
+          onChange={(codes) => set({ countries: codes, country: codes[0] ?? filters.country })}
+        />
         <Button type="submit" size="lg" loading={loading} icon={<Search className="size-4" aria-hidden />}>
           Buscar
         </Button>
@@ -597,7 +591,7 @@ function FilterPanel({
         </p>
         <div className="flex items-center gap-3">
           {total > 0 && (
-            <button type="button" className="text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => setFilters({ ...EMPTY, country: filters.country, limit: filters.limit })}>
+            <button type="button" className="text-[12.5px] font-semibold text-ork-blue hover:underline" onClick={() => setFilters({ ...EMPTY, country: filters.country, countries: filters.countries, limit: filters.limit })}>
               Borrar todo
             </button>
           )}
@@ -1020,6 +1014,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey | "">("");
+  const [fit, setFit] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const size = 25; // 25 por página, sin tope total de resultados
   const [listId, setListId] = useState("");
@@ -1035,13 +1030,19 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   const rows = useMemo(() => {
     const words = fold(query).split(/\s+/).filter(Boolean);
     let out = run.people.filter((p) => {
+      if (fit.length && !fit.includes(fitLevel(p.score))) return false;
       if (!words.length) return true;
       const hay = fold([p.data.full_name, p.data.title, p.data.company, p.data.location, p.data.email].join(" "));
       return words.every((w) => hay.includes(w));
     });
     if (sort) out = [...out].sort((a, b) => String(a.data[sort] ?? "").localeCompare(String(b.data[sort] ?? ""), "es"));
     return out;
-  }, [run.people, query, sort]);
+  }, [run.people, query, sort, fit]);
+  const fitCounts = useMemo(() => {
+    const c: Record<string, number> = { alto: 0, medio: 0, bajo: 0 };
+    run.people.forEach((p) => (c[fitLevel(p.score)] += 1));
+    return c;
+  }, [run.people]);
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages);
   const visible = rows.slice((current - 1) * size, current * size);
@@ -1161,6 +1162,25 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
               className="ork-focus h-8 w-[200px] rounded-xl border border-ork-line bg-ork-card pl-8 pr-3 text-[13px]"
             />
           </label>
+          <div className="flex items-center gap-1" role="group" aria-label="Filtrar por encaje">
+            {(["alto", "medio", "bajo"] as const).map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                aria-pressed={fit.includes(lvl)}
+                onClick={() => {
+                  setFit(fit.includes(lvl) ? fit.filter((f) => f !== lvl) : [...fit, lvl]);
+                  setPage(1);
+                }}
+                className={cx(
+                  "ork-focus h-8 rounded-xl border px-2.5 text-[12.5px] font-semibold",
+                  fit.includes(lvl) ? "border-ork-blue bg-ork-blue text-white" : "border-ork-line bg-ork-card text-ork-graphite hover:border-ork-blue/50",
+                )}
+              >
+                {lvl === "alto" ? "Alto" : lvl === "medio" ? "Medio" : "Bajo"} ({fitCounts[lvl]})
+              </button>
+            ))}
+          </div>
           <select aria-label="Ordenar" value={sort} onChange={(e) => setSort(e.target.value as SortKey | "")} className="ork-focus h-8 rounded-xl border border-ork-line bg-ork-card px-2 text-[13px]">
             <option value="">Más relevantes</option>
             <option value="full_name">Nombre</option>
@@ -1484,6 +1504,10 @@ function OperatorAlerts({ totals }: { totals: Record<string, number> }) {
 }
 
 /** Puntaje del posible cliente (0-100): qué tan bien encaja con lo que buscaste. */
+function fitLevel(score: number): "alto" | "medio" | "bajo" {
+  return score >= 75 ? "alto" : score >= 50 ? "medio" : "bajo";
+}
+
 function ScoreBadge({ score, reasons }: { score: number; reasons?: string[] }) {
   const tone = score >= 75 ? "ok" : score >= 50 ? "blue" : "neutral";
   const label = score >= 75 ? "Encaje alto" : score >= 50 ? "Encaje medio" : "Encaje bajo";
@@ -1493,5 +1517,84 @@ function ScoreBadge({ score, reasons }: { score: number; reasons?: string[] }) {
         {label} · {score}
       </Badge>
     </Tip>
+  );
+}
+
+
+/** Países: se escriben y se eligen varios (o «Todos los países»). */
+function CountryPicker({ options, value, onChange }: { options: Option[]; value: string[]; onChange: (codes: string[]) => void }) {
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const all = value.length >= options.length;
+  const fold = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const matches = options.filter((o) => !value.includes(o.value) && fold(o.label).includes(fold(text))).slice(0, 8);
+  const label = (code: string) => options.find((o) => o.value === code)?.label ?? code;
+  const add = (code: string) => {
+    onChange([...value.filter((v) => v !== code), code]);
+    setText("");
+  };
+  return (
+    <div className="relative sm:w-80">
+      <div className="ork-focus flex min-h-11 flex-wrap items-center gap-1.5 rounded-xl border border-ork-line bg-ork-card px-2 py-1.5">
+        {all ? (
+          <Chip text="Todos los países" onRemove={() => onChange([options[0]?.value ?? "CO"])} />
+        ) : (
+          value.map((c) => <Chip key={c} text={label(c)} onRemove={value.length > 1 ? () => onChange(value.filter((v) => v !== c)) : undefined} />)
+        )}
+        {!all && (
+          <input
+            aria-label="Agregar país"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && matches[0]) {
+                e.preventDefault();
+                add(matches[0].value);
+              }
+              if (e.key === "Backspace" && !text && value.length > 1) onChange(value.slice(0, -1));
+            }}
+            placeholder={value.length ? "+ país" : "Escribe un país"}
+            className="h-8 min-w-[80px] flex-1 bg-transparent px-1 text-[14px] outline-none placeholder:text-ork-mist"
+          />
+        )}
+      </div>
+      {open && !all && (
+        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-ork-line bg-ork-card py-1 shadow-lg">
+          {!text && (
+            <li>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onChange(options.map((o) => o.value))} className="w-full px-3 py-2 text-left text-[13.5px] font-semibold text-ork-blue hover:bg-ork-surface">
+                Todos los países
+              </button>
+            </li>
+          )}
+          {matches.map((o) => (
+            <li key={o.value}>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => add(o.value)} className="w-full px-3 py-2 text-left text-[13.5px] hover:bg-ork-surface">
+                {o.label}
+              </button>
+            </li>
+          ))}
+          {!matches.length && text && <li className="px-3 py-2 text-[13px] text-ork-mist">Sin coincidencias</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function Chip({ text, onRemove }: { text: string; onRemove?: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-lg bg-ork-blue/10 px-2 py-1 text-[12.5px] font-semibold text-ork-blue">
+      {text}
+      {onRemove && (
+        <button type="button" onClick={onRemove} aria-label={`Quitar ${text}`} className="rounded px-0.5 hover:bg-ork-blue/20">
+          ×
+        </button>
+      )}
+    </span>
   );
 }

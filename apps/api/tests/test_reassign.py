@@ -52,8 +52,10 @@ def test_reassign_contact_with_its_deal_and_tasks(
                                                 "to_user_id": people["jefa@lacteos.co"]["user_id"]})  # fmt: skip
     assert back.status_code == 200, back.text
     sara_deal = next(
-        d for d in client.get("/api/crm/deals").json()["deals"] if d["title"] == "Venta Sofía"
-    )
+        d for d in client.get("/api/crm/deals", params={
+            "responsable": people["sara@lacteos.co"]["user_id"]}).json()["deals"]
+        if d["title"] == "Venta Sofía"
+    )  # fmt: skip
     assert jefa.post("/api/crm/reassign", json={"kind": "deal", "ids": [sara_deal["id"]],
                                                 "to_user_id": people["luis@lacteos.co"]["user_id"]}
                      ).status_code == 404  # fmt: skip

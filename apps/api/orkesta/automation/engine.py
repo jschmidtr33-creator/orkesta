@@ -10,6 +10,7 @@ from email.utils import formataddr
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.models import Rule, Run
@@ -526,6 +527,21 @@ def execute(
                       results=[{"ok": True, "detail": detail}])  # fmt: skip
             session.add(run)
             return run
+    key = _once_key(trigger, ctx)
+    claim: Run | None = None
+    if key:
+        claim = Run(tenant_id=rule.tenant_id, rule_id=rule.id, trigger=trigger,
+                    contact_id=contact_id, status="running", results=[],
+                    dedupe_key=key)  # fmt: skip
+        try:
+            with session.begin_nested():
+                session.add(claim)
+                session.flush()
+        except IntegrityError:
+            # Ya se atendió este mismo evento (clics simultáneos o reintento): no se repite.
+            return Run(tenant_id=rule.tenant_id, rule_id=rule.id, trigger=trigger,
+                       contact_id=contact_id, status="skipped",
+                       results=[{"ok": True, "detail": "Aviso ya enviado"}])  # fmt: skip
     results, failed = [], False
     for action in rule.actions:
         try:
@@ -541,6 +557,10 @@ def execute(
             results.append({"type": action["type"], "ok": False, "detail": message[:300]})
     rule.run_count += 1
     rule.last_run_at = now()
+    if claim is not None:
+        claim.status = "error" if failed else "ok"
+        claim.results = results
+        return claim
     run = Run(
         tenant_id=rule.tenant_id,
         rule_id=rule.id,
@@ -551,6 +571,21 @@ def execute(
     )
     session.add(run)
     return run
+
+
+# Eventos que ocurren una vez por destinatario: abrir (al llegar al mínimo), hacer clic,
+# responder, rebotar, darse de baja o terminar la secuencia.
+_ONCE = (
+    "campaign.opened", "campaign.clicked", "campaign.replied", "campaign.bounced",
+    "campaign.unsubscribed", "campaign.finished", "proposal.viewed", "proposal.accepted",
+)  # fmt: skip
+
+
+def _once_key(trigger: str, ctx: dict[str, Any]) -> str | None:
+    if trigger not in _ONCE:
+        return None
+    ref = ctx.get("recipient_id") or ctx.get("proposal_id") or ctx.get("contact_id")
+    return f"{trigger}:{ref}"[:120] if ref else None
 
 
 @handler("automation.run")

@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -218,6 +218,7 @@ class Filters:
     first_name: str = ""
     last_name: str = ""
     mode: str = "leads"  # leads (Posible cliente) | accounts (Cuentas)
+    countries: list[str] = field(default_factory=list)  # varios países: uno tras otro
 
     @classmethod
     def from_payload(cls, data: dict[str, Any]) -> Filters:
@@ -227,6 +228,7 @@ class Filters:
         city = clean(data.get("city"))
         return cls(
             country=str(data.get("country", "")),
+            countries=[str(c) for c in data.get("countries") or []],
             industries=list(data.get("industries") or []),
             city=city,
             sizes=list(data.get("sizes") or []),
@@ -1449,13 +1451,29 @@ def run_research(
         filters = Filters.from_payload(record.filters)
     run = Run(factory, tenant_id, run_id)
     try:
+        countries = filters.countries or [filters.country]
+        per = filters.limit if len(countries) == 1 else max(25, filters.limit // len(countries))
+        learned: set[str] = set()
+        seen: set[str] = set()
+        totals: dict[str, int] = {}
         with Fetcher(factory) as fetcher:
-            totals = execute(run, filters, fetcher)
+            for code in countries:
+                one = replace(filters, country=code, countries=[code], limit=per)
+                if len(countries) > 1:
+                    name = COUNTRIES.get(code, (code,))[0]
+                    run.log(f"Buscando en {name}…", step="buscar")
+                totals = execute(run, one, fetcher)
+                fresh = [c for k, c in run.seen.items() if k not in seen]
+                seen |= set(run.seen)
+                directory.learn(factory, code, fresh)
+                if filters.mode != "accounts":
+                    found = [p for group in run.people.values() for p in group
+                             if p.key not in learned and one.wants(p)]  # fmt: skip
+                    learned |= {p.key for p in found}
+                    people.learn(factory, code, found)
             totals["requests"] = fetcher.requests
-        directory.learn(factory, filters.country, list(run.seen.values()))
-        if filters.mode != "accounts":
-            found = [p for group in run.people.values() for p in group if filters.wants(p)]
-            people.learn(factory, filters.country, found)
+            totals["companies"] = max(totals.get("companies", 0), len(run.companies))
+        run.filters = filters
         n_people, companies = totals.get("people", 0), totals.get("companies", 0)
         run.log(f"Listo: {companies} empresas y {n_people} decisores.", step="listo",
                 done=run.total)  # fmt: skip

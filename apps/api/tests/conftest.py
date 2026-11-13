@@ -121,6 +121,14 @@ def _offline_mx() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Adivinar dominios no consulta DNS reales en las pruebas."""
+    from orkesta.research import domain_guess
+
+    monkeypatch.setattr(domain_guess, "MX", lambda host: [])
+
+
+@pytest.fixture(autouse=True)
 def _open_signup(monkeypatch: pytest.MonkeyPatch) -> None:
     """En producción ORKESTA es solo por invitación; las pruebas crean cuentas libremente."""
     from orkesta.admin import service as admin

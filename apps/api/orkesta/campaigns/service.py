@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, func, or_, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit
@@ -901,11 +901,45 @@ def _full_domains(session: Session, campaign: Campaign, mailbox: Mailbox, tz: Zo
     return {d for d, n in counts.items() if d in blocked and n >= 1}
 
 
+PROBE_WAIT = timedelta(hours=48)  # tiempo para que llegue un rebote antes de dar por bueno
+
+
+def probing_domains(session: Session, tenant_id: uuid.UUID) -> set[str]:
+    """Empresas a las que se les acaba de escribir a un correo ESTIMADO y todavía no se sabe si
+    el formato es correcto. Mientras tanto no se escribe a más correos estimados de esa empresa:
+    si el primero rebota, se corrige el formato y los demás salen bien (menos rebotes y menos
+    riesgo para la reputación del buzón)."""
+    domain = func.lower(func.split_part(Recipient.email, "@", 2))
+    since = now() - PROBE_WAIT
+    recent = set(session.scalars(
+        select(domain).distinct()
+        .join(Contact, Contact.id == Recipient.contact_id)
+        .join(Message, Message.recipient_id == Recipient.id)
+        .where(Recipient.tenant_id == tenant_id, Message.step == 0, Message.sent_at >= since,
+               Contact.email_status == "estimado")
+    ).all())  # fmt: skip
+    if not recent:
+        return set()
+    proven_sent = set(session.scalars(
+        select(domain).distinct()
+        .join(Message, Message.recipient_id == Recipient.id)
+        .where(Recipient.tenant_id == tenant_id, Message.sent_at < since,
+               Recipient.status != "bounced", domain.in_(recent))
+    ).all())  # fmt: skip
+    proven_known = set(session.scalars(
+        select(func.lower(Contact.email_domain)).distinct().where(
+            Contact.tenant_id == tenant_id, Contact.email_status == "valido",
+            func.lower(Contact.email_domain).in_(recent))
+    ).all())  # fmt: skip
+    return {str(d) for d in recent} - {str(d) for d in proven_sent | proven_known}
+
+
 def _next_recipient(
     session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo
 ) -> Recipient | None:
     """El siguiente destinatario que toca, saltando las empresas que ya llegaron a su máximo
-    diario (antes se miraban solo los 40 primeros y la campaña podía quedarse quieta)."""
+    diario (antes se miraban solo los 40 primeros y la campaña podía quedarse quieta) y los
+    correos estimados de empresas cuyo formato se está comprobando."""
     full = _full_domains(session, campaign, mailbox, tz)
     query = select(Recipient).where(
         Recipient.campaign_id == campaign.id,
@@ -914,6 +948,14 @@ def _next_recipient(
     )
     if full:
         query = query.where(func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full))
+    probing = probing_domains(session, campaign.tenant_id)
+    if probing:
+        estimated = select(Contact.id).where(Contact.tenant_id == campaign.tenant_id,
+                                             Contact.email_status == "estimado")  # fmt: skip
+        query = query.where(~and_(
+            Recipient.step == 0, Recipient.contact_id.in_(estimated),
+            func.lower(func.split_part(Recipient.email, "@", 2)).in_(probing),
+        ))  # fmt: skip
     return session.scalars(
         query.order_by(Recipient.next_send_at).limit(1).with_for_update(skip_locked=True)
     ).first()
@@ -1418,6 +1460,7 @@ def _emit(session: Session, campaign: Campaign | None, recipient: Recipient, tri
         session.get(Mailbox, campaign.mailbox_id) if campaign and campaign.mailbox_id else None
     )
     owner = (mailbox.user_id if mailbox else None) or (campaign.created_by if campaign else None)
+    extra.setdefault("recipient_id", recipient.id)
     return emit(session, recipient.tenant_id, trigger, contact_id=recipient.contact_id,
                 campaign_id=recipient.campaign_id, user_id=owner, **extra)  # fmt: skip
 
@@ -1439,11 +1482,18 @@ def record_open(session: Session, token: str) -> None:
     message, recipient = found
     if now() - message.sent_at < PREFETCH:
         return  # prelectura automática inmediata, no una apertura real
-    message.open_count += 1
-    message.opened_at = message.opened_at or now()
-    recipient.open_count += 1
-    recipient.opened_at = recipient.opened_at or now()
-    _emit(session, None, recipient, "campaign.opened", open_count=recipient.open_count)
+    # Suma atómica: si llegan varias lecturas a la vez, cada una ve su propio número.
+    session.execute(update(Message).where(Message.id == message.id).values(
+        open_count=Message.open_count + 1,
+        opened_at=func.coalesce(Message.opened_at, now())))  # fmt: skip
+    count = session.execute(
+        update(Recipient).where(Recipient.id == recipient.id)
+        .values(open_count=Recipient.open_count + 1,
+                opened_at=func.coalesce(Recipient.opened_at, now()))
+        .returning(Recipient.open_count)
+    ).scalar_one()  # fmt: skip
+    session.expire(recipient)
+    _emit(session, None, recipient, "campaign.opened", open_count=count)
 
 
 def record_click(session: Session, token: str) -> None:
@@ -1451,11 +1501,17 @@ def record_click(session: Session, token: str) -> None:
     if found is None:
         return
     message, recipient = found
-    message.click_count += 1
-    recipient.click_count += 1
-    first = recipient.clicked_at is None
-    recipient.clicked_at = recipient.clicked_at or now()
-    recipient.opened_at = recipient.opened_at or now()
+    session.execute(update(Message).where(Message.id == message.id)
+                    .values(click_count=Message.click_count + 1))  # fmt: skip
+    session.execute(update(Recipient).where(Recipient.id == recipient.id).values(
+        click_count=Recipient.click_count + 1,
+        opened_at=func.coalesce(Recipient.opened_at, now())))  # fmt: skip
+    # Solo el primer clic gana (los filtros de seguridad abren todos los enlaces a la vez).
+    first = session.execute(
+        update(Recipient).where(Recipient.id == recipient.id, Recipient.clicked_at.is_(None))
+        .values(clicked_at=now()).returning(Recipient.id)
+    ).first()  # fmt: skip
+    session.expire(recipient)
     if first:
         _emit(session, None, recipient, "campaign.clicked")
 

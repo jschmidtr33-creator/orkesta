@@ -256,9 +256,12 @@ export function CrmPage() {
   const [editingStages, setEditingStages] = useState(false);
   const [lostFor, setLostFor] = useState<{ deal: Deal; stageId: string } | null>(null);
   const stages = useStages();
+  const [owner, setOwner] = useState("");
+  const pipelines = useQuery({ queryKey: ["crm-pipelines"], queryFn: () => api<{ id: string; name: string; me: boolean }[]>("/api/crm/pipelines") });
   const deals = useQuery({
-    queryKey: ["crm-deals", q],
-    queryFn: () => api<{ deals: Deal[]; metrics: Metrics }>(`/api/crm/deals?q=${encodeURIComponent(q)}`),
+    queryKey: ["crm-deals", q, owner],
+    queryFn: () =>
+      api<{ deals: Deal[]; metrics: Metrics }>(`/api/crm/deals?q=${encodeURIComponent(q)}${owner ? `&responsable=${owner}` : ""}`),
   });
 
   const move = useMutation({
@@ -349,8 +352,24 @@ export function CrmPage() {
             </button>
           ))}
         </div>
+        {(pipelines.data?.length ?? 0) > 1 && (
+          <label className="ml-auto flex items-center gap-2 text-[13px] font-semibold text-ork-graphite">
+            Pipeline de
+            <select
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              className="ork-focus h-10 rounded-xl border border-ork-line bg-ork-card px-3 text-[14px] font-normal text-ork-ink"
+            >
+              {pipelines.data?.map((p) => (
+                <option key={p.id} value={p.me ? "" : p.id}>
+                  {p.me ? "Mi pipeline" : p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {view !== "tareas" && view !== "pronostico" && (
-          <label className="relative ml-auto">
+          <label className={cx("relative", (pipelines.data?.length ?? 0) > 1 ? "" : "ml-auto")}>
             <span className="sr-only">Buscar oportunidades</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ork-mist" aria-hidden />
             <input
