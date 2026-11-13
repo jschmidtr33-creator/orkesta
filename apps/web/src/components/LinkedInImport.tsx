@@ -11,6 +11,7 @@ type Result = {
   from_index: number;
   from_search?: number;
   search_off?: boolean;
+  search_error?: string;
   with_email: number;
   no_company: number;
   invalid: string[];
@@ -125,6 +126,10 @@ export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onO
             <li>{r.from_index} ya estaban en el índice de ORKESTA ({r.with_email} con correo publicado).</li>
             {(r.from_search ?? 0) > 0 && <li>{r.from_search} con nombre, cargo, empresa y ciudad tomados del resultado público de Google de su perfil.</li>}
             {r.search_off && <li className="text-warn">El buscador no está disponible: sin él solo se completa lo que ya conoce el índice.</li>}
+            {r.search_error && <li className="text-warn">El buscador respondió con un error ({r.search_error === "creditos" ? "sin créditos" : r.search_error === "clave" ? "clave inválida" : r.search_error}): revisa «Probar conexiones» en el panel.</li>}
+            {!r.search_off && !r.search_error && (r.from_search ?? 0) === 0 && r.created + (r.existing ?? 0) > r.from_index && (
+              <li>Google no muestra públicamente {r.created + r.existing - r.from_index === 1 ? "ese perfil" : "esos perfiles"}: escribe la empresa (y el país) y vuelve a pegarlos para buscar su correo.</li>
+            )}
             {r.existing > 0 && <li>{r.existing} ya estaban en tus contactos.</li>}
             {r.enrichment_id && <li>El resto se está enriqueciendo: busca su sitio web y su correo. Lo verás en Contactos en unos minutos.</li>}
             {r.enrichment_busy && <li>Hay otro enriquecimiento en curso: cuando termine, usa «Enriquecer» en Contactos para completar estos.</li>}

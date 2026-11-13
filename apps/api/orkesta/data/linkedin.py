@@ -85,6 +85,31 @@ def _from_index(session: Session, profiles: list[Profile], company: str,
     return out
 
 
+def _split_glued(session: Session, profiles: list[Profile]) -> None:
+    """«/in/santiagojoyaibarra» viene sin separadores: se corta por el nombre de pila más largo
+    que ORKESTA conoce del índice de personas («Santiago» + «Joyaibarra»)."""
+    from sqlalchemy import func
+
+    from orkesta.engine.normalize.text import fold
+    from orkesta.research.models import PersonIndex
+
+    glued = [p for p in profiles if not p.last and len(p.first) >= 6]
+    if not glued:
+        return
+    names = {
+        fold(n) for (n,) in session.execute(
+            select(func.lower(PersonIndex.first_name)).where(PersonIndex.first_name.is_not(None))
+            .group_by(func.lower(PersonIndex.first_name)).having(func.count() >= 2).limit(20000)
+        ) if n and n.isalpha() and len(n) >= 3
+    }  # fmt: skip
+    for p in glued:
+        word = fold(p.first)
+        for cut in range(len(word) - 3, 2, -1):
+            if word[:cut] in names:
+                p.first, p.last = word[:cut].capitalize(), word[cut:].capitalize()
+                break
+
+
 def _search_on() -> bool:
     from orkesta.research import serp
 
@@ -104,13 +129,16 @@ def _from_search(session: Session, profiles: list[Profile]) -> dict[str, Any]:
     if not profiles or not _search_on():
         return {}
     factory = sessionmaker(bind=session.get_bind(), expire_on_commit=False)
-    stats = serp.SerpStats(budget=len(profiles) * 2 + 5)
+    stats = serp.SerpStats(budget=len(profiles) * 4 + 5)
     out: dict[str, Any] = {}
     with Fetcher(factory) as fetcher, ThreadPoolExecutor(max_workers=8) as pool:
         hits = pool.map(lambda p: (p.slug, serp.profile_by_url(fetcher, stats, p.slug)), profiles)
         for slug, hit in hits:
             if hit is not None:
                 out[slug] = hit
+    if stats.fatal or (stats.errors and not out):
+        # El buscador respondió con error (sin créditos, clave inválida): se avisa en pantalla.
+        out["__error__"] = stats.fatal or ", ".join(stats.errors)
     return out
 
 
@@ -154,8 +182,10 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
     company = " ".join(company.split())[:200]
     code = country.strip().upper()
     code = code if code in COUNTRIES else ""
+    _split_glued(session, profiles)
     known = _from_index(session, profiles, company, code)
     found = _from_search(session, [p for p in profiles if p.slug not in known])
+    search_error = str(found.pop("__error__", ""))
     created: list[uuid.UUID] = []
     existing = 0
     errors: list[str] = []
@@ -229,6 +259,7 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
         "received": len(profiles), "created": len(created), "existing": existing,
         "updated": updated,
         "from_index": from_index, "from_search": from_search, "search_off": not _search_on(),
+        "search_error": search_error,
         "with_email": with_email, "to_enrich": pending,
         "no_company": no_company, "invalid": invalid[:20], "errors": errors[:20],
         "contact_ids": [str(c) for c in created],
