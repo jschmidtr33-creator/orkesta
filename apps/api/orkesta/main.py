@@ -128,7 +128,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         unsafe = request.method in UNSAFE and request.url.path.startswith("/api")
-        if unsafe and not _same_origin(request):
+        # La extensión de Chrome se identifica con su clave (no con cookies): no aplica CSRF.
+        by_key = request.url.path.startswith("/api/ext/") and request.headers.get(
+            "authorization", ""
+        ).startswith("Bearer ork_")
+        if unsafe and not by_key and not _same_origin(request):
             return JSONResponse({"detail": "Origen no permitido."}, status_code=403)
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = CSP
@@ -178,6 +182,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
     app.include_router(concertino_router)
     app.include_router(calendar_router)
     app.include_router(tracking_router)
+    from orkesta.extension.router import router as extension_router
+
+    app.include_router(extension_router)
     _mount_frontends(app)
     return app
 

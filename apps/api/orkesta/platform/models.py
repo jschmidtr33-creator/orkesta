@@ -232,3 +232,22 @@ class PushSubscription(IdMixin, Base):
     p256dh: Mapped[str] = mapped_column(String(200), nullable=False)
     auth: Mapped[str] = mapped_column(String(100), nullable=False)
     user_agent: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+
+
+class ApiToken(IdMixin, Base):
+    """Clave personal de la extensión de Chrome. Se guarda solo su huella (SHA-256): la clave
+    completa se muestra una vez al crearla. Sirve únicamente para los contactos de su dueño."""
+
+    __tablename__ = "api_tokens"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False, default="Extensión de Chrome")
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
