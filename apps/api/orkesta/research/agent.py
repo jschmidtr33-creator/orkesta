@@ -1456,7 +1456,8 @@ def run_research(
     run = Run(factory, tenant_id, run_id)
     try:
         countries = filters.countries or [filters.country]
-        per = filters.limit if len(countries) == 1 else max(25, filters.limit // len(countries))
+        # Cada país busca con el mismo tope que si se buscara solo: «Todos los países» suma.
+        per = filters.limit
         learned: set[str] = set()
         seen: set[str] = set()
         totals: dict[str, int] = {}
