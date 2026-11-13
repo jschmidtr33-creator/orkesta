@@ -75,26 +75,47 @@ FREEMAIL_DOMAINS = frozenset(
 
 # Campo → nombres de columna reconocidos (plegados: sin tildes ni mayúsculas).
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-    "first": ("first_name", "first name", "nombre", "nombres"),
-    "last": ("last_name", "last name", "apellido", "apellidos"),
-    "full": ("full_name", "full name", "nombre completo", "nombre y apellido", "nombre"),
+    # Encabezados de Wiza, Apollo, ZoomInfo, Lusha, Sales Navigator, HubSpot, Salesforce y
+    # registros de eventos, en inglés y en español.
+    "first": ("first_name", "first name", "nombre", "nombres", "firstname", "given name",
+              "contact first name", "person first name", "primer nombre"),
+    "last": ("last_name", "last name", "apellido", "apellidos", "lastname", "surname",
+             "family name", "contact last name", "person last name"),
+    "full": ("full_name", "full name", "nombre completo", "nombre y apellido", "name",
+             "contact name", "person name", "nombre del contacto", "nombre"),
     "email": (
         "correo electronico", "email", "e-mail", "correo", "mail", "work email",
-        "direccion de correo electronico",
+        "direccion de correo electronico", "email address", "business email", "work email address",
+        "professional email", "corporate email", "contact email", "person email", "email 1",
+        "email1", "primary email", "correo corporativo", "correo empresarial", "correo laboral",
+        "emails",
     ),
-    "title": ("title", "cargo", "puesto", "job title", "position"),
+    "title": ("title", "cargo", "puesto", "job title", "position", "jobtitle", "current title",
+              "job position", "role", "rol", "designation", "person title", "contact title",
+              "cargo actual", "titulo", "puesto de trabajo"),
     "company": (
         "company", "empresa", "empresa organizacion", "empresa  organizacion", "organizacion",
-        "company name", "compania",
+        "company name", "compania", "organization", "organization name", "organisation",
+        "account name", "current company", "employer", "company name for emails",
+        "companyname", "business name", "nombre de la empresa", "razon social", "institucion",
+        "entidad", "person company name", "company_name",
     ),
     "phone": (
         "mobile_phone1", "phone_number1", "telefono", "numero telefono movil", "celular",
-        "movil", "phone", "telefono movil",
+        "movil", "phone", "telefono movil", "mobile phone", "mobile", "direct phone",
+        "work direct phone", "phone number", "corporate phone", "direct dial", "cell phone",
+        "whatsapp",
     ),
-    "city": ("locality", "ciudad", "city"),
-    "country": ("country", "pais", "country_code"),
-    "location": ("location", "ubicacion"),
-    "industry": ("company_industry", "industria", "industry", "sector"),
+    "city": ("locality", "ciudad", "city", "person city", "contact city", "town", "municipio"),
+    "state": ("state", "region", "province", "provincia", "departamento",
+              "person state", "state province", "state/province", "contact state"),
+    "country": ("country", "pais", "country_code", "person country", "contact country",
+                "country region", "country/region", "pais de residencia",
+                "company country", "location country"),
+    "location": ("location", "ubicacion", "person location", "geography", "address",
+                 "direccion", "lugar"),
+    "industry": ("company_industry", "industria", "industry", "sector", "company industry",
+                 "industries", "vertical", "rubro", "actividad"),
 }  # fmt: skip
 
 # Prefijos telefónicos y extensiones de país para completar el país cuando falta.
@@ -102,6 +123,7 @@ PHONE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("52", "MX"), ("56", "CL"), ("57", "CO"), ("51", "PE"), ("54", "AR"), ("593", "EC"),
     ("598", "UY"), ("506", "CR"), ("502", "GT"), ("507", "PA"), ("591", "BO"), ("595", "PY"),
     ("503", "SV"), ("504", "HN"), ("505", "NI"), ("58", "VE"), ("55", "BR"), ("34", "ES"),
+    ("1", "US"),
 )  # fmt: skip
 TLD_COUNTRIES = {
     "mx": "MX", "cl": "CL", "co": "CO", "pe": "PE", "ar": "AR", "ec": "EC", "uy": "UY",
@@ -394,7 +416,13 @@ def to_records(sheet: Sheet, columns: dict[str, int]) -> list[ProspectRecord]:
         phone = _phone(_value(row, columns, "phone"))
         location = parse_location(
             ", ".join(
-                v for v in (_value(row, columns, "city"), _value(row, columns, "country")) if v
+                v
+                for v in (
+                    _value(row, columns, "city"),
+                    _value(row, columns, "state"),
+                    _value(row, columns, "country"),
+                )
+                if v
             )
             or _value(row, columns, "location")
         )

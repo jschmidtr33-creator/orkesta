@@ -111,15 +111,57 @@ def _focus(ctx: engine.Context, text: str) -> ProductFact | None:
         return main
     candidates = [f for kind in ("producto", "precio") for f in ctx.facts.get(kind) or []
                   if not (f.meta or {}).get("industria")]  # fmt: skip
-    scored = [(len(words & engine._terms(_short(f))), f) for f in candidates]
+    # El nombre pesa más; un producto que lo menciona en su descripción («Expositor (stand)»)
+    # gana a una línea de precio con la misma palabra.
+    scored = [(len(words & engine._terms(_short(f))) * 2
+               + (len(words & engine._terms(f.title)) if f.kind == "producto" else 0)
+               + (1 if f.kind == "producto" else 0) * bool(words & engine._terms(f.title)), f)
+              for f in candidates]  # fmt: skip
     hits, best = max(scored, key=lambda x: x[0], default=(0, None))
     return best if hits and best is not None else main
+
+
+def _price_for(ctx: engine.Context, text: str, focus: ProductFact) -> str:
+    """El precio de lo que se pidió (la línea de precio que nombra lo mismo), si existe."""
+    if focus.kind == "precio":
+        return _clean(focus.title) if re.search(r"\d", focus.title) else ""
+    words = {
+        w
+        for w in engine._terms(f"{text} {_short(focus)}")
+        if w not in {x[:5] for x in _WRITING_WORDS}
+    }
+    best = max(((len(words & engine._terms(f.title)), f) for f in ctx.facts.get("precio") or []),
+               key=lambda x: x[0], default=(0, None))  # fmt: skip
+    return _clean(best[1].title) if best[0] and best[1] is not None else ""
 
 
 def _short(fact: ProductFact) -> str:
     from orkesta.concertino.chat import short_name
 
     return short_name(fact)
+
+
+_PRICE_TAIL = re.compile(
+    r"\s*(?:[:\-–—]\s*|\b(?:desde|por|a partir de|en)\s+)?(?:US\$|USD|\$|€)\s?[\d.,]+.*$", re.I
+)
+
+
+def _offer_name(fact: ProductFact) -> str:
+    """El nombre de lo que se ofrece, sin el precio («Stands desde US$7.200» → «Stands»)."""
+    name = _short(fact)
+    clean = _PRICE_TAIL.sub("", name).strip(" :-–—")
+    return clean or name
+
+
+def _offer_kind(fact: ProductFact | None) -> str:
+    text = fold(f"{fact.title} {fact.detail}" if fact else "")
+    if re.search(r"\b(stands?|patrocin\w*|sponsor\w*|expositor\w*|branding|marca)\b", text):
+        return "patrocinio"
+    if re.search(r"\b(delegacion\w*|equipo completo|varias personas)\b", text):
+        return "delegacion"
+    if re.search(r"\b(pase|pases|entrada|entradas|ticket|tickets|full pass|acceso)\b", text):
+        return "entrada"
+    return "general"
 
 
 def _who(it: Intent, area: str | None) -> str:
@@ -152,7 +194,7 @@ def brief(
     group = pb.LEVEL_GROUPS.get(level or "")
     ctx.industry = it.industry or ctx.industry
     title = focus.title
-    head, _, rest = title.partition(":")
+    _head, _, rest = title.partition(":")
     benefits = [_clean(f.title) for f in (ctx.facts.get("valor") or [])[:2]]
     diff = engine._best(ctx, "diferencial")
     if diff:
@@ -163,7 +205,7 @@ def brief(
     tone = it.tone or ("formal" if group in ("alta", "direccion") else "cercano")
     count = it.count or (3 if it.piece == "secuencia" else 1)
     b = copy.Brief(
-        product=_short(focus) if rest else head.strip(),
+        product=_offer_name(focus),
         summary=_sentence(rest.strip() or focus.detail.split(".")[0]),
         benefits=[b for b in benefits if b][:3],
         proof=_clean(proof.title) if proof else "",
@@ -177,7 +219,13 @@ def brief(
         steps=count if it.piece in ("secuencia", "correo") else 1,
     )
     meta = {"who": _who(it, area), "where": _where(it.industry), "product": b.product,
-            "formal": tone == "formal" or (tone == "directo" and group in ("alta", "direccion")), "area": area, "focus": focus, "proof": proof}  # fmt: skip
+            "formal": tone == "formal" or (tone == "directo" and group in ("alta", "direccion")), "area": area, "focus": focus, "proof": proof,
+            "main": _offer_name(main) if main else b.product, "kind": _offer_kind(focus),
+            "price": _price_for(ctx, text, focus),
+            "detail": _sentence(rest.strip()) if rest.strip() and focus.kind != "precio" else "",
+            "purpose": it.purpose or ("invitacion" if it.goal == "evento" else None),
+            "person": it.person, "company_name": it.target_company, "place": it.place,
+            "eventish": eventish}  # fmt: skip
     return b, meta
 
 
@@ -235,19 +283,15 @@ def _sheet_emails(
     bye = "Saludos,<br>{{remitente}}" + (f"<br>{b.company}" if b.company else "")
     cta = ("¿[Te|Le] gustaría que [te|le] cuente los detalles en 10 minutos?" if b.goal == "evento"
            else "¿[Te|Le] parece si lo conversamos 15 minutos esta semana?")  # fmt: skip
-    where = meta["where"]
     bodies: list[list[str]] = []
-    first = [f"Hablo seguido con líderes{where} y hay un tema que se repite: {problema}." if problema else "",
-             f"Por eso [te|le] escribo por {product}: {v['valor']}." if v.get("valor") else f"[Te|Le] escribo por {product}.",
-             "" if short or not v.get("prueba") else f"Un dato: {v['prueba']}.", cta]  # fmt: skip
-    bodies.append(first)
+    bodies.append(_first_body(v, meta, problema, cta, short))
     follow = [
         [f"Retomo mi correo anterior con un dato concreto: {v['prueba']}." if v.get("prueba") else "Retomo mi correo anterior.",
          "" if short else (f"Lo que más valoran: {v['valor']}." if v.get("valor") else ""),
          "¿[Te|Le] hace sentido verlo?"],
         [f"Algo que nos diferencia: {v['diferencial']}." if v.get("diferencial") else f"Sigo pensando que {product} puede servirle a {{{{empresa|[tu|su] equipo}}}}.",
          "¿Es algo que estén evaluando este año?"],
-        [f"Para que lo tenga[s|] a mano: {v['precio']}." if v.get("precio") else f"Si [te|le] sirve, [te|le] envío un resumen de {product} en una página.",
+        [f"Para que lo tenga[s|] a mano: {meta['price'] or v['precio']}." if meta["price"] or v.get("precio") else f"Si [te|le] sirve, [te|le] envío un resumen de {product} en una página.",
          "¿Lo vemos esta semana?"],
         ["Una pregunta corta: ¿quién en {{empresa|[tu|su] equipo}} es la persona indicada para conversar esto?",
          "Si no [eres|es] [tú|usted], [te|le] agradezco si me orienta[s|]."],
@@ -267,14 +311,75 @@ def _sheet_emails(
             x.replace("tu equipo", "su equipo").replace("tu empresa", "su empresa")
             for x in subjects
         ]
+    if meta["purpose"] == "seguimiento" and subjects:
+        subjects = [f"Re: {subjects[0]}", *subjects[1:]]
     steps = []
     for i, parts in enumerate(bodies):
         html = _p(*(pb.voice(x, formal) for x in [*parts])).replace("<p>", "<p>", 1)
-        steps.append({"subject": subjects[0] if i == 0 and subjects else "",
-                      "subjects": subjects if i == 0 else [],
-                      "body": f"<p>{hello}</p>{html}<p>{bye}</p>",
+        steps.append({"subject": _named(subjects[0], meta) if i == 0 and subjects else "",
+                      "subjects": [_named(x, meta) for x in subjects] if i == 0 else [],
+                      "body": _named(f"<p>{hello}</p>{html}<p>{bye}</p>", meta),
                       "delay_days": copy.DELAYS[min(i, len(copy.DELAYS) - 1)]})  # fmt: skip
     return steps
+
+
+def _named(text: str, meta: dict[str, Any]) -> str:
+    """Si pidieron el correo para una persona concreta («para Juan Pérez, CFO de Bancolombia»),
+    sale con su nombre y su empresa en vez de las variables de campaña."""
+    if meta.get("person"):
+        first = str(meta["person"]).split()[0]
+        text = re.sub(r"\{\{nombre(\|[^}]*)?\}\}", first, text)
+    if meta.get("company_name"):
+        text = re.sub(r"\{\{empresa(\|[^}]*)?\}\}", str(meta["company_name"]), text)
+    return text
+
+
+def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str,
+                short: bool) -> list[str]:  # fmt: skip
+    """El primer correo según para qué es: primer contacto, seguimiento, invitación, propuesta,
+    después de una reunión o para retomar el contacto; y según lo que se ofrece (patrocinio,
+    delegación, entradas)."""
+    product, main, kind = meta["product"], meta["main"], meta["kind"]
+    purpose, where = meta["purpose"], meta["where"]
+    place = f" en {meta['place']}" if meta.get("place") else ""
+    company = meta.get("company_name") or "{{empresa|[tu|su] equipo}}"
+    valor, prueba, publico = v.get("valor", ""), v.get("prueba", ""), v.get("publico", "")
+    proof = "" if short or not prueba else f"Un dato: {prueba}."
+    detail = meta.get("detail", "")
+    if purpose == "seguimiento":
+        return [f"[Te|Le] escribo para retomar mi mensaje anterior sobre {product}.",
+                f"Sé que la agenda está llena, así que voy al grano: {valor}." if valor else "",
+                proof,
+                "¿Tiene sentido que lo veamos 15 minutos esta semana, o prefiere[s|] que [te|le] escriba más adelante?"]  # fmt: skip
+    if purpose == "agradecer":
+        return ["Gracias por [tu|su] tiempo hoy.",
+                f"Como conversamos, con {product} {company} logra: {valor}." if valor else f"Como conversamos, [te|le] dejo el resumen de {product}.",
+                "Para avanzar, ¿[te|le] envío la propuesta esta semana y la revisamos juntos?"]  # fmt: skip
+    if purpose == "propuesta":
+        return [f"Como acordamos, [te|le] comparto la propuesta de {product} para {company}.",
+                f"En resumen: {valor}." if valor else "",
+                f"Inversión: {meta['price']}." if meta.get("price") else "",
+                "¿Qué día [te|le] queda bien para revisarla juntos 20 minutos?"]  # fmt: skip
+    if purpose == "reactivar":
+        return ["Hace un tiempo conversamos y quería retomar el contacto.",
+                f"Hoy {product} ofrece: {valor}." if valor else f"Quería contar[te|le] lo nuevo de {product}.",
+                f"¿Cómo están viendo este tema hoy en {company}?"]  # fmt: skip
+    if kind == "patrocinio":
+        return [f"Muchas marcas{where} quieren llegar a quienes deciden en las grandes empresas, y conseguir su atención es cada vez más difícil.",
+                f"En {main}{place} se reúnen {publico}." if publico else f"[Te|Le] escribo por {main}{place}.",
+                f"Con {product}, {company} está frente a ellos durante el evento" + (f": {detail}" if detail else "."),
+                "¿[Te|Le] comparto las opciones de participación y lo vemos 15 minutos?"]  # fmt: skip
+    if purpose == "invitacion" or meta.get("eventish"):
+        team = (f"Si van varias personas de {company}, {product} tiene condiciones especiales para el equipo."
+                if kind == "delegacion" else "")  # fmt: skip
+        return [f"[Te|Le] escribo para invitar[te|le] a {main}{place}.",
+                f"Se reúnen {publico}." if publico else "",
+                f"Lo que se llevan: {valor}." if valor else "",
+                team or proof,
+                "¿[Te|Le] reservo un lugar o prefiere[s|] que [te|le] envíe la agenda?"]  # fmt: skip
+    return [f"Hablo seguido con líderes{where} y hay un tema que se repite: {problema}." if problema else "",
+            f"Por eso [te|le] escribo por {product}: {valor}." if valor else f"[Te|Le] escribo por {product}.",
+            proof, cta]  # fmt: skip
 
 
 def _emails(ctx: engine.Context, b: copy.Brief, meta: dict[str, Any], piece: str) -> dict[str, Any]:

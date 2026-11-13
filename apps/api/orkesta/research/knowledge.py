@@ -32,7 +32,7 @@ from orkesta.research.models import CompanyDomain, PatternStat
 
 # Solo estas columnas se leen de cada base.
 ALLOWED_FIELDS = frozenset({"first", "last", "full", "title", "company", "email", "phone",
-                            "city", "country", "location"})  # fmt: skip
+                            "city", "state", "country", "location"})  # fmt: skip
 
 
 @dataclass
@@ -53,6 +53,8 @@ class Knowledge:
     _domains: dict[tuple[str, str], Counter[str]] = field(
         default_factory=lambda: defaultdict(Counter)
     )
+    # Qué se leyó de cada archivo y por qué se descartaron filas (para el panel).
+    reports: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -106,38 +108,64 @@ def _index(headers: list[str], *names: str) -> int | None:
     return None
 
 
-def learn_file(knowledge: Knowledge, content: bytes, filename: str) -> None:
+FIELD_NAMES = {"first": "nombre", "last": "apellido", "full": "nombre completo",
+               "title": "cargo", "company": "empresa", "email": "correo", "phone": "teléfono",
+               "city": "ciudad", "state": "estado", "country": "país",
+               "location": "ubicación"}  # fmt: skip
+
+
+def learn_file(knowledge: Knowledge, content: bytes, filename: str,
+               default_country: str = "") -> dict[str, Any]:  # fmt: skip
+    """Aprende de un archivo y devuelve el informe: filas, personas, correos y descartes."""
     knowledge.files += 1
+    report: dict[str, Any] = {"file": filename[:120], "rows": 0, "people": 0, "emails": 0,
+                              "no_name_or_company": 0, "no_country": 0, "columns": [],
+                              "skipped": []}  # fmt: skip
+    before = len(knowledge.profiles)
     for sheet in read_sheets(content, filename):
         columns = {k: v for k, v in map_columns(sheet).items() if k in ALLOWED_FIELDS}
         if "company" not in columns or not ({"first", "full"} & set(columns)):
+            missing = "empresa" if "company" not in columns else "nombre"
+            report["skipped"].append(
+                f"Hoja «{sheet.name}»: no se encontró la columna de {missing} "
+                f"(columnas: {', '.join(h for h in sheet.headers[:12] if h)})"[:300]
+            )
             continue
+        report["columns"] = sorted({FIELD_NAMES[k] for k in columns if k in FIELD_NAMES})
+        report["rows"] += len(sheet.rows)
         # Las listas de envío (tienen columna de enviados) pudieron llevar correos deducidos:
         # cuentan como evidencia «vista»; las demás (Wiza, registros) como «confirmada».
         strength = 1 if _index(sheet.headers, "sent", "enviado", "sent_at") is not None else 0
         for row in sheet.rows:
             records = to_records(Sheet(sheet.name, sheet.headers, [row]), columns)
             if not records:
+                report["no_name_or_company"] += 1
                 continue
             r = records[0]
             knowledge.people += 1
-            country = r.country_code or ""
+            country = r.country_code or default_country or ""
             name = clean_company(r.company)
             key = (country, fold(name)[:300])
             if name:
                 company = knowledge.companies.setdefault(key, {"name": name, "country": country})
                 company.setdefault("city", r.city or "")
-            if name and country:
+            if not country:
+                report["no_country"] += 1
+            elif name:
                 knowledge.add_profile(_profile(r, name, country, strength))
             if not r.email or not r.corporate_email or not r.email_domain:
                 continue
             knowledge.corporate += 1
+            report["emails"] += 1
             domain = r.email.rsplit("@", 1)[1]
             if name:
                 knowledge._domains[key][r.email_domain] += 1
             pattern = detect_pattern(r.first_name, r.last_name, r.email)
             if pattern:
                 knowledge.patterns[domain][pattern][strength] += 1
+    report["people"] = len(knowledge.profiles) - before
+    knowledge.reports.append(report)
+    return report
 
 
 def _profile(r: Any, company: str, country: str, strength: int) -> dict[str, Any]:

@@ -85,3 +85,29 @@ def test_admin_knowledge_endpoint(client: TestClient, database: tuple[str, str])
     assert body["domains"] == 4 and body["people"] == 82
     assert body["errors"] and "malo.json" in body["errors"][0]
     assert client.get("/api/admin/directory").json()["total"] == 5  # 4 con dominio + 1 sin
+
+
+def test_us_exports_with_other_headers_and_default_country(
+    client: TestClient, database: tuple[str, str]
+) -> None:
+    """Exportaciones de EE. UU. (encabezados de Apollo/ZoomInfo, estado sin país): se leen
+    todas las filas, y el país de la base completa las que no lo traen."""
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    lines = ["First Name,Last Name,Job Title,Company Name for Emails,Email Address,Person State"]
+    for i in range(30):
+        f, last = FIRST[i % 10], LAST[(i * 3) % 10]
+        state = "Texas" if i < 20 else ""
+        lines.append(f"{f},{last}{i},VP Sales,Acme Corp,{f.lower()}.{last.lower()}{i}@acme.com,"
+                     f"{state}")  # fmt: skip
+    data = "\n".join(lines).encode()
+    r = client.post("/api/admin/knowledge", files=[("files", ("apollo.csv", data, "text/csv"))])
+    report = r.json()["reports"][0]
+    assert report["rows"] == 30 and report["emails"] == 30
+    assert report["people"] == 20 and report["no_country"] == 10  # sin estado ni país
+    r = client.post("/api/admin/knowledge", data={"country": "US"},
+                    files=[("files", ("apollo.csv", data, "text/csv"))])  # fmt: skip
+    assert r.json()["reports"][0]["people"] == 30 and r.json()["reports"][0]["no_country"] == 0
+    history = client.get("/api/admin/knowledge/history").json()["items"]
+    assert history[0]["rows"] == 30 and history[0]["country"] == "US"

@@ -1385,7 +1385,7 @@ function Integrations() {
 type ImportInfo = { status: string; saved: number; rows?: number; error: string; finished_at?: string; started_at?: string };
 type DirectoryData = {
   total: number;
-  countries: { country: string; companies: number; with_domain: number }[];
+  countries: { country: string; companies: number; with_domain: number; people?: number; people_email?: number }[];
   presets: { id: string; label: string; country: string; source: string; last: ImportInfo | null; live: ImportInfo | null }[];
   uploads: { id: string; last: ImportInfo | null; live: ImportInfo | null }[];
   people?: { people: number; with_email: number; verified: number };
@@ -1394,7 +1394,8 @@ type DirectoryData = {
 const COUNTRY_OPTIONS: [string, string][] = [
   ["CO", "Colombia"], ["MX", "México"], ["PE", "Perú"], ["CL", "Chile"], ["AR", "Argentina"], ["EC", "Ecuador"],
   ["BR", "Brasil"], ["PA", "Panamá"], ["CR", "Costa Rica"], ["GT", "Guatemala"], ["DO", "República Dominicana"],
-  ["UY", "Uruguay"], ["PY", "Paraguay"], ["BO", "Bolivia"], ["SV", "El Salvador"], ["HN", "Honduras"], ["US", "Estados Unidos"], ["ES", "España"],
+  ["UY", "Uruguay"], ["PY", "Paraguay"], ["BO", "Bolivia"], ["SV", "El Salvador"], ["HN", "Honduras"], ["NI", "Nicaragua"], ["VE", "Venezuela"],
+  ["CU", "Cuba"], ["PR", "Puerto Rico"], ["HT", "Haití"], ["US", "Estados Unidos"], ["CA", "Canadá"], ["ES", "España"], ["PT", "Portugal"], ["GB", "Reino Unido"],
 ];
 
 function ImportStatus({ info }: { info: ImportInfo | null | undefined }) {
@@ -1419,7 +1420,67 @@ type TrainResult = {
   profiles?: number;
   evaluation: { evaluated: number; accuracy: number; baseline: number };
   errors: string[];
+  reports?: FileReport[];
 };
+type FileReport = { file: string; rows: number; people: number; emails: number; no_country: number; no_name_or_company: number; columns?: string[]; skipped?: string[] };
+type TrainHistory = { items: { at: string; files: number; rows?: number; profiles?: number; companies?: number; country?: string; reports?: FileReport[] }[] };
+
+/** Qué se leyó de cada archivo y por qué quedaron filas afuera. */
+function FileReports({ reports }: { reports: FileReport[] }) {
+  return (
+    <table className="mt-3 w-full text-left text-[12.5px]">
+      <thead className="text-[11px] uppercase tracking-wide text-ork-mist">
+        <tr>
+          <th className="py-1.5 font-semibold">Archivo</th>
+          <th className="py-1.5 font-semibold">Filas</th>
+          <th className="py-1.5 font-semibold">Personas guardadas</th>
+          <th className="py-1.5 font-semibold">Con correo</th>
+          <th className="py-1.5 font-semibold">Sin país</th>
+          <th className="py-1.5 font-semibold">Sin nombre o empresa</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-ork-line">
+        {reports.map((r, i) => (
+          <tr key={`${r.file}-${i}`} className="align-top">
+            <td className="py-1.5 pr-2 font-semibold text-ork-ink">
+              {r.file}
+              {r.columns && r.columns.length > 0 && <span className="block text-[11.5px] font-normal text-ork-mist">Leyó: {r.columns.join(", ")}</span>}
+              {r.skipped?.map((x) => <span key={x} className="block text-[11.5px] font-normal text-warn">{x}</span>)}
+            </td>
+            <td className="py-1.5">{n(r.rows)}</td>
+            <td className="py-1.5 font-semibold text-ok">{n(r.people)}</td>
+            <td className="py-1.5">{n(r.emails)}</td>
+            <td className={cx("py-1.5", r.no_country > 0 && "font-semibold text-warn")}>{n(r.no_country)}</td>
+            <td className="py-1.5">{n(r.no_name_or_company)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TrainHistoryList() {
+  const q = useQuery({ queryKey: ["admin-train-history"], queryFn: () => api<TrainHistory>("/api/admin/knowledge/history") });
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  return (
+    <details className="mt-4 rounded-xl border border-ork-line px-4 py-2">
+      <summary className="cursor-pointer text-[13px] font-semibold text-ork-graphite">Entrenamientos anteriores ({items.length})</summary>
+      <ul className="mt-2 divide-y divide-ork-line text-[12.5px]">
+        {items.map((h) => (
+          <li key={h.at} className="py-2">
+            <span className="font-semibold text-ork-ink">{formatWhen(h.at)}</span>
+            <span className="ml-2 text-ork-graphite">
+              {h.files} archivo(s){h.rows != null ? ` · ${n(h.rows)} filas` : ""} · {n(h.profiles ?? 0)} personas · {n(h.companies ?? 0)} empresas
+              {h.country ? ` · país por defecto: ${h.country}` : ""}
+            </span>
+            {h.reports && h.reports.length > 0 && <FileReports reports={h.reports} />}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 /** Índice propio de perfiles profesionales públicos, con salida a pedido de la persona. */
 function PeopleCard({ stats, onDone }: { stats: NonNullable<DirectoryData["people"]>; onDone: () => void }) {
@@ -1499,14 +1560,18 @@ function CrawlerCard({ crawler, onStart }: { crawler: NonNullable<DirectoryData[
 /** Entrena la IA con bases reales: solo se guarda lo aprendido de cada empresa. */
 function TrainCard({ onDone }: { onDone: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
+  const [country, setCountry] = useState("");
+  const client = useQueryClient();
   const train = useMutation({
     mutationFn: () => {
       const body = new FormData();
       files.forEach((f) => body.append("files", f));
+      body.append("country", country);
       return api<TrainResult>("/api/admin/knowledge", { method: "POST", body });
     },
     onSuccess: () => {
       setFiles([]);
+      client.invalidateQueries({ queryKey: ["admin-train-history"] });
       onDone();
     },
   });
@@ -1523,6 +1588,14 @@ function TrainCard({ onDone }: { onDone: () => void }) {
           Archivos (hasta 40)
           <input type="file" multiple accept=".csv,.xlsx,.json" className="mt-1 block text-[13px]" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
         </label>
+        <SelectField label="País de la base (si el archivo no lo trae)" value={country} onChange={(e) => setCountry(e.target.value)}>
+          <option value="">Detectarlo en cada fila</option>
+          {COUNTRY_OPTIONS.map(([code, label]) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </SelectField>
         <Button loading={train.isPending} disabled={files.length === 0} onClick={() => train.mutate()}>
           Entrenar con {files.length || ""} archivo{files.length === 1 ? "" : "s"}
         </Button>
@@ -1543,8 +1616,13 @@ function TrainCard({ onDone }: { onDone: () => void }) {
             </p>
           )}
           {r.errors.length > 0 && <p className="mt-1 text-warn">No se pudieron leer: {r.errors.join(" · ")}</p>}
+          {r.reports && r.reports.length > 0 && <FileReports reports={r.reports} />}
+          {r.reports?.some((x) => x.no_country > 0) && (
+            <p className="mt-2 text-warn">Hay filas sin país: no entran al índice de personas. Vuelve a subir ese archivo eligiendo «País de la base».</p>
+          )}
         </div>
       )}
+      <TrainHistoryList />
     </Card>
   );
 }
@@ -1851,13 +1929,15 @@ function DirectoryPage() {
         {d?.people && <PeopleCard stats={d.people} onDone={() => client.invalidateQueries({ queryKey: ["admin-directory"] })} />}
       {(d?.countries.length ?? 0) > 0 && (
         <Card className="mt-4">
-          <CardHeader title="Por país" />
+          <CardHeader title="Por país" description="Empresas: cada empresa cuenta una vez, aunque tenga muchas personas. Personas: los perfiles del índice (de tus bases, búsquedas y sitios)." />
           <table className="w-full text-left text-[13.5px]">
             <thead className="text-[11.5px] uppercase tracking-wide text-ork-mist">
               <tr>
                 <th className="py-2 font-semibold">País</th>
                 <th className="py-2 font-semibold">Empresas</th>
                 <th className="py-2 font-semibold">Con sitio web</th>
+                <th className="py-2 font-semibold">Personas</th>
+                <th className="py-2 font-semibold">Personas con correo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ork-line">
@@ -1866,6 +1946,8 @@ function DirectoryPage() {
                   <td className="py-2">{COUNTRY_OPTIONS.find(([code]) => code === c.country)?.[1] ?? c.country}</td>
                   <td className="py-2">{n(c.companies)}</td>
                   <td className="py-2">{n(c.with_domain)}</td>
+                  <td className="py-2">{n(c.people ?? 0)}</td>
+                  <td className="py-2">{n(c.people_email ?? 0)}</td>
                 </tr>
               ))}
             </tbody>

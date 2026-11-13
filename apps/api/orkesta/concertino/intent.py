@@ -142,6 +142,66 @@ _TWEAK = re.compile(
 )
 
 
+# Para qué es la pieza: no es lo mismo el primer contacto que un seguimiento o una invitación.
+_PURPOSES: tuple[tuple[str, str], ...] = (
+    (
+        "seguimiento",
+        r"\b(seguimiento|no (me )?(ha )?(respondio|respondido|contesto|contestado|responde|contesta)|sin respuesta|no respondio|recordatorio|insistir|volver a escribir(le)?)\b",
+    ),
+    (
+        "agradecer",
+        r"\b(despues de (la|una) (reunion|llamada|demo)|post ?reunion|gracias por (la|su) (reunion|tiempo|llamada)|agradecer|agradecimiento)\b",
+    ),
+    (
+        "propuesta",
+        r"\b(enviar(le)? (la )?propuesta|con la propuesta|adjunt(o|ar) (la )?propuesta|cotizacion)\b",
+    ),
+    (
+        "reactivar",
+        r"\b(reactivar|retomar (el )?contacto|cliente (antiguo|anterior|perdido)|hace (mucho )?tiempo|volver a contactar)\b",
+    ),
+    ("invitacion", r"\b(invitar(lo|la|le)?|invitacion|invitandol[oa]|invitarle)\b"),
+)
+_PERSON = re.compile(
+    r"\b(?:para|a) ([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?: [A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)(?=,| de | del | que | en |$|\s*,)"
+)
+_COMPANY = re.compile(
+    r"\b(?i:ceo|cfo|cio|cto|cmo|coo|cdo|ciso|gerente|director[a]?|jefe|jefa|vp|head|lider|presidente)"
+    r"(?: [a-zé]+){0,3} (?:de|en) ([A-ZÁÉÍÓÚÑ][\w&.\-]*(?: [A-ZÁÉÍÓÚÑ][\w&.\-]*){0,3})"
+)
+_NOT_NAMES = {
+    "Hola",
+    "Crea",
+    "Escribe",
+    "Redacta",
+    "Dame",
+    "Hazme",
+    "Necesito",
+    "Quiero",
+    "Un",
+    "Una",
+    "Ceo",
+    "Cfo",
+    "Cio",
+    "Cto",
+    "Cmo",
+    "Gerente",
+    "Director",
+    "Directora",
+    "Miami",
+    "Chile",
+    "México",
+    "Mexico",
+    "Colombia",
+    "Perú",
+    "Peru",
+    "Argentina",
+    "Bogotá",
+    "Lima",
+    "Santiago",
+}
+
+
 @dataclass
 class Intent:
     action: str | None = None  # «redactar» o «ajustar»; None: lo resuelve el resto de Concertino
@@ -152,6 +212,10 @@ class Intent:
     language: str = "es"
     tone: str | None = None  # formal | cercano | directo
     goal: str | None = None
+    purpose: str | None = None  # seguimiento | invitacion | propuesta | agradecer | reactivar
+    person: str = ""  # «para Juan Pérez»: el correo sale con su nombre
+    target_company: str = ""  # «CFO de Bancolombia»
+    place: str = ""  # «a Miami», «en Chile»
     extras: list[str] = field(default_factory=list)
 
     @property
@@ -206,6 +270,22 @@ def details(text: str) -> Intent:
         if re.search(pattern, folded):
             it.goal = code
             break
+    for code, pattern in _PURPOSES:
+        if re.search(pattern, folded):
+            it.purpose = code
+            break
+    m = _PERSON.search(text)
+    if m and m.group(1).split()[0] not in _NOT_NAMES and not _CARGO.fullmatch(fold(m.group(1))):
+        it.person = m.group(1)
+    m = _COMPANY.search(text)
+    if m and m.group(1).split()[0] not in _NOT_NAMES:
+        it.target_company = m.group(1).strip(" .,")
+    m = re.search(
+        r"\b(?:a|en|para) (Miami|Chile|M[eé]xico|Colombia|Per[uú]|Argentina|Bogot[aá]|Lima|Santiago|Ciudad de M[eé]xico|Panam[aá]|Costa Rica|Ecuador|Guatemala|Estados Unidos)\b",
+        text,
+    )
+    if m:
+        it.place = m.group(1)
     return it
 
 
@@ -219,6 +299,13 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
         folded,
     )
     asks_to_write = bool(verb) and it.piece is not None
+    # «Correo para ofrecer una delegación a…» sin verbo también es un pedido de redacción.
+    asks_to_write = asks_to_write or bool(
+        re.match(
+            r"^(un |una |el |la )?(correo|mail|email|e-mail|mensaje|secuencia|whatsapp|inmail)s? (para|de|a|sobre|ofreciendo|invitando)\b",
+            folded,
+        )
+    )
     # «Secuencia de 3 correos para un CEO» sin verbo también es un pedido de redacción.
     bare = (
         it.piece in ("secuencia", "whatsapp", "linkedin", "asuntos", "resumen", "guion")
@@ -263,4 +350,8 @@ def merge(previous: Intent, change: Intent) -> Intent:
         language=change.language if change.language == "en" else previous.language,
         tone=change.tone or previous.tone,
         goal=change.goal or previous.goal,
+        purpose=change.purpose or previous.purpose,
+        person=change.person or previous.person,
+        target_company=change.target_company or previous.target_company,
+        place=change.place or previous.place,
     )

@@ -32,7 +32,9 @@ class FiltersIn(BaseModel):
     """Filtros de leads con la estructura de Sales Navigator."""
 
     mode: str = Field(default="leads", max_length=10)
-    country: str = Field(max_length=2)
+    country: str = Field(default="", max_length=2)
+    # Varios países (o todos): antes este campo no existía aquí y se perdía en el camino.
+    countries: list[str] = Field(default_factory=list, max_length=40)
     cities: list[str] = Field(default_factory=list, max_length=MANY)
     sectors: list[str] = Field(default_factory=list, max_length=60)
     exclude_sectors: list[str] = Field(default_factory=list, max_length=60)
