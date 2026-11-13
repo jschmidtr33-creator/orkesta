@@ -852,3 +852,36 @@ def test_not_interested_stops_the_contact_in_all_my_campaigns(
     assert other["status"] == "skipped" and other["error"] == "Marcado como no interesado"
     timeline = client.get("/api/crm/timeline", params={"contacto": first["contact_id"]}).json()
     assert any("no interesado" in a["body"] for a in timeline)
+
+
+def test_estimated_emails_probe_one_per_company_before_the_rest(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str],
+) -> None:  # fmt: skip
+    """Con correos estimados, primero sale uno por empresa; si no rebota en 48 h, el resto."""
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = []
+    for first, last in (("Laura", "Gomez"), ("Mario", "Paz"), ("Sara", "Rey")):
+        r = client.post("/api/contacts", json={"first_name": first, "last_name": last,
+                                               "email": f"{first.lower()}.{last.lower()}@nuevo.co",
+                                               "company": "Nuevo SAS"})  # fmt: skip
+        ids.append(r.json()["id"])
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET email_status = 'estimado'")
+    campaign = client.post("/api/campaigns", json={"name": "Prueba"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids, "include_estimated": True},
+    })  # fmt: skip
+    assert client.post(f"/api/campaigns/{campaign['id']}/launch").status_code == 200
+    for _ in range(3):
+        _rewind(database)
+        _flush(session_factory)
+    assert len(google.sent) == 1  # el explorador de esa empresa
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.campaign_messages SET sent_at = sent_at - interval '49 hours'")
+    for _ in range(3):
+        _rewind(database)
+        _flush(session_factory)
+    assert len(google.sent) == 3  # no rebotó: el formato sirve y salen los demás

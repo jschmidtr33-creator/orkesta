@@ -74,8 +74,12 @@ def test_merge_moves_everything_and_keeps_owners(
 
     # Ana (administradora) ve el trabajo de todo el equipo, cada cosa con su dueño.
     _login(client, "ana@americadigital.co", panel=False)
-    assert {d["title"] for d in client.get("/api/crm/deals").json()["deals"]} == {
-        "Venta Ana", "Venta Luis"}  # fmt: skip
+    seen = {
+        d["title"]
+        for p in client.get("/api/crm/pipelines").json()
+        for d in client.get("/api/crm/deals", params={"responsable": p["id"]}).json()["deals"]
+    }
+    assert seen == {"Venta Ana", "Venta Luis"}  # fmt: skip
     # Los contactos son privados: Ana ve solo los suyos, no los que trajo Luis.
     assert client.get("/api/contacts").json()["total"] == 1
     team = {m["email"]: m["role"] for m in client.get("/api/team").json()["members"]}

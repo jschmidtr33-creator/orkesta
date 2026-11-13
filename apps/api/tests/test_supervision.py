@@ -31,8 +31,15 @@ def _members(admin: TestClient) -> dict[str, dict]:
     return {m["email"]: m for m in admin.get("/api/team").json()["members"]}
 
 
-def _deals(client: TestClient) -> set[str]:
-    return {d["title"] for d in client.get("/api/crm/deals").json()["deals"]}
+def _deals(client: TestClient, owner: str | None = None) -> set[str]:
+    """El pipeline propio y, para jefatura y administración, el de cada persona por separado."""
+    if owner is None:
+        return {d["title"] for d in client.get("/api/crm/deals").json()["deals"]}
+    seen: set[str] = {d["title"] for d in client.get("/api/crm/deals").json()["deals"]}
+    for p in client.get("/api/crm/pipelines").json():
+        r = client.get("/api/crm/deals", params={"responsable": p["id"]}).json()
+        seen |= {d["title"] for d in r["deals"]}
+    return seen
 
 
 def _contact(client: TestClient, email: str) -> dict:
@@ -74,20 +81,26 @@ def test_each_person_sees_their_work_and_managers_see_their_team(
     assert _deals(luis) == {"De Luis"}
     assert _deals(sara) == {"De Sara"}
     assert sara.get("/api/contacts").json()["total"] == 0
-    # Jefatura: lo suyo y lo de su equipo (Luis), no lo de Sara ni lo de la administradora.
-    assert _deals(jefa) == {"De la jefa", "De Luis"}
+    # Cada quien ve su pipeline; la jefatura además elige el de cada persona a cargo (Luis),
+    # nunca el de Sara ni el de la administradora.
+    assert _deals(jefa) == {"De la jefa"}
+    assert _deals(jefa, "todos") == {"De la jefa", "De Luis"}
+    assert _deals(luis, "todos") == {"De Luis"}
     # Contactos y listas son privados de cada persona, también frente a la jefatura.
     assert jefa.get("/api/contacts").json()["total"] == 0
     assert jefa.get("/api/lists").json() == []
     assert luis.get("/api/contacts").json()["total"] == 1
     assert client.get("/api/contacts").json()["total"] == 0
-    # Administradora: todo.
-    assert _deals(client) == {"De Ana", "De la jefa", "De Luis", "De Sara"}
+    # Administradora: el suyo y, eligiendo, el de cualquiera.
+    assert _deals(client) == {"De Ana"}
+    assert _deals(client, "todos") == {"De Ana", "De la jefa", "De Luis", "De Sara"}
 
     # La jefatura ve, pero no modifica el trabajo de su equipo.
+    luis_id = people["luis@lacteos.co"]["user_id"]
     luis_deal = next(
-        d for d in jefa.get("/api/crm/deals").json()["deals"] if d["title"] == "De Luis"
-    )
+        d for d in jefa.get("/api/crm/deals", params={"responsable": luis_id}).json()["deals"]
+        if d["title"] == "De Luis"
+    )  # fmt: skip
     assert jefa.patch(f"/api/crm/deals/{luis_deal['id']}", json={"value": 9}).status_code in (
         403,
         404,
@@ -108,7 +121,7 @@ def test_each_person_sees_their_work_and_managers_see_their_team(
     # Sin personas a cargo, la jefatura solo ve lo suyo.
     client.put(f"/api/team/members/{people['jefa@lacteos.co']['id']}/assignments",
                json={"member_ids": []})  # fmt: skip
-    assert _deals(jefa) == {"De la jefa"}
+    assert _deals(jefa, "todos") == {"De la jefa"}
 
 
 def test_only_managers_get_assignments(client: TestClient) -> None:

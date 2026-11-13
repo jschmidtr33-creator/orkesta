@@ -8,8 +8,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
-from orkesta.core.web import Db, Principal, client_ip, require_roles
+from orkesta.core.web import Db, Principal, client_ip, require_roles, visible_users
 from orkesta.crm import service as svc
 from orkesta.crm.models import CURRENCIES, Deal
 from orkesta.platform.service import audit
@@ -127,13 +128,45 @@ def deals(
     contacto: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     svc.ensure_stages(db, principal.tenant_id)
+    # Cada quien ve su pipeline. Administración y jefatura eligen el de una persona a cargo.
+    owner = principal.user.id
+    if responsable and responsable != owner and principal.role in ("admin", "supervisor"):
+        allowed = visible_users(db, principal.membership) if principal.membership else []
+        if allowed is None or responsable in allowed:
+            owner = responsable
+    # La ficha de un contacto muestra todas sus oportunidades visibles.
+    owner_filter = None if contacto else owner
     return {
         "deals": svc.list_deals(
-            db, principal.tenant_id, q=q[:100], status=estado, owner_id=responsable,
+            db, principal.tenant_id, q=q[:100], status=estado, owner_id=owner_filter,
             contact_id=contacto,
         ),
-        "metrics": svc.metrics(db, principal.tenant_id),
+        "metrics": svc.metrics(db, principal.tenant_id, owner_filter),
+        "owner_id": str(owner),
     }  # fmt: skip
+
+
+@router.get("/pipelines")
+def pipelines(principal: Member, db: Db) -> list[dict[str, Any]]:
+    """De quién puede ver el pipeline esta persona: ella misma y, si es administración o
+    jefatura, cada persona a su cargo."""
+    from orkesta.platform.models import Membership, User
+
+    if principal.role not in ("admin", "supervisor"):
+        return [
+            {"id": str(principal.user.id), "name": principal.user.full_name or "Yo", "me": True}
+        ]
+    allowed = visible_users(db, principal.membership) if principal.membership else []
+    query = (
+        select(User.id, User.full_name, User.email)
+        .join(Membership, Membership.user_id == User.id)
+        .where(Membership.tenant_id == principal.tenant_id, Membership.status == "active")
+        .order_by(User.full_name)
+    )
+    if allowed is not None:
+        query = query.where(User.id.in_(allowed))
+    return [{"id": str(uid), "name": name or email, "me": uid == principal.user.id}
+            for uid, name, email in db.execute(query).all()]  # fmt: skip
 
 
 @router.get("/forecast")

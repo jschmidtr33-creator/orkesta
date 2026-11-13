@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.campaigns import service as campaigns
@@ -168,3 +170,56 @@ def test_each_person_turns_a_rule_on_or_off_for_their_own_contacts(
     _jobs(session_factory)
     tasks = luis.get("/api/crm/timeline", params={"contacto": again["id"]}).json()
     assert any(a["body"] == "Calificar a Iván" for a in tasks)
+
+
+def test_click_notification_arrives_only_once(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Los filtros de seguridad abren todos los enlaces a la vez: el aviso llega una sola vez."""
+    from orkesta.campaigns import service as svc
+
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    client.post("/api/automations", json={
+        "trigger": "campaign.clicked", "conditions": {},
+        "actions": [{"type": "notify_email", "text": "{{nombre}} hizo clic en tu correo."}],
+    })  # fmt: skip
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Una"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": 'Mira <a href="https://lacteos.co/demo">esto</a>',
+                   "delay_days": 0}],
+        "audience": {"contact_ids": [ids[0]]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    assert campaigns.tick(session_factory) == 1
+    monkeypatch.setattr(svc, "PREFETCH", timedelta(0))
+    sent = google.sent[0]["msg"]
+    part = next(p for p in sent.walk() if p.get_content_type() == "text/html")
+    html = part.get_payload(decode=True).decode()
+    link = html.split('href="')[1].split('"')[0].replace("&amp;", "&")
+    path = urlsplit(link)
+    for _ in range(5):
+        client.get(f"{path.path}?{path.query}", follow_redirects=False)
+    # Y aunque el mismo evento llegue dos veces (clics simultáneos o un reintento)…
+    import uuid
+
+    from orkesta.automation.events import emit
+    from orkesta.campaigns.models import Recipient
+    from orkesta.core.db import set_context
+
+    tid = uuid.UUID(client.get("/api/auth/session").json()["workspace"]["id"])
+    with session_factory.begin() as session:
+        set_context(session, tenant_id=tid)
+        rec = session.scalars(select(Recipient)).first()
+        assert rec is not None
+        emit(session, rec.tenant_id, "campaign.clicked", contact_id=rec.contact_id,
+             campaign_id=rec.campaign_id, recipient_id=rec.id)  # fmt: skip
+    before = len(google.sent)
+    _jobs(session_factory)
+    _jobs(session_factory)
+    notices = google.sent[before:]
+    assert len(notices) == 1, [m["msg"]["Subject"] for m in notices]
+    runs = client.get("/api/automations/runs").json()
+    assert [r["status"] for r in runs].count("ok") == 1

@@ -56,3 +56,5 @@ class Run(IdMixin, Base):
     )
     status: Mapped[str] = mapped_column(String(10), nullable=False)  # ok | error | skipped
     results: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    # Evento ya atendido por esta regla (por ejemplo «clic:<destinatario>»): corre una vez.
+    dedupe_key: Mapped[str | None] = mapped_column(String(120))

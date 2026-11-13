@@ -526,13 +526,16 @@ def tasks(
 # --- Indicadores ----------------------------------------------------------------------------
 
 
-def metrics(session: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
+def metrics(
+    session: Session, tenant_id: uuid.UUID, owner_id: uuid.UUID | None = None
+) -> dict[str, Any]:
+    mine = [Deal.owner_user_id == owner_id] if owner_id else []
     row = session.execute(
         select(
             func.count().filter(Deal.status == "open"),
             func.count().filter(Deal.status == "won"),
             func.count().filter(Deal.status == "lost"),
-        ).where(Deal.tenant_id == tenant_id)
+        ).where(Deal.tenant_id == tenant_id, *mine)
     ).one()
     open_count, won, lost = (int(x or 0) for x in row)
     pipeline = session.execute(
@@ -542,12 +545,12 @@ def metrics(session: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
             func.coalesce(func.sum(Deal.value * Stage.probability / 100.0), 0),
         )
         .join(Stage, Stage.id == Deal.stage_id)
-        .where(Deal.tenant_id == tenant_id, Deal.status == "open")
+        .where(Deal.tenant_id == tenant_id, Deal.status == "open", *mine)
         .group_by(Deal.currency)
     ).all()
     won_value = session.execute(
         select(Deal.currency, func.coalesce(func.sum(Deal.value), 0))
-        .where(Deal.tenant_id == tenant_id, Deal.status == "won")
+        .where(Deal.tenant_id == tenant_id, Deal.status == "won", *mine)
         .group_by(Deal.currency)
     ).all()
     overdue = session.scalar(
@@ -556,6 +559,7 @@ def metrics(session: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
             Activity.type == "task",
             Activity.done_at.is_(None),
             Activity.due_at < now(),
+            *([Activity.user_id == owner_id] if owner_id else []),
         )
     )
     closed = won + lost

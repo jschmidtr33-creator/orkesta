@@ -64,7 +64,12 @@ def _names(values: list[str], table: dict[str, Any], n: int = 2) -> str:
 
 
 def _summary(filters: dict[str, Any]) -> str:
-    country = COUNTRIES.get(filters["country"], (filters["country"],))[0]
+    codes = filters.get("countries") or [filters["country"]]
+    country = (
+        "Todos los países"
+        if len(codes) >= len([c for c in COUNTRY_QIDS if c in COUNTRIES])
+        else _names(codes, COUNTRIES, 3)
+    )
     parts = [", ".join(filters["cities"][:2]) or country]
     if filters["companies"]:
         parts.insert(0, _names(filters["companies"], {}, 3))
@@ -96,9 +101,17 @@ def _text(value: Any, size: int = 80) -> str:
 def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
     """Filtros de Sales Navigator (Empresa, Rol, Personal, Palabras clave) ya limpios, más sus
     equivalentes internos para el agente (industrias, niveles y áreas)."""
-    country = str(data.get("country") or "").upper()
-    if country not in COUNTRY_QIDS:
-        raise DataError("Elige un país.")
+    raw = data.get("countries")
+    if raw == "ALL" or (isinstance(raw, list) and "ALL" in raw):
+        countries = [c for c in COUNTRY_QIDS if c in COUNTRIES]
+    elif isinstance(raw, list) and raw:
+        countries = [str(c).upper() for c in raw if str(c).upper() in COUNTRY_QIDS][:25]
+    else:
+        countries = [str(data.get("country") or "").upper()]
+    countries = list(dict.fromkeys(c for c in countries if c in COUNTRY_QIDS))
+    if not countries:
+        raise DataError("Elige al menos un país.")
+    country = countries[0]
 
     def pick(name: str, allowed: Any) -> list[str]:
         values = data.get(name) or []
@@ -123,6 +136,7 @@ def validate_filters(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "mode": "accounts" if data.get("mode") == "accounts" else "leads",
         "country": country,
+        "countries": countries,
         "cities": cities,
         "city": cities[0] if len(cities) == 1 else "",
         "sectors": sectors,

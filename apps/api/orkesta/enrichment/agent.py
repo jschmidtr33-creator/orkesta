@@ -222,6 +222,23 @@ def _work(
                         .where(Company.id == group.company_id, Company.domain.is_(None))
                         .values(domain=group.domain)
                     )
+    if not group.domain and group.name and group.country:
+        # 2. Sin gastar consultas: directorio propio y candidatos comprobados (MX + sitio).
+        from orkesta.research import domain_guess
+
+        group.domain = domain_guess.from_directory(fetcher.factory, group.country, group.name)
+        if not group.domain and not use_serp:
+            group.domain = domain_guess.guess(fetcher, group.name, group.country)
+        if group.domain:
+            progress.add("domains_found")
+            progress.add("domains_own")
+            if group.company_id:
+                with progress.tx() as session:
+                    session.execute(
+                        update(Company)
+                        .where(Company.id == group.company_id, Company.domain.is_(None))
+                        .values(domain=group.domain)
+                    )
     if not group.domain and group.name and use_serp:
         group.domain = serp.company_domain(fetcher, stats, group.name, group.country,
                                            country_name or "")  # fmt: skip
@@ -234,6 +251,18 @@ def _work(
                         .where(Company.id == group.company_id, Company.domain.is_(None))
                         .values(domain=group.domain)
                     )
+    if not group.domain and group.name and group.country and use_serp:
+        from orkesta.research import domain_guess
+
+        group.domain = domain_guess.guess(fetcher, group.name, group.country)
+        if group.domain:
+            progress.add("domains_found")
+            progress.add("domains_own")
+    if group.domain and group.country and group.name:
+        from orkesta.research.agent import company_key
+
+        memory.remember_domain(fetcher.factory, group.country, company_key(group.name),
+                               group.domain, "enriquecimiento")  # fmt: skip
     domain = group.domain if group.domain and not is_non_corporate(group.domain) else ""
     # 2. Formato de correo, de la evidencia más fuerte a la más débil.
     pattern, votes, label, confidence = "", 0, "", 0
