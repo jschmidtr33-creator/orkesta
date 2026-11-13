@@ -260,7 +260,7 @@ class Filters:
                 return False
         elif not self.titles:
             level, _ = classify_title(title)
-            if level not in (self.levels or list(DECISION_LEVELS)):
+            if self.levels and level not in self.levels:
                 return False
         functions = li.title_functions(title)
         if self.functions and not functions & set(self.functions):
@@ -418,7 +418,7 @@ class Run:
         with self.lock:
             people = self.people.setdefault(company.key, [])
             tokens = {t for t in fold(full_name).split() if len(t) > 2}
-            first = fold(first_name).split()[0] if first_name.split() else ""
+            first = next(iter(fold(first_name).split()), "")  # «.» o emojis: sin nombre de pila
             match = None
             for prospect in people:
                 same_first = fold(prospect.first_name).split()[:1] == [first]
@@ -1303,43 +1303,47 @@ def from_index(run: Run, filters: Filters) -> int:
     if not filters.country:
         return 0
     with run.factory() as session:
-        # Con varios países, cada uno aporta su parte (antes el primero llenaba la búsqueda y
-        # el resto no alcanzaba a correr).
-        limit = filters.limit if run.multi else people.INDEX_LIMIT
-        hits = people.search(session, filters, limit=limit)
+        hits = people.search(session, filters)  # sin tope: todo lo que hay en el país
     for hit in hits:
-        person = hit["person"]
-        key = person.company_key
-        with run.lock:
-            company = run.companies.get(key)
-            if company is None:
-                company = Candidate(
-                    key=key, name=person.company, domain=person.domain or "",
-                    website=f"https://{person.domain}" if person.domain else "",
-                    industry=INDUSTRY_LABELS.get(hit["industry"], ""),
-                    industry_code=hit["industry"], employees=hit["employees"],
-                    sources=[{"type": "indice", "label": "Índice ORKESTA", "url": ""}],
-                )  # fmt: skip
-                run.companies[key] = company
-        source = {"type": "indice", "label": "Índice ORKESTA", "url": person.linkedin or ""}
-        prospect = run.merge_person(
-            company, full_name=person.full_name, first_name=person.first_name,
-            last_name=person.last_name, source=source, title=person.title,
-            title_confidence=70, linkedin=person.linkedin or "",
-        )  # fmt: skip
-        with run.lock:
-            prospect.location = prospect.location or person.location
-            if person.email and person.email_status in ("confirmado", "publicado"):
-                confirmed = person.email_status == "confirmado"
-                label = ("Correo confirmado por una respuesta" if confirmed
-                         else "Correo publicado (índice ORKESTA)")  # fmt: skip
-                prospect.set("email", person.email, {"label": label, "url": ""}, 90)
-                prospect.email_status = "publicado"
-        _publish(run, prospect, filters)
+        try:
+            _index_hit(run, filters, hit)
+        except Exception:
+            logger.exception("index_hit_failed")  # un perfil con datos raros no tumba la búsqueda
     if hits:
         run.source_counts["indice"] += len(hits)
         run.log(f"{len(hits)} posibles clientes del índice propio de ORKESTA.", done=len(hits))
     return len(hits)
+
+
+def _index_hit(run: Run, filters: Filters, hit: dict[str, Any]) -> None:
+    person = hit["person"]
+    key = person.company_key
+    with run.lock:
+        company = run.companies.get(key)
+        if company is None:
+            company = Candidate(
+                key=key, name=person.company, domain=person.domain or "",
+                website=f"https://{person.domain}" if person.domain else "",
+                industry=INDUSTRY_LABELS.get(hit["industry"], ""),
+                industry_code=hit["industry"], employees=hit["employees"],
+                sources=[{"type": "indice", "label": "Índice ORKESTA", "url": ""}],
+            )  # fmt: skip
+            run.companies[key] = company
+    source = {"type": "indice", "label": "Índice ORKESTA", "url": person.linkedin or ""}
+    prospect = run.merge_person(
+        company, full_name=person.full_name, first_name=person.first_name,
+        last_name=person.last_name, source=source, title=person.title,
+        title_confidence=70, linkedin=person.linkedin or "",
+    )  # fmt: skip
+    with run.lock:
+        prospect.location = prospect.location or person.location
+        if person.email and person.email_status in ("confirmado", "publicado"):
+            confirmed = person.email_status == "confirmado"
+            label = ("Correo confirmado por una respuesta" if confirmed
+                     else "Correo publicado (índice ORKESTA)")  # fmt: skip
+            prospect.set("email", person.email, {"label": label, "url": ""}, 90)
+            prospect.email_status = "publicado"
+    _publish(run, prospect, filters)
 
 
 # Con esta cantidad de posibles clientes del índice propio la búsqueda se da por cubierta y no
@@ -1471,7 +1475,18 @@ def run_research(
                     run.started = time.monotonic() - DEADLINE_SECONDS + share
                     name = COUNTRIES.get(code, (code,))[0]
                     run.log(f"Buscando en {name}…", step="buscar")
-                totals = execute(run, one, fetcher)  # las cifras ya son acumuladas
+                try:
+                    totals = execute(run, one, fetcher)  # las cifras ya son acumuladas
+                except Canceled:
+                    raise
+                except Exception:
+                    # Un país con un problema no tumba la búsqueda: se sigue con los demás.
+                    logger.exception("research_country_failed")
+                    if not run.multi:
+                        raise
+                    name = COUNTRIES.get(code, (code,))[0]
+                    run.log(f"No se pudo completar {name}; sigo con los demás.")
+                    continue
                 fresh = [c for k, c in run.seen.items() if k not in seen]
                 seen |= set(run.seen)
                 directory.learn(factory, code, fresh)

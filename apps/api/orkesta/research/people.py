@@ -142,12 +142,12 @@ def feedback(session: Session, email: str, outcome: str) -> None:
         )
 
 
-INDEX_LIMIT = 1500  # perfiles propios por búsqueda (la investigación suma más)
+INDEX_LIMIT = None  # sin tope: la búsqueda trae todo lo que el índice tiene del país
 LEVEL_ORDER = ("c_level", "duenio_socio", "vp", "director", "gerente", "jefe", "coordinador",
                "especialista")  # fmt: skip
 
 
-def search(session: Session, filters: Filters, limit: int = INDEX_LIMIT) -> list[dict[str, Any]]:
+def search(session: Session, filters: Filters, limit: int | None = None) -> list[dict[str, Any]]:
     """Perfiles del índice que cumplen los filtros (cargo, nivel, función, empresa, sector,
     ciudad, tamaño, palabras clave).
 
@@ -157,7 +157,6 @@ def search(session: Session, filters: Filters, limit: int = INDEX_LIMIT) -> list
     from sqlalchemy import case, or_
 
     from orkesta.engine.taxonomy import linkedin as li
-    from orkesta.engine.taxonomy.titles import DECISION_LEVELS
 
     query = (
         select(PersonIndex, CompanyDirectory.industry_code, CompanyDirectory.employees)
@@ -175,14 +174,17 @@ def search(session: Session, filters: Filters, limit: int = INDEX_LIMIT) -> list
         query = query.where(or_(*[func.lower(PersonIndex.company).contains(fold(c))
                                   for c in filters.companies if fold(c)]))  # fmt: skip
     # Nivel y área ya vienen calculados en el índice: se filtran en la base de datos.
-    if not filters.seniority and not filters.titles:
-        query = query.where(PersonIndex.level.in_(filters.levels or list(DECISION_LEVELS)))
+    # Sin filtro de nivel: todas las personas del país (antes solo quienes deciden).
+    if not filters.seniority and not filters.titles and filters.levels:
+        query = query.where(PersonIndex.level.in_(filters.levels))
     if filters.areas and not filters.functions and not filters.seniority:
         query = query.where(PersonIndex.area.in_(filters.areas))
     rank = case({lvl: i for i, lvl in enumerate(LEVEL_ORDER)}, value=PersonIndex.level, else_=99)
     has_email = case((PersonIndex.email_status.in_(("confirmado", "publicado")), 0),
                      (PersonIndex.email.is_not(None), 1), else_=2)  # fmt: skip
-    query = query.order_by(has_email, rank, PersonIndex.seen.desc()).limit(limit * 3)
+    query = query.order_by(has_email, rank, PersonIndex.seen.desc())
+    if limit:
+        query = query.limit(limit * 3)
     words = fold(filters.keywords).split()
     out: list[dict[str, Any]] = []
     for person, industry, employees in session.execute(query):
@@ -195,7 +197,7 @@ def search(session: Session, filters: Filters, limit: int = INDEX_LIMIT) -> list
                 and filters.wants_name(person.first_name, person.last_name)):  # fmt: skip
             continue
         out.append({"person": person, "industry": industry or "", "employees": employees})
-        if len(out) >= limit:
+        if limit and len(out) >= limit:
             break
     return out
 

@@ -127,9 +127,12 @@ def test_sector_engine_and_index_search_uses_inferred_sectors(
     everyone = Filters.from_payload({"country": "CO"})
     with session_factory() as session:
         hits = people.search(session, banks)
-        # Solo decisores de Bancolombia; el analista queda fuera y los con correo van primero.
-        assert {h["person"].company for h in hits} == {"Bancolombia"} and len(hits) == 3
+        # Todas las personas de Bancolombia (sin filtro de nivel, también el analista); los con
+        # correo van primero.
+        assert {h["person"].company for h in hits} == {"Bancolombia"} and len(hits) == 4
         assert hits[0]["person"].email is not None and hits[0]["industry"] == "banca_finanzas"
         tech = people.search(session, energy)
         assert [h["person"].title for h in tech] == ["Gerente de Tecnología"]
-        assert len(people.search(session, everyone)) == 9  # incluye la empresa sin sector
+        assert (
+            len(people.search(session, everyone)) == 12
+        )  # todas las personas, incluida la empresa sin sector
