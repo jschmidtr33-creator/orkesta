@@ -74,6 +74,7 @@ MAPPABLE = {
     "email": "Correo",
     "phone": "Teléfono",
     "city": "Ciudad",
+    "state": "Estado / región",
     "country": "País",
     "location": "Ubicación (ciudad y país juntos)",
     "industry": "Industria",
@@ -290,7 +291,9 @@ def _records_without_company(sheet: Sheet, columns: dict[str, int]) -> list[Pros
         if not first:
             continue
         location = parse_location(
-            ", ".join(v for v in (value(row, "city"), value(row, "country")) if v)
+            ", ".join(
+                v for v in (value(row, "city"), value(row, "state"), value(row, "country")) if v
+            )
             or value(row, "location")
         )
         industry = value(row, "industry") or None

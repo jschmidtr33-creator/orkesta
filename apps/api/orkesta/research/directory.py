@@ -500,12 +500,28 @@ def overview(session: Session) -> dict[str, Any]:
         .group_by(CompanyDirectory.country)
         .order_by(func.count().desc())
     ).all()
+    from orkesta.research.models import PersonIndex
+
+    people = {c: (int(n), int(e)) for c, n, e in session.execute(
+        select(PersonIndex.country, func.count(), func.count(PersonIndex.email))
+        .group_by(PersonIndex.country)
+    ).all()}  # fmt: skip
+    found = [(str(c), int(n), int(d)) for c, n, d in rows]
+    countries = {c for c, _, _ in found}
+    found += [(c, 0, 0) for c in people if c not in countries]
     history = dict(_get(session, "directory_imports", {}))
     with _LOCK:
         live = {k: dict(v) for k, v in STATE.items()}
     return {
         "countries": [
-            {"country": c, "companies": int(n), "with_domain": int(d)} for c, n, d in rows
+            {
+                "country": c,
+                "companies": int(n),
+                "with_domain": int(d),
+                "people": people.get(c, (0, 0))[0],
+                "people_email": people.get(c, (0, 0))[1],
+            }
+            for c, n, d in rows
         ],
         "total": sum(int(n) for _, n, _ in rows),
         "presets": [

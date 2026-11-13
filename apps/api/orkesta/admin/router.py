@@ -1174,12 +1174,29 @@ async def directory_upload(
     return {"started": started}
 
 
+@router.get("/knowledge/history")
+def knowledge_history(principal: Directory, db: Db) -> dict[str, Any]:
+    """Entrenamientos anteriores: cuándo, cuántas filas y cuántas personas quedaron."""
+    from orkesta.admin.models import AdminAudit
+
+    rows = db.execute(
+        select(AdminAudit.created_at, AdminAudit.detail)
+        .where(AdminAudit.action == "directory.knowledge")
+        .order_by(AdminAudit.created_at.desc())
+        .limit(40)
+    ).all()
+    return {"items": [{"at": at.isoformat(), **{k: d.get(k) for k in (
+        "files", "rows", "profiles", "companies", "domains", "with_domain", "country", "reports")}}
+        for at, d in rows]}  # fmt: skip
+
+
 @router.post("/knowledge")
 async def train_knowledge(
     request: Request,
     principal: Directory,
     db: Db,
     files: Annotated[list[UploadFile], File()],
+    country: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
     """Entrena la IA con bases reales (Wiza, registros, campañas) o con un archivo de
     conocimiento de ORKESTA. Solo se guarda lo que se sabe de cada empresa."""
@@ -1190,6 +1207,9 @@ async def train_knowledge(
 
     if not files or len(files) > 40:
         raise HTTPException(422, "Sube entre 1 y 40 archivos.")
+    from orkesta.engine.normalize.location import COUNTRIES
+
+    default = country.strip().upper() if country.strip().upper() in COUNTRIES else ""
     learned = kn.Knowledge()
     errors: list[str] = []
     for upload in files:
@@ -1202,13 +1222,17 @@ async def train_knowledge(
             if name.lower().endswith(".json"):
                 await run_in_threadpool(kn.load_json, learned, raw)
             else:
-                await run_in_threadpool(kn.learn_file, learned, raw, name)
+                await run_in_threadpool(kn.learn_file, learned, raw, name, default)
         except (ImportFileError, ValueError) as exc:
             errors.append(f"{name}: {exc}"[:200])
     stats = await run_in_threadpool(kn.apply, request.app.state.session_factory, learned)
-    svc.log(db, principal.user, "directory.knowledge", "", files=len(files), **stats)
+    reports = learned.reports
+    svc.log(db, principal.user, "directory.knowledge", "", files=len(files), **stats,
+            rows=sum(r["rows"] for r in reports), country=default,
+            reports=[{k: r[k] for k in ("file", "rows", "people", "emails", "no_country",
+                                        "no_name_or_company")} for r in reports])  # fmt: skip
     return {"people": learned.people, "files": learned.files, **stats,
-            "evaluation": kn.evaluate(learned), "errors": errors}  # fmt: skip
+            "evaluation": kn.evaluate(learned), "errors": errors, "reports": reports}  # fmt: skip
 
 
 # --- Equipo, permisos y bitácora -------------------------------------------------------------

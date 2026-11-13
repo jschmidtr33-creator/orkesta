@@ -175,6 +175,26 @@ def ask(
                 "topic_label": pb.TOPICS["producto"] if topic_code == "producto" else "",
                 "objection": None, "objection_label": None, "formal": ctx.formal, **quick,
                 "sources": ["Ficha del producto"] if quick["sections"] else []}  # fmt: skip
+    if quick is None and question and mode is None and ctx.recipient is None:
+        folded = fold(question)
+        special = None
+        if _OBJ_LIST.search(folded):
+            special, code = _objection_list(ctx, question), "objecion"
+        elif (said := _event_objection(ctx, question)) is not None:
+            special, code = said, "objecion"
+        elif _APPROACH.search(folded):
+            special, code = _approach(session, ctx, question), "perfil"
+        if special is not None and allowed(session, tenant_id, code):
+            special["summary"] = chat.greet(str(special["summary"]), name, turn)
+            special.setdefault("actions", [])
+            case = AdviceCase(tenant_id=tenant_id, user_id=user.id, topic=code, objection=None,
+                              question=question[:2000], context={},
+                              shown=[o["code"] for o in special.get("options", [])])  # fmt: skip
+            session.add(case)
+            session.flush()
+            return {"case_id": str(case.id), "topic": code, "topic_label": pb.TOPICS[code],
+                    "objection": None, "objection_label": None, "formal": ctx.formal, **special,
+                    "sources": ["Ficha del producto", "Oficio de ventas de Concertino"]}  # fmt: skip
     # Preguntas de método («¿cómo escribo un correo en frío?»): el oficio de ventas de Concertino.
     if quick is None and question and mode in (None, "general") and ctx.recipient is None:
         lesson = _lesson_for(session, ctx, question)
@@ -268,6 +288,147 @@ def ask(
     return {"case_id": str(case.id), "topic": topic, "topic_label": pb.TOPICS[topic],
             "objection": objection, "objection_label": obj.label if obj else None,
             "formal": ctx.formal, **advice, "sources": sources}  # fmt: skip
+
+
+_OBJ_LIST = re.compile(
+    r"\b(cuales|que|principales|posibles|tipicas|comunes|frecuentes)\b.{0,40}\bobjeciones\b|"
+    r"\bobjeciones (mas )?(comunes|frecuentes|tipicas|probables|principales)\b"
+)
+_APPROACH = re.compile(
+    r"\b(como (puedo |debo |le )?(dirigirme|me dirijo|abordo|abordar(lo|la|le)?|acercarme|me acerco|"
+    r"le hablo|hablarle|le vendo|venderle|contacto|contactar(lo|la|le)?|llego a|llegarle|escribirle|le escribo)|"
+    r"de que manera (le )?(hablo|escribo|abordo|vendo))\b"
+)
+# Objeciones propias de eventos y congresos, con cómo responderlas.
+_EVENT_OBJECTIONS = (
+    (
+        "No tengo tiempo para viajar / ausentarme dos días",
+        "Mostrar qué se lleva en esos dos días (casos, proveedores evaluados, reuniones 1 a 1) frente a semanas de reuniones sueltas; proponer que vaya parte del equipo.",
+    ),
+    (
+        "Ya fui el año pasado",
+        "Contar qué cambia en esta edición (agenda, nuevos casos, quién estará) y proponer otra forma de participar: delegación, panel o stand.",
+    ),
+    (
+        "Prefiero mandar a alguien de mi equipo",
+        "Perfecto: proponer la delegación para que vayan varios con mejores condiciones, y mantenerle en la conversación como decisor.",
+    ),
+    (
+        "No sé si el público es el correcto (para stand o patrocinio)",
+        "Compartir quiénes asisten (cargos y empresas de ediciones anteriores) y qué resultados obtuvieron otros expositores.",
+    ),
+)
+
+
+_EVENT_SAID = (
+    (
+        r"\b(ya (fui|fue|asisti|asistio|participe|participo|estuve|estuvo)|el ano pasado|la edicion pasada)\b",
+        1,
+    ),
+    (
+        r"\b(no (tengo|tiene|tenemos) tiempo|no (puedo|puede|podemos) (viajar|ausentarme|ir)|viajar)\b",
+        0,
+    ),
+    (r"\b(mand(ar|o|a) a alguien|enviar a alguien|que vaya (otro|otra|alguien)|mi equipo)\b", 2),
+    (
+        r"\b(publico|quienes (asisten|van)|el perfil de (los )?asistentes|retorno|roi del stand)\b",
+        3,
+    ),
+)
+
+
+def _event_objection(ctx: engine.Context, question: str) -> dict[str, Any] | None:
+    """Objeciones propias de eventos («ya fui el año pasado», «no puedo viajar»)."""
+    from orkesta.concertino.writer import _EVENT
+
+    main = engine._best(ctx, "producto")
+    if not _EVENT.search(fold(main.title if main else "")):
+        return None
+    folded = fold(question)
+    if not re.search(
+        r"\b(me (dice|dijo|respondio|contesto)|dice que|dijo que|si me dice|responde que|que le (respondo|digo))\b",
+        folded,
+    ):
+        return None
+    for pattern, index in _EVENT_SAID:
+        if re.search(pattern, folded):
+            said, how = _EVENT_OBJECTIONS[index]
+            values = engine.slots(ctx)
+            draft = pb.voice(
+                "Entiendo perfectamente.\n\n"
+                + {0: "Justamente por eso el formato es de dos días: en lugar de semanas de reuniones sueltas, [te|se] lleva[s|] casos reales, proveedores evaluados y reuniones 1 a 1 con pares.",
+                   1: "Qué bueno que ya lo conoce[s|]. Esta edición trae agenda y casos nuevos; además, hay otras formas de participar: con una delegación de [tu|su] equipo, en un panel o con un stand.",
+                   2: "Me parece muy bien. Para que vayan varios con mejores condiciones existe la delegación; y si [te|le] parece, [te|le] mantengo al tanto como decisor.",
+                   3: "Con gusto [te|le] comparto quiénes asisten: " + (values.get("publico") or "los cargos y empresas de ediciones anteriores") + "."}[index]
+                + "\n\n¿[Te|Le] parece si lo vemos 15 minutos esta semana?", ctx.formal)  # fmt: skip
+            return {"summary": f"Objeción de evento: «{said}». {how}",
+                    "options": [{"code": f"evento:{index}", "name": "Respuesta sugerida", "why": how,
+                                 "text": draft, "record": None}],
+                    "tips": [], "sections": [], "missing": [],
+                    "next_step": "Responde hoy y propone una fecha concreta.",
+                    "suggestions": ["¿Cuáles son las principales objeciones?", "Me dijo que es muy caro"]}  # fmt: skip
+    return None
+
+
+def _objection_list(ctx: engine.Context, question: str) -> dict[str, Any]:
+    """«¿Cuáles son las principales objeciones…?»: las que más aparecen, qué hay detrás y cómo
+    responder cada una, con la ficha del producto."""
+    from orkesta.concertino.writer import _EVENT
+
+    values = engine.slots(ctx)
+    items: list[str] = []
+    for fact in ctx.facts.get("objecion") or []:
+        if fact.answer.strip():
+            items.append(f"«{fact.title}» → {fact.answer.strip()}")
+    main = engine._best(ctx, "producto")
+    eventish = bool(_EVENT.search(fold(f"{main.title if main else ''} {question}")))
+    if eventish:
+        items += [f"«{o}» → {how}" for o, how in _EVENT_OBJECTIONS]
+    for code in ("precio", "prioridad", "comite", "proveedor", "competencia"):
+        obj = pb.OBJECTION_BY_CODE[code]
+        line = ""
+        if obj.approaches:
+            line, _ = engine.render(obj.approaches[0].lines[1:2], values, ctx)
+            line = re.sub(r"^\s*(Hola|Buen día)[^:\n]*:\s*", "", line)
+        items.append(
+            f"«{obj.label}»: {obj.real}"
+            + (f" Cómo responder: {line.strip()}" if line.strip() else "")
+        )
+    return {
+        "summary": "Estas son las objeciones que más vas a escuchar y cómo responder cada una. "
+                   "Antes de responder, pregunta qué hay detrás: casi nunca es lo que dicen literalmente.",
+        "options": [], "tips": [], "next_step": "Cuando te digan una de verdad, pégamela tal cual y te propongo la respuesta exacta.",
+        "missing": [], "sections": [{"title": "Objeciones y cómo responder", "items": items[:9]}],
+        "suggestions": ["Me dijo que es muy caro", "Me dijo que ya fue el año pasado", "Me dijo que lo tiene que consultar"],
+    }  # fmt: skip
+
+
+def _approach(session: Session, ctx: engine.Context, question: str) -> dict[str, Any] | None:
+    """«¿Cómo me dirijo a un CMO de telecomunicaciones para venderle un stand?»: el perfil de
+    esa persona más un primer correo ya escrito para ese producto."""
+    wanted = intent.details(question)
+    if not wanted.cargo:
+        return None
+    ctx.industry = wanted.industry or ctx.industry
+    advice = engine.advise_profile(session, ctx, wanted.cargo)
+    wanted.action, wanted.piece = "redactar", "correo"
+    draft = writer.write(session, ctx, wanted, question, "")
+    if draft.get("options"):
+        option = {**draft["options"][0], "code": "apertura", "name": "Primer correo, listo para usar",
+                  "why": "Empieza por lo que le importa a esa persona y pide una sola cosa."}  # fmt: skip
+        advice["options"] = [option]
+        advice["actions"] = draft.get("actions", [])
+    product = writer._focus(ctx, question)
+    if product is not None:
+        advice["summary"] = (
+            f"{advice['summary'].rstrip('.')} para ofrecerle {writer._offer_name(product)}."
+        )
+    advice["suggestions"] = [
+        "Hazlo más corto",
+        "Ahora como secuencia de 3 correos",
+        "¿Qué objeciones me puede poner?",
+    ]
+    return advice
 
 
 def _writing_intent(question: str, history: list[dict[str, Any]]) -> intent.Intent | None:

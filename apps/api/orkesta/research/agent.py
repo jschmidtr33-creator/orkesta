@@ -299,6 +299,7 @@ class Run:
         self.lock = threading.RLock()
         self.log_lines: list[dict[str, str]] = []
         self.step, self.done, self.total = "empresas", 0, 0
+        self.multi = False  # búsqueda en varios países a la vez
         self.started = time.monotonic()
         self.companies: dict[str, Candidate] = {}
         self.people: dict[str, list[Prospect]] = {}
@@ -1302,7 +1303,10 @@ def from_index(run: Run, filters: Filters) -> int:
     if not filters.country:
         return 0
     with run.factory() as session:
-        hits = people.search(session, filters)
+        # Con varios países, cada uno aporta su parte (antes el primero llenaba la búsqueda y
+        # el resto no alcanzaba a correr).
+        limit = filters.limit if run.multi else people.INDEX_LIMIT
+        hits = people.search(session, filters, limit=limit)
     for hit in hits:
         person = hit["person"]
         key = person.company_key
@@ -1456,13 +1460,17 @@ def run_research(
         learned: set[str] = set()
         seen: set[str] = set()
         totals: dict[str, int] = {}
+        run.multi = len(countries) > 1
         with Fetcher(factory) as fetcher:
             for code in countries:
                 one = replace(filters, country=code, countries=[code], limit=per)
-                if len(countries) > 1:
+                if run.multi:
+                    # Cada país tiene su parte del tiempo: ninguno se queda sin buscar.
+                    share = max(60.0, DEADLINE_SECONDS / len(countries))
+                    run.started = time.monotonic() - DEADLINE_SECONDS + share
                     name = COUNTRIES.get(code, (code,))[0]
                     run.log(f"Buscando en {name}…", step="buscar")
-                totals = execute(run, one, fetcher)
+                totals = execute(run, one, fetcher)  # las cifras ya son acumuladas
                 fresh = [c for k, c in run.seen.items() if k not in seen]
                 seen |= set(run.seen)
                 directory.learn(factory, code, fresh)

@@ -133,4 +133,10 @@ def test_admin_upload_csv(client: TestClient, database: tuple[str, str]) -> None
     data = client.get("/api/admin/directory").json()
     assert data["total"] == 2
     assert data["uploads"][0]["last"]["saved"] == 2
-    assert data["countries"][0] == {"country": "MX", "companies": 2, "with_domain": 1}
+    assert data["countries"][0] == {
+        "country": "MX",
+        "companies": 2,
+        "with_domain": 1,
+        "people": 0,
+        "people_email": 0,
+    }

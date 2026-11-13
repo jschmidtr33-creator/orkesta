@@ -634,3 +634,35 @@ def test_own_index_covers_the_search_without_the_paid_search_engine(
     assert {p["data"]["full_name"] for p in run["people"]} >= {"Laura Gómez", "Pedro Ruiz"}
     assert run["totals"].get("source_indice") == 3
     assert not run["totals"].get("serp_calls") and with_serper == []
+
+
+def test_all_countries_brings_people_from_every_country(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+    with_serper: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Todos los países»: el primer país ya no llena la búsqueda; cada uno aporta su parte."""
+    from orkesta.research import agent, people
+
+    register(client, "ana@lacteos.co")
+    rows = []
+    for country, count in (("AR", 60), ("MX", 5), ("CO", 5)):
+        for i in range(count):
+            rows.append({
+                "key": f"n:{country}|emp|{i}", "country": country, "full_name": f"Ana Perez{i}",
+                "first_name": "Ana", "last_name": f"Perez{i}", "title": "Directora Comercial",
+                "level": "director", "area": "comercial", "company": f"Empresa {country}",
+                "company_key": f"empresa {country.lower()}", "domain": None, "location": "",
+                "linkedin": None, "email": None, "email_status": None, "source": "bases",
+            })  # fmt: skip
+    people.upsert(session_factory, rows)
+    monkeypatch.setattr(agent, "INDEX_ENOUGH", 5)
+    monkeypatch.setattr(agent, "DEADLINE_SECONDS", 900)
+    run = _run(client, session_factory, countries=["AR", "MX", "CO"])
+    assert run["status"] == "completed", run
+    by_country: dict[str, int] = {}
+    for p in run["people"]:
+        by_country[p["data"]["country"]] = by_country.get(p["data"]["country"], 0) + 1
+    assert by_country.get("MX") == 5 and by_country.get("CO") == 5
+    assert by_country.get("AR") == 60

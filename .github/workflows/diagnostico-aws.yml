@@ -67,6 +67,17 @@ jobs:
                    count(a.id) AS existen
             FROM imgs LEFT JOIN orkesta.email_assets a ON a.id::text = substring(u from '/t/i/([0-9a-fA-F-]{36})')
             GROUP BY 1,2,3;" </dev/null | sed -E 's#(https?://)[^.|]*\.#\1*.#'
+          echo "==> Entrenamientos y cargas desde el panel"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT left(created_at::text,16), action, left(target,40), detail::text FROM orkesta.admin_audit
+            WHERE action IN ('directory.knowledge','directory.upload','directory.preset') ORDER BY created_at;" </dev/null
+          echo "==> Por país: índice de personas / directorio / memoria de dominios"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT 'personas', country, source, count(*), count(email) FROM orkesta.people_index GROUP BY 2,3 ORDER BY 4 DESC LIMIT 20;
+            SELECT 'directorio', country, source, count(*), count(domain) FROM orkesta.company_directory WHERE country IN ('US','CO','MX') GROUP BY 2,3 ORDER BY 4 DESC LIMIT 20;
+            SELECT 'dominios', split_part(key,'|',1), source, count(*) FROM orkesta.company_domains GROUP BY 2,3 ORDER BY 4 DESC LIMIT 15;
+            SELECT 'contactos', country_code, source, count(*) FROM orkesta.contacts GROUP BY 2,3 ORDER BY 4 DESC LIMIT 15;
+            SELECT 'importaciones', left(created_at::text,16), totals::text FROM orkesta.imports ORDER BY created_at;" </dev/null
           echo "==> Calidad de datos (solo cifras)"
           docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "
             SELECT source, email_status, count(*) AS n,

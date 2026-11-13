@@ -358,3 +358,40 @@ def test_concertino_teaches_the_sales_craft(
     assert ask("debo tratar de tu o usted en colombia")["lesson"]["code"] == "latam"
     # Una objeción concreta sigue yendo al mapa de objeciones.
     assert "lesson" not in ask("¿cómo respondo si me dicen que es muy caro?")
+
+
+def test_event_sales_questions_and_specific_emails(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Preguntas reales de venta de un congreso: lista de objeciones, cómo dirigirse a un cargo
+    para vender un stand, correos para una persona concreta y de seguimiento."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    client.post("/api/concertino/facts/bulk", json={"facts": [
+        {"kind": "producto", "title": "Congreso de IA y negocios para C-Levels", "prioridad": 3},
+        {"kind": "publico", "title": "CEO, CIO y CMO de grandes empresas de Latinoamérica"},
+        {"kind": "valor", "title": "Dos días con casos reales y networking 1 a 1"},
+        {"kind": "producto", "title": "Patrocinio: Main Sponsor (stand y conferencia) o Expositor (stand)"},
+        {"kind": "precio", "title": "Stands desde US$7.200"},
+    ]})  # fmt: skip
+
+    def ask(q: str) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": q})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    objections = ask("¿Cuáles son las principales objeciones al vender delegaciones y tickets?")
+    items = " ".join(objections["sections"][0]["items"])
+    assert objections["topic"] == "objecion" and "Ya fui el año pasado" in items
+    approach = ask("¿Cómo puedo dirigirme a un CMO de telecomunicaciones para venderle un stand?")
+    assert approach["topic"] == "perfil" and "Patrocinio" in approach["summary"]
+    assert "Expositor (stand)" in approach["options"][0]["text"]
+    named = ask("Escribe un correo para Juan Perez, CFO de Bancolombia, invitándolo a Miami")
+    text = named["options"][0]["text"]
+    assert (
+        "Juan" in text and "Bancolombia" in text and "en Miami" in text and "{{nombre" not in text
+    )
+    follow = ask("redacta un correo de seguimiento para alguien que no respondió")
+    assert "retomar mi mensaje anterior" in follow["options"][0]["text"]
+    said = ask("¿Qué le respondo si me dice que ya fue el año pasado?")
+    assert said["topic"] == "objecion" and "Esta edición" in said["options"][0]["text"]
