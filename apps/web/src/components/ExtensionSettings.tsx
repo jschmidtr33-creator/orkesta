@@ -8,11 +8,10 @@ import { Alert, Badge, Button, Card, CardHeader, TextField } from "./ui";
 type Token = { id: string; name: string; prefix: string; created_at: string | null; last_used_at: string | null };
 
 const STEPS = [
-  "Descarga la extensión con el botón y descomprime el archivo .zip (queda la carpeta «orkesta-extension»).",
-  "En Chrome abre chrome://extensions y activa «Modo de desarrollador» (arriba a la derecha).",
-  "Toca «Cargar descomprimida» y elige la carpeta «orkesta-extension».",
+  "Descarga el .zip con el botón. Es el mismo archivo que se sube a la Chrome Web Store (Paquete → Subir paquete nuevo).",
+  "Para probarla en tu Chrome: descomprímelo, abre chrome://extensions, activa «Modo de desarrollador» y toca «Cargar descomprimida» con la carpeta. Si ya tenías una versión, quítala antes.",
   "Fija la extensión en la barra (ícono de pieza de rompecabezas → alfiler).",
-  "Genera tu clave aquí al lado, ábrela en la extensión y pégala. Los contactos se guardan en la empresa en la que estás en la app.",
+  "Ábrela y toca «Iniciar sesión con ORKESTA» → «Conectar». Los contactos se guardan en la empresa en la que estás en la app.",
 ];
 
 /** Panel de administración → Extensión de Chrome (solo la plataforma): descarga, instalación y
@@ -20,6 +19,7 @@ const STEPS = [
 export function ExtensionSettings() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: ["ext-tokens"], queryFn: () => api<Token[]>("/api/admin/extension/tokens") });
+  const info = useQuery({ queryKey: ["ext-info"], queryFn: () => api<{ version: string }>("/api/admin/extension/info") });
   const [name, setName] = useState("Mi Chrome");
   const [created, setCreated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -39,10 +39,10 @@ export function ExtensionSettings() {
     <div className="grid gap-5 lg:grid-cols-2">
       <Card>
         <CardHeader
-          title="Extensión «Guardar en ORKESTA»"
-          description="Guarda contactos desde cualquier página con un clic: sitios de empresas, Gmail, noticias o directorios. Seleccionas el nombre o el cargo, clic derecho → «Guardar en ORKESTA», revisas y guardas. ORKESTA busca su correo y lo verifica. En LinkedIn agrega el perfil solo por su dirección, sin leer la página."
+          title={`Extensión «Guardar en ORKESTA»${info.data?.version ? ` · versión ${info.data.version}` : ""}`}
+          description="Con la extensión abierta sobre el perfil de una persona (sitio de empresa, CRM, Gmail o LinkedIn), ORKESTA lee nombre, cargo, empresa, ubicación, correo y teléfono, y la persona solo toca «Guardar contacto». Si falta el correo, ORKESTA lo busca y lo verifica."
           action={
-            <Button icon={<Download className="size-4" aria-hidden />} onClick={() => adminDownload("/api/admin/extension/download", "orkesta-extension.zip")}>
+            <Button icon={<Download className="size-4" aria-hidden />} onClick={() => adminDownload("/api/admin/extension/download", `orkesta-extension-${info.data?.version ?? ""}.zip`)}>
               Descargar
             </Button>
           }
@@ -52,7 +52,7 @@ export function ExtensionSettings() {
             <li key={s}>{s}</li>
           ))}
         </ol>
-        <p className="mt-3 text-[12.5px] text-ork-mist">La extensión solo lee la página cuando tú la usas, y solo lo que eliges guardar. Nunca recorre listas ni hace nada sola.</p>
+        <p className="mt-3 text-[12.5px] text-ork-mist">La extensión solo lee la página cuando la persona la abre, y solo el perfil que tiene en pantalla. Nunca recorre listas ni hace nada sola.</p>
       </Card>
       <Card>
         <CardHeader title="Tus claves" description="Cada clave conecta un navegador con tu usuario. Solo sirve para guardar y consultar tus contactos; si pierdes el equipo, revócala." />

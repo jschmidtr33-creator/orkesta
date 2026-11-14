@@ -169,8 +169,23 @@ def _refresh(session: Session, tenant_id: uuid.UUID, url: str, data: Any) -> uui
     return contact.id if changed else None
 
 
+def _seen_profile(seen: dict[str, str] | None) -> Any:
+    """El perfil tal como la persona lo ve en pantalla (lo envía la extensión)."""
+    from orkesta.engine.normalize.location import parse_location
+    from orkesta.research.serp import UrlProfile
+
+    if not seen or not (seen.get("name") or seen.get("title")):
+        return None
+    loc = parse_location(seen.get("location") or "")
+    return UrlProfile(name=" ".join((seen.get("name") or "").split())[:200],
+                      role=" ".join((seen.get("title") or "").split())[:300],
+                      employer=" ".join((seen.get("company") or "").split())[:200],
+                      city=loc.city or "", country=loc.country_code or "")  # fmt: skip
+
+
 def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company: str = "",
-        country: str = "", list_id: uuid.UUID | None = None) -> dict[str, Any]:  # fmt: skip
+        country: str = "", list_id: uuid.UUID | None = None,
+        seen: dict[str, str] | None = None) -> dict[str, Any]:  # fmt: skip
     """Crea los contactos y devuelve el resumen (los nuevos sin correo quedan para enriquecer)."""
     from orkesta.data.models import Contact
     from orkesta.data.service import ContactInput, DataError, add_to_list, create_contact
@@ -184,7 +199,13 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
     code = code if code in COUNTRIES else ""
     _split_glued(session, profiles)
     known = _from_index(session, profiles, company, code)
-    found = _from_search(session, [p for p in profiles if p.slug not in known])
+    on_screen = _seen_profile(seen) if len(profiles) == 1 else None
+    if on_screen is not None:
+        # Lo que se ve en pantalla manda; el índice solo aporta lo que falte (por ejemplo, el
+        # correo publicado).
+        found = {profiles[0].slug: on_screen}
+    else:
+        found = _from_search(session, [p for p in profiles if p.slug not in known])
     search_error = str(found.pop("__error__", ""))
     created: list[uuid.UUID] = []
     existing = 0
@@ -198,9 +219,10 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
         first, last = (
             (row.first_name or p.first, row.last_name or p.last) if row else (p.first, p.last)
         )
-        if row is None and hit is not None:
+        screen = on_screen is not None and hit is on_screen
+        if row is None and hit is not None and not screen:
             from_search += 1
-        if row is None and hit is not None and hit.name:
+        if (row is None or screen) and hit is not None and hit.name:
             from orkesta.engine.normalize.names import split_full_name
 
             split = split_full_name(hit.name)
@@ -208,15 +230,29 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
         email = ""
         if row is not None and row.email and row.email_status in ("publicado", "confirmado"):
             email = row.email
-        found_country = (row.country if row else "") or (hit.country if hit else "") or code
+        r_country, r_title, r_company = (
+            (row.country or "", row.title or "", row.company or "") if row else ("", "", "")
+        )
+        h_country, h_title, h_company, h_city = (
+            (hit.country, hit.role, hit.employer, hit.city) if hit else ("", "", "", "")
+        )
+        if screen:  # lo que se ve en pantalla manda
+            found_country = h_country or r_country or code
+            title, firm, city = h_title or r_title, h_company or r_company or company, h_city
+        else:
+            found_country = r_country or h_country or code
+            title = r_title if row else h_title
+            firm = r_company or h_company or company
+            city = h_city if not row else ""
         data = ContactInput(
-            first_name=first, last_name=last,
-            job_title=(row.title or "") if row else (hit.role if hit else ""),
-            company=(row.company if row else "") or (hit.employer if hit else "") or company,
+            first_name=first,
+            last_name=last,
+            job_title=title,
+            company=firm,
             email=email,
-            city=(hit.city if hit and not row else ""),
+            city=city,
             country=COUNTRIES.get(found_country, ("",))[0],
-        )  # fmt: skip
+        )
         # Ya se agregó antes por su dirección: se completa lo que faltaba, sin duplicarlo.
         if session.scalar(select(Contact.id).where(Contact.tenant_id == tenant_id,
                                                    Contact.linkedin_url == p.url)):  # fmt: skip

@@ -144,8 +144,9 @@ def download(principal: Owner) -> Response:
             if path.is_file():
                 # manifest.json en la raíz: así lo exige la Chrome Web Store.
                 z.write(path, str(path.relative_to(FILES)))
-    return Response(buffer.getvalue(), media_type="application/zip", headers={
-        "Content-Disposition": 'attachment; filename="orkesta-extension.zip"'})  # fmt: skip
+    name = f"orkesta-extension-{version()}.zip"
+    return Response(buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
 
 
 # --- Conectar la extensión con la cuenta (cualquier usuario, desde orkestaapp.com) -------------
@@ -189,11 +190,26 @@ def logout(request: Request, db: Db) -> dict[str, Any]:
     return {"ok": True}
 
 
+def version() -> str:
+    import json
+
+    try:
+        return str(json.loads((FILES / "manifest.json").read_text())["version"])
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
+@router.get("/admin/extension/info")
+def info(principal: Owner) -> dict[str, Any]:
+    return {"version": version()}
+
+
 @router.get("/ext/me")
 def me(principal: Extension) -> dict[str, Any]:
     tenant = principal.tenant
     return {"name": principal.user.full_name or principal.user.email,
-            "company": tenant.name if tenant else "", "role": principal.role}  # fmt: skip
+            "company": tenant.name if tenant else "", "role": principal.role,
+            "version": version()}  # fmt: skip
 
 
 class ExtContactIn(BaseModel):
@@ -276,12 +292,17 @@ class ExtLinkedInIn(BaseModel):
     url: str = Field(max_length=600)
     company: str = Field(default="", max_length=200)
     country: str = Field(default="", max_length=2)
+    # Lo que la persona tiene en pantalla del perfil (lo lee la extensión al hacer clic).
+    name: str = Field(default="", max_length=200)
+    title: str = Field(default="", max_length=300)
+    location: str = Field(default="", max_length=200)
 
 
 @router.post("/ext/linkedin")
 def save_linkedin(body: ExtLinkedInIn, request: Request, principal: Extension,
                   db: Db) -> dict[str, Any]:  # fmt: skip
-    """Agrega el perfil abierto usando solo su dirección (no se lee la página de LinkedIn)."""
+    """Agrega el perfil abierto: lo que la persona ve en pantalla (nombre, cargo, empresa y
+    ubicación) y, si falta algo, el índice propio y el resultado público de Google."""
     from orkesta.data import linkedin
     from orkesta.data import service as svc
 
@@ -289,6 +310,8 @@ def save_linkedin(body: ExtLinkedInIn, request: Request, principal: Extension,
         result = linkedin.add(
             db, tenant_id=principal.tenant_id, user=principal.user, text=body.url,
             company=body.company, country=body.country,
+            seen={"name": body.name, "title": body.title, "company": body.company,
+                  "location": body.location},
         )  # fmt: skip
     except svc.DataError as exc:
         raise HTTPException(exc.status, str(exc)) from exc

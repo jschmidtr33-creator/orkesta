@@ -80,3 +80,33 @@ function orkestaCapture() {
   }
   return out;
 }
+
+// Perfil de LinkedIn abierto: SOLO cuando la persona toca «Agregar a ORKESTA», y solo el
+// encabezado visible del perfil (nombre, titular, empresa actual y ubicación). No navega, no
+// abre otras secciones, no recorre listas ni hace acciones en LinkedIn.
+function orkestaLinkedIn() {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const h1 = document.querySelector("main h1") || document.querySelector("h1");
+  const out = { name: clean(h1 && h1.innerText), title: "", company: "", location: "" };
+  if (!h1) return out;
+  const top = h1.closest("section") || h1.parentElement.parentElement.parentElement;
+  const headline = top.querySelector(".text-body-medium");
+  out.title = clean(headline && headline.innerText);
+  const loc = top.querySelector("span.text-body-small.inline, .pv-text-details__left-panel .text-body-small");
+  out.location = clean(loc && loc.innerText);
+  const firm = top.querySelector('[aria-label^="Empresa actual"], [aria-label^="Current company"], [aria-label*="empresa actual" i]');
+  if (firm) out.company = clean(firm.getAttribute("aria-label").split(":").slice(1).join(":")).replace(/\.\s.*$/, "");
+  if (!out.company) {
+    const item = top.querySelector('ul li button img[alt], ul li a img[alt]');
+    const li = item && item.closest("li");
+    if (li) out.company = clean(li.innerText).split("\n")[0];
+  }
+  const lines = String(top.innerText || "").split("\n").map(clean).filter(Boolean);
+  if (!out.location) out.location = lines.find((l) => /,/.test(l) && l.length < 80 && l !== out.title && !/contact|seguidor|follower/i.test(l)) || "";
+  out.location = out.location.replace(/\s*·.*$/, "");
+  if (!out.company && out.title) {
+    const m = out.title.match(/\s(?:at|en|@|\||-)\s(?!.*\s(?:at|en|@|\||-)\s)(.+)$/i);
+    if (m) out.company = clean(m[1]);
+  }
+  return out;
+}

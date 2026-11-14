@@ -151,8 +151,25 @@ async function main() {
       $("liBtn").disabled = true;
       $("liMsg").textContent = "Buscando a la persona…";
       $("liMsg").className = "msg";
+      let seen = { name: "", title: "", company: "", location: "" };
       try {
-        const r = await call("/api/ext/linkedin", token, { url, company: $("liCompany").value, country: $("liCountry").value.toUpperCase() });
+        const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaLinkedIn });
+        if (res && res.result) seen = res.result;
+      } catch (e) {}
+      if (seen.name) {
+        $("liSummary").hidden = false;
+        $("liName").textContent = seen.name;
+        $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ");
+        $("liPlace").textContent = seen.location;
+        $("liHint").hidden = true;
+      }
+      try {
+        const r = await call("/api/ext/linkedin", token, {
+          url,
+          company: $("liCompany").value.trim() || seen.company,
+          country: $("liCountry").value.toUpperCase(),
+          name: seen.name, title: seen.title, location: seen.location,
+        });
         $("liMsg").textContent = r.created || r.updated
           ? (r.with_email ? "Guardado con su correo." : r.enrichment_id ? "Guardado. ORKESTA está buscando su correo." : "Guardado en Contactos.")
           : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.";
@@ -203,7 +220,8 @@ $("connectBtn").onclick = () => {
   window.close();
 };
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.token && changes.token.newValue) main();
+  if (changes.token && changes.token.newValue) $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
+main();
 });
 $("logout").onclick = async (e) => {
   e.preventDefault();
@@ -214,4 +232,5 @@ $("logout").onclick = async (e) => {
   $("logout").hidden = true;
   show("connect");
 };
+$("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 main();
