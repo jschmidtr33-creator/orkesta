@@ -40,7 +40,7 @@ export function ExtensionSettings() {
       <Card>
         <CardHeader
           title={`Extensión «Guardar en ORKESTA»${info.data?.version ? ` · versión ${info.data.version}` : ""}`}
-          description="Con la extensión abierta sobre el perfil de una persona (sitio de empresa, CRM, Gmail o LinkedIn), ORKESTA lee nombre, cargo, empresa, ubicación, correo y teléfono, y la persona solo toca «Guardar contacto». Si falta el correo, ORKESTA lo busca y lo verifica."
+          description="Un panel flotante que se puede mover, minimizar o cerrar. En un perfil (sitio de empresa, CRM, Gmail, LinkedIn o Sales Navigator) lee nombre, cargo, empresa, ubicación, correo y teléfono; en una lista (búsqueda de LinkedIn o Sales Navigator, Prospeo, Apollo o cualquier tabla de contactos) lee a todas las personas visibles, marca las que ya están en Contactos y guarda las elegidas (hasta 100 por vez). Si falta el correo, ORKESTA lo busca y lo verifica."
           action={
             <Button icon={<Download className="size-4" aria-hidden />} onClick={() => adminDownload("/api/admin/extension/download", `orkesta-extension-${info.data?.version ?? ""}.zip`)}>
               Descargar
@@ -52,7 +52,7 @@ export function ExtensionSettings() {
             <li key={s}>{s}</li>
           ))}
         </ol>
-        <p className="mt-3 text-[12.5px] text-ork-mist">La extensión solo lee la página cuando la persona la abre, y solo el perfil que tiene en pantalla. Nunca recorre listas ni hace nada sola.</p>
+        <p className="mt-3 text-[12.5px] text-ork-mist">La extensión solo lee la página cuando la persona abre el panel o toca «Leer de nuevo», y solo lo que está en pantalla. No hace scroll, no pasa de página ni hace nada sola en el sitio.</p>
       </Card>
       <Card>
         <CardHeader title="Tus claves" description="Cada clave conecta un navegador con tu usuario. Solo sirve para guardar y consultar tus contactos; si pierdes el equipo, revócala." />

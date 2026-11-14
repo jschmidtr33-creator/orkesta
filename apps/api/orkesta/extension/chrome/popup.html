@@ -19,6 +19,21 @@
     <p id="connectMsg" class="msg"></p>
   </section>
 
+  <section id="loading" hidden>
+    <p class="muted">Leyendo la página…</p>
+  </section>
+
+  <section id="list" hidden>
+    <h1 id="lTitle"></h1>
+    <p class="muted" id="lSource"></p>
+    <label class="check"><input id="lAll" type="checkbox" checked /> Seleccionar todas</label>
+    <div id="lRows" class="rows"></div>
+    <button id="lSave">Guardar seleccionados</button>
+    <button class="link" id="lSaveAll" type="button">Guardar todos</button>
+    <label class="check"><input id="lEnrich" type="checkbox" checked /> Buscar y verificar el correo de los que no lo tienen</label>
+    <p id="lMsg" class="msg"></p>
+  </section>
+
   <section id="linkedin" hidden>
     <h1>Agregar este perfil</h1>
     <div class="card" id="liSummary" hidden>
@@ -67,10 +82,10 @@
 
   <footer>
     <a href="https://orkestaapp.com/app/contactos" target="_blank" rel="noopener">Abrir Contactos</a>
+    <a href="#" id="reread" hidden>Leer de nuevo</a>
     <span class="muted" id="ver"></span>
     <a href="#" id="logout" hidden>Desconectar</a>
   </footer>
-  <script src="capture.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
