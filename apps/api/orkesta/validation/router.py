@@ -138,3 +138,21 @@ def cancel(run_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     if run.status in ("queued", "running"):
         run.status = "canceled"
     return _dict(run)
+
+
+def start_for(session: Any, tenant_id: Any, user_id: Any, ids: list[Any], summary: str) -> bool:
+    """Valida enseguida los correos que otro proceso acaba de estimar (si no hay otra
+    validación en curso). Devuelve si se puso en cola."""
+    active = session.scalar(select(func.count()).where(
+        ValidationRun.tenant_id == tenant_id,
+        ValidationRun.status.in_(("queued", "running"))))  # fmt: skip
+    if active or not ids:
+        return False
+    run = ValidationRun(tenant_id=tenant_id, created_by=user_id,
+                        scope={"find_missing": True, "ids": [str(i) for i in ids]},
+                        summary=summary, progress={"done": 0, "total": 0, "log": []})  # fmt: skip
+    session.add(run)
+    session.flush()
+    enqueue(session, tenant_id=tenant_id, kind=VALIDATION_JOB, payload={"run_id": str(run.id)},
+            max_attempts=1)  # fmt: skip
+    return True

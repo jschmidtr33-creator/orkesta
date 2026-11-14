@@ -228,14 +228,29 @@ def _domain_work(
         emails = [t.email or "" for t in verify]
         for start in range(0, len(emails), RCPT_PER_SESSION):
             verdicts += checker.verify(emails[start : start + RCPT_PER_SESSION])
+        from orkesta.research.extract import detect_pattern
+        from orkesta.research.memory import feedback
+
         with progress.tx() as session:
             for target, verdict in zip(verify, verdicts, strict=True):
                 _save_verdict(session, progress.tenant_id, target, verdict)
                 progress.add(verdict.status)
                 rejected = verdict.status == "invalido" and verdict.mx
-                if retry_estimated and rejected and target.email_status == "estimado":
+                if rejected and target.email:
+                    # El buzón no existe: ese formato pierde confianza en el dominio y la
+                    # dirección no se vuelve a proponer (para nadie en ORKESTA).
+                    pattern = detect_pattern(target.first_name, target.last_name, target.email)
+                    feedback(session, target.email, pattern or "", "bounced")
+                if retry_estimated and rejected and target.first_name and target.last_name:
+                    # Cualquier correo inválido (estimado o de una base) se intenta reemplazar
+                    # por el correcto de la misma persona.
                     target.replace = True
                     find = [*find, target]
+        all_rejected = len(verdicts) >= 2 and all(
+            v.status == "invalido" and v.mx for v in verdicts
+        )  # fmt: skip
+    else:
+        all_rejected = False
     info = checker.domains.get(domain) or checker.domain(domain)
     found_here = 0
     if find and info.mx_hosts and info.catch_all is not True and not info.disposable:
@@ -320,6 +335,24 @@ def _domain_work(
                                       confidence=50))  # fmt: skip
                 estimated += 1
         progress.add("estimated", estimated)
+    if all_rejected and found_here == 0 and info.smtp_ok and info.catch_all is False:
+        # Nadie existe en ese dominio con ningún formato: lo más probable es que no sea el
+        # dominio de la empresa. Se avisa en cada contacto y ORKESTA lo olvida para que el
+        # próximo enriquecimiento busque el correcto.
+        from sqlalchemy import delete as sql_delete
+
+        from orkesta.research.models import CompanyDomain
+
+        with progress.tx() as session:
+            for target in verify:
+                session.execute(update(Contact).where(Contact.id == target.id).values(
+                    email_check_reason=f"Ningún formato existe en {domain}: quizá no es "
+                    "el dominio de la empresa. Revisa su sitio web y vuelve a enriquecer."
+                ))  # fmt: skip
+            session.execute(sql_delete(CompanyDomain).where(
+                CompanyDomain.domain == domain,
+                CompanyDomain.source.notin_(("bases", "bases_clientes", "deducido"))))  # fmt: skip
+        progress.add("bad_domain", len(verify))
     if find:
         progress.add("found", found_here)
         progress.add("find_attempted", min(len(find), FIND_PER_DOMAIN))

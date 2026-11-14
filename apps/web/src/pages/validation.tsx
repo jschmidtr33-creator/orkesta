@@ -89,7 +89,7 @@ export function ValidateModal({
         <label className="flex items-start gap-2 rounded-xl border border-ork-line p-3 text-[13.5px] text-ork-graphite">
           <input type="checkbox" className="mt-0.5 size-4 accent-ork-blue" checked={findMissing} onChange={(e) => setFindMissing(e.target.checked)} />
           <span>
-            <strong className="text-ork-ink">Buscar correos faltantes.</strong> Para contactos sin correo cuya empresa tiene dominio, prueba los formatos habituales y guarda solo el que el servidor confirme.
+            <strong className="text-ork-ink">Buscar correos faltantes y reemplazar los inválidos.</strong> Para contactos sin correo o con un correo que no existe, prueba primero el formato aprendido de su empresa y guarda solo el que se confirme.
           </span>
         </label>
         {start.error && <Alert>{start.error.message}</Alert>}
@@ -162,6 +162,8 @@ export function ValidationBanner() {
           <span><strong>{(t.desconocido ?? 0) + (t.riesgoso ?? 0)}</strong> sin confirmar o riesgosos</span>
           {latest.find_missing && <span><strong className="text-ork-blue">{t.found ?? 0}</strong> correos encontrados</span>}
           {(t.estimated ?? 0) > 0 && <span><strong className="text-ork-violet">{t.estimated}</strong> estimados con el formato de su empresa</span>}
+          {(t.replaced ?? 0) > 0 && <span><strong className="text-ok">{t.replaced}</strong> inválidos reemplazados por el correcto</span>}
+          {(t.bad_domain ?? 0) > 0 && <span><strong className="text-warn">{t.bad_domain}</strong> con un dominio que parece equivocado (revisa el sitio web de la empresa)</span>}
         </div>
       )}
       {t.smtp_blocked ? (

@@ -186,3 +186,22 @@ def test_estimated_email_that_bounces_is_replaced_by_the_confirmed_one(
     assert run["totals"].get("invalido", 0) == 0
     fixed = client.get(f"/api/contacts/{cid}").json()
     assert fixed["email"] == "agarcia@bancoandino.co" and fixed["email_status"] == "valido"
+
+
+def test_any_invalid_email_is_replaced_and_teaches_the_format(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Un correo inválido que venía de una base (no estimado) también se reemplaza por el
+    correcto, y la dirección inválida queda como rebotada para todo ORKESTA."""
+    from orkesta.research.memory import address_hash
+    from orkesta.research.models import BouncedAddress
+
+    register(client, "ana@lacteos.co")
+    cid = _contact(client, first_name="Andrés", last_name="García",
+                   email="andres.garcia@bancoandino.co")  # fmt: skip
+    run = _validate(client, session_factory, find_missing=True)
+    assert run["totals"]["found"] == 1 and run["totals"].get("replaced") == 1
+    fixed = client.get(f"/api/contacts/{cid}").json()
+    assert fixed["email"] == "agarcia@bancoandino.co" and fixed["email_status"] == "valido"
+    with session_factory() as session:
+        assert session.get(BouncedAddress, address_hash("andres.garcia@bancoandino.co"))
