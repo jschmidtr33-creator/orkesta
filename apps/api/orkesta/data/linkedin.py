@@ -169,6 +169,30 @@ def _refresh(session: Session, tenant_id: uuid.UUID, url: str, data: Any) -> uui
     return contact.id if changed else None
 
 
+def _overwrite(session: Session, tenant_id: uuid.UUID, user: Any, url: str,
+               data: Any) -> uuid.UUID | None:  # fmt: skip
+    """Lo que la persona ve en pantalla corrige el contacto ya agregado (nombre, cargo, empresa
+    y ubicación); el correo y el teléfono que ya tenía se conservan."""
+    from orkesta.data.models import Contact
+    from orkesta.data.service import ContactInput, update_contact
+
+    contact = session.scalar(select(Contact).where(Contact.tenant_id == tenant_id,
+                                                   Contact.linkedin_url == url))  # fmt: skip
+    if contact is None:
+        return None
+    merged = ContactInput(
+        first_name=data.first_name or contact.first_name or "",
+        last_name=data.last_name or contact.last_name or "",
+        job_title=data.job_title or contact.job_title or "",
+        company=data.company or contact.company_name or "",
+        email=contact.email or data.email or "", phone=contact.phone or "",
+        city=data.city or contact.city or "", country=data.country or contact.country_code or "",
+        industry=contact.industry or "",
+    )  # fmt: skip
+    update_contact(session, contact=contact, user=user, data=merged)
+    return contact.id
+
+
 def _seen_profile(seen: dict[str, str] | None) -> Any:
     """El perfil tal como la persona lo ve en pantalla (lo envía la extensión)."""
     from orkesta.engine.normalize.location import parse_location
@@ -257,7 +281,9 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
         if session.scalar(select(Contact.id).where(Contact.tenant_id == tenant_id,
                                                    Contact.linkedin_url == p.url)):  # fmt: skip
             existing += 1
-            if (refreshed := _refresh(session, tenant_id, p.url, data)) is not None:
+            refreshed = (_overwrite(session, tenant_id, user, p.url, data) if screen
+                         else _refresh(session, tenant_id, p.url, data))  # fmt: skip
+            if refreshed is not None:
                 updated += 1
                 touched.append(refreshed)
             continue

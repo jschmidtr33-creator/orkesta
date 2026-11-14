@@ -81,29 +81,41 @@ function orkestaCapture() {
   return out;
 }
 
-// Perfil de LinkedIn abierto: SOLO cuando la persona toca «Agregar a ORKESTA», y solo el
-// encabezado visible del perfil (nombre, titular, empresa actual y ubicación). No navega, no
-// abre otras secciones, no recorre listas ni hace acciones en LinkedIn.
+// Perfil de LinkedIn abierto: SOLO cuando la persona abre la extensión en ese perfil, y solo el
+// encabezado visible (nombre, titular, empresa actual y ubicación). No navega, no abre otras
+// secciones, no recorre listas ni hace acciones en LinkedIn.
 function orkestaLinkedIn() {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
-  const h1 = document.querySelector("main h1") || document.querySelector("h1");
-  const out = { name: clean(h1 && h1.innerText), title: "", company: "", location: "" };
-  if (!h1) return out;
-  const top = h1.closest("section") || h1.parentElement.parentElement.parentElement;
-  const headline = top.querySelector(".text-body-medium");
-  out.title = clean(headline && headline.innerText);
-  const loc = top.querySelector("span.text-body-small.inline, .pv-text-details__left-panel .text-body-small");
-  out.location = clean(loc && loc.innerText);
-  const firm = top.querySelector('[aria-label^="Empresa actual"], [aria-label^="Current company"], [aria-label*="empresa actual" i]');
-  if (firm) out.company = clean(firm.getAttribute("aria-label").split(":").slice(1).join(":")).replace(/\.\s.*$/, "");
-  if (!out.company) {
-    const item = top.querySelector('ul li button img[alt], ul li a img[alt]');
-    const li = item && item.closest("li");
-    if (li) out.company = clean(li.innerText).split("\n")[0];
+  const NOISE = /lemlist|apollo|lusha|contactos|connections|seguidores|followers|información de contacto|contact info|^más$|^more$|mensaje|message|conectar|connect|seguir|follow|tengo interés|open to|añadir sección|add section|concertar|recursos|resources|^·|\b(1er|2º|3er|1st|2nd|3rd)\b|^ver |^see |verificad|verified|he\/him|she\/her|él|ella|premium|^\d+$/i;
+  const COUNTRY = /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|panama|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|república dominicana|puerto rico|honduras|el salvador|nicaragua|cuba|brasil|brazil|españa|spain|estados unidos|united states|canadá|canada|portugal|reino unido|united kingdom|área|area|metropolitan|metropolitana/i;
+  const fromTitle = clean(document.title.replace(/^\(\d+\)\s*/, "").split("|")[0]);
+  const h1 = [...document.querySelectorAll("main h1, h1")].find((h) => clean(h.innerText).length > 2);
+  const out = { name: clean(h1 && h1.innerText) || fromTitle, title: "", company: "", location: "" };
+  // El bloque del encabezado: el contenedor del nombre, hasta ~1.500 letras.
+  let top = h1 || null;
+  for (let i = 0; top && i < 8 && top.parentElement && !/^(MAIN|BODY|HTML)$/.test(top.parentElement.tagName) && clean(top.parentElement.innerText).length < 1500; i++) {
+    top = top.parentElement;
+    if (top.tagName === "SECTION") break;
   }
-  const lines = String(top.innerText || "").split("\n").map(clean).filter(Boolean);
-  if (!out.location) out.location = lines.find((l) => /,/.test(l) && l.length < 80 && l !== out.title && !/contact|seguidor|follower/i.test(l)) || "";
-  out.location = out.location.replace(/\s*·.*$/, "");
+  if (!top) top = document.querySelector("main section") || document.body;
+  // Las clases que LinkedIn usa hoy para el titular y la ubicación (si cambian, se usa el texto).
+  const headline = top.querySelector(".text-body-medium");
+  const place = top.querySelector("span.text-body-small.inline, .text-body-small.inline");
+  const firm = document.querySelector('main [aria-label^="Empresa actual"], main [aria-label^="Current company"], main [aria-label*="mpresa actual"], main [aria-label*="urrent company"]');
+  if (firm) out.company = clean(firm.getAttribute("aria-label").split(":").slice(1).join(":")).replace(/\.\s.*$/, "").replace(/\.\s*$/, "");
+  const lines = String(top.innerText || "").split(/\n|·/).map(clean).filter((l) => l && l !== out.name && !NOISE.test(l) && l.length < 220);
+  out.location = clean(place && place.innerText).split("·")[0].trim()
+    || lines.find((l) => COUNTRY.test(l) && l.length < 90)
+    || lines.find((l) => /^[^,]{2,40},\s?[^,]{2,40}(,\s?[^,]{2,40})?$/.test(l)) || "";
+  out.title = clean(headline && headline.innerText)
+    || lines.find((l) => l !== out.location && l !== out.company && l.split(" ").length >= 2) || "";
+  if (!out.company) {
+    // La empresa actual aparece junto al encabezado con su logo.
+    const logo = top.querySelector('img[alt]:not([alt=""])');
+    const items = [...top.querySelectorAll("ul li, button")].map((el) => clean(el.innerText)).filter((t) => t && t.length < 80 && !NOISE.test(t) && t !== out.name && t !== out.title && t !== out.location);
+    out.company = items[0] || "";
+    if (!out.company && logo) out.company = clean(logo.getAttribute("alt")).replace(/^(logo de|logo of)\s*/i, "");
+  }
   if (!out.company && out.title) {
     const m = out.title.match(/\s(?:at|en|@|\||-)\s(?!.*\s(?:at|en|@|\||-)\s)(.+)$/i);
     if (m) out.company = clean(m[1]);

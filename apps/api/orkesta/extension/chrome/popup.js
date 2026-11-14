@@ -147,26 +147,30 @@ async function main() {
       $("liMsg").textContent = "Abre el perfil de una persona (linkedin.com/in/…) para agregarlo.";
       return;
     }
+    // Se lee al abrir la extensión: así se ve lo que se va a guardar antes de tocar el botón.
+    let seen = { name: "", title: "", company: "", location: "" };
+    try {
+      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaLinkedIn });
+      if (res && res.result) seen = res.result;
+    } catch (e) {}
+    if (seen.name) {
+      $("liSummary").hidden = false;
+      $("liName").textContent = seen.name;
+      $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa visibles";
+      $("liPlace").textContent = seen.location;
+      $("liHint").hidden = true;
+      $("liCompany").value = seen.company || "";
+    } else {
+      $("liHint").textContent = "No pude leer el perfil (recarga la página de LinkedIn y vuelve a abrir la extensión). Igual puedes agregarlo: ORKESTA lo buscará por su dirección.";
+    }
     $("liBtn").onclick = async () => {
       $("liBtn").disabled = true;
-      $("liMsg").textContent = "Buscando a la persona…";
+      $("liMsg").textContent = "Guardando…";
       $("liMsg").className = "msg";
-      let seen = { name: "", title: "", company: "", location: "" };
-      try {
-        const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaLinkedIn });
-        if (res && res.result) seen = res.result;
-      } catch (e) {}
-      if (seen.name) {
-        $("liSummary").hidden = false;
-        $("liName").textContent = seen.name;
-        $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ");
-        $("liPlace").textContent = seen.location;
-        $("liHint").hidden = true;
-      }
       try {
         const r = await call("/api/ext/linkedin", token, {
           url,
-          company: $("liCompany").value.trim() || seen.company,
+          company: $("liCompany").value.trim(),
           country: $("liCountry").value.toUpperCase(),
           name: seen.name, title: seen.title, location: seen.location,
         });
