@@ -33,7 +33,7 @@ OBJECTION_TASK = "concertino_objecion"
 
 def objection_rules(text: str) -> tuple[str | None, int]:
     """(tipo de objeción, coincidencias) según el mapa de objeciones."""
-    folded = fold(text)
+    folded = fold(text).lower()
     best, hits = None, 0
     for obj in pb.OBJECTIONS:
         n = sum(1 for p in obj.patterns if re.search(p, folded))
@@ -619,7 +619,7 @@ def advise_proposal(session: Session, ctx: Context) -> dict[str, Any]:
                 "Presenta opciones: quien elige entre opciones deja de decidir entre «sí» y «no».",
                 "Repásala en una llamada; no la envíes sola por correo."]},
             {"title": "Argumentos de tu ficha", "items": [a for a in args if a]
-             or ["Tu ficha aún no tiene argumentos: agrégalos en la página Producto."]},
+             or ["Aún no conozco tus argumentos: escríbeme «actualizar mi producto» y te pregunto."]},
             {"title": "Objeciones a anticipar", "items": _common_objections(session, ctx)},
         ],
         "next_step": "Agenda la llamada para presentar la propuesta antes de enviarla.",
@@ -824,8 +824,8 @@ def advise_product(
             for line in pitch if all(values.get(n) for n in _SLOT.findall(line))]  # fmt: skip
     missing = [n for line in pitch for n in _SLOT.findall(line) if not values.get(n)]
     if not kept:
-        return _ask_more("No encuentro eso en la ficha del producto. Agrégalo en la página Producto "
-                         "y desde ese momento lo uso en mis respuestas.")  # fmt: skip
+        return _ask_more("Eso no lo sé todavía de tu producto. Escríbeme «actualizar mi producto» y "
+                         "lo aprendo en esta misma conversación.")  # fmt: skip
     text = " ".join(k[0].upper() + k[1:] for k in kept)
     return {"summary": "Así lo presentaría en 30 segundos:" if pitch_only else
             "No encontré ese dato exacto en la ficha. Así presentaría el producto con lo que sé:",

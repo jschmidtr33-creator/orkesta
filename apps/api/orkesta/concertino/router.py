@@ -33,6 +33,8 @@ class AskIn(BaseModel):
     campaign_id: uuid.UUID | None = None
     trato: str = Field(default="auto", pattern="^(auto|tu|usted)$")
     history: list[TurnIn] = Field(default_factory=list, max_length=20)
+    # Pregunta de la ficha del producto que la persona está respondiendo en el chat.
+    answering: str | None = Field(default=None, max_length=20)
 
 
 class FeedbackIn(BaseModel):
@@ -83,7 +85,8 @@ def ask(body: AskIn, principal: Member, db: Db) -> dict[str, Any]:
             db, tenant_id=principal.tenant_id, user=principal.user, question=body.question,
             mode=body.mode, contact_id=body.contact_id, deal_id=body.deal_id,
             recipient_id=body.recipient_id, campaign_id=body.campaign_id, trato=body.trato,
-            history=[t.model_dump() for t in body.history],
+            history=[t.model_dump() for t in body.history], answering=body.answering,
+            role=principal.role,
         )  # fmt: skip
     except svc.ConcertinoError as exc:
         raise _fail(exc) from exc

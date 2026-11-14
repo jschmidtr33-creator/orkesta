@@ -224,6 +224,25 @@ class ExtContactIn(BaseModel):
     website: str = Field(default="", max_length=300)
     source_url: str = Field(default="", max_length=600)
     enrich: bool = True
+    list_id: uuid.UUID | None = None
+
+
+def _to_list(db: Db, principal: Principal, list_id: uuid.UUID | None,
+             ids: list[uuid.UUID]) -> int:  # fmt: skip
+    """Agrega a una lista los contactos guardados (o que ya estaban) desde la extensión."""
+    from orkesta.data import service as svc
+
+    if list_id is None or not ids:
+        return 0
+    try:
+        return svc.add_to_list(db, tenant_id=principal.tenant_id, list_id=list_id,
+                               contact_ids=ids)  # fmt: skip
+    except svc.DataError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+class ExtNewList(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
 
 
 def _start_enrichment(db: Db, principal: Principal, ids: list[uuid.UUID]) -> str | None:
@@ -285,6 +304,7 @@ def save_contact(body: ExtContactIn, request: Request, principal: Extension,
     enrichment = None
     if body.enrich and not contact.email and contact.company_name:
         enrichment = _start_enrichment(db, principal, [contact.id])
+    _to_list(db, principal, body.list_id, [contact.id])
     audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
           action="extension.contact_saved", entity_type="contact", entity_id=contact.id,
           ip=client_ip(request))  # fmt: skip
@@ -307,6 +327,7 @@ class ExtListIn(BaseModel):
     people: list[ExtPersonIn] = Field(max_length=100)
     source_url: str = Field(default="", max_length=600)
     enrich: bool = True
+    list_id: uuid.UUID | None = None
 
 
 def _person_input(p: ExtPersonIn) -> Any:
@@ -401,6 +422,27 @@ def _learn_companies(factory: Any, rows: list[dict[str, Any]]) -> None:
         directory.learn(factory, country, companies.values())
 
 
+@router.get("/ext/lists")
+def ext_lists(principal: Extension, db: Db) -> list[dict[str, Any]]:
+    """Las listas de la empresa, para elegir dónde guardar desde la extensión."""
+    from orkesta.data import service as svc
+
+    return [{"id": str(item["id"]), "name": item["name"]}
+            for item in svc.lists_with_counts(db, principal.tenant_id)]  # fmt: skip
+
+
+@router.post("/ext/lists", status_code=201)
+def ext_new_list(body: ExtNewList, principal: Extension, db: Db) -> dict[str, str]:
+    from orkesta.data import service as svc
+
+    try:
+        item = svc.create_list(db, tenant_id=principal.tenant_id, user_id=principal.user.id,
+                               name=body.name)  # fmt: skip
+    except svc.DataError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return {"id": str(item.id), "name": item.name}
+
+
 @router.post("/ext/contacts/check")
 def check_people(body: ExtListIn, principal: Extension, db: Db) -> dict[str, Any]:
     """¿Cuáles de las personas de la pantalla ya están en Contactos? (no las agrega a Contactos;
@@ -443,6 +485,7 @@ def save_people(body: ExtListIn, request: Request, principal: Extension,
 
     _remember(db, body.people)
     created: list[uuid.UUID] = []
+    already: list[uuid.UUID] = []
     existing = 0
     errors: list[str] = []
     for p in body.people:
@@ -452,6 +495,14 @@ def save_people(body: ExtListIn, request: Request, principal: Extension,
         except svc.DataError as exc:
             if exc.status == 409:
                 existing += 1
+                if body.list_id is not None:
+                    values = svc._clean_input(_person_input(p))
+                    key = svc.dedup_key(values["email"], values["full_name"], values["company_key"])
+                    found = db.scalar(select(Contact.id).where(
+                        Contact.tenant_id == principal.tenant_id,
+                        Contact.dedup_key == key))  # fmt: skip
+                    if found is not None:
+                        already.append(found)
             else:
                 errors.append(f"{p.first_name} {p.last_name}: {exc}"[:160])
                 if exc.status in (402, 403):
@@ -469,10 +520,12 @@ def save_people(body: ExtListIn, request: Request, principal: Extension,
     pending = [c for c in created if (x := db.get(Contact, c)) is not None
                and not x.email and x.company_name]  # fmt: skip
     enrichment = _start_enrichment(db, principal, pending) if body.enrich else None
+    in_list = _to_list(db, principal, body.list_id, [*created, *already])
     audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
           action="extension.list_saved", entity_type="contact", entity_id=None,
           ip=client_ip(request))  # fmt: skip
     return {"created": len(created), "existing": existing, "errors": errors[:10],
+            "in_list": in_list,
             "enrichment_id": enrichment, "pending": len(pending)}  # fmt: skip
 
 
@@ -480,6 +533,7 @@ class ExtLinkedInIn(BaseModel):
     url: str = Field(max_length=600)
     company: str = Field(default="", max_length=200)
     country: str = Field(default="", max_length=2)
+    list_id: uuid.UUID | None = None
     # Lo que la persona tiene en pantalla del perfil (lo lee la extensión al hacer clic).
     name: str = Field(default="", max_length=200)
     title: str = Field(default="", max_length=300)
@@ -509,6 +563,14 @@ def save_linkedin(body: ExtLinkedInIn, request: Request, principal: Extension,
         raise HTTPException(exc.status, str(exc)) from exc
     pending = result.pop("to_enrich")
     result["enrichment_id"] = _start_enrichment(db, principal, pending)
+    if body.list_id is not None:
+        from orkesta.data.linkedin import parse
+        from orkesta.data.models import Contact
+
+        urls = [p.url for p in parse(body.url)[0]]
+        ids = list(db.scalars(select(Contact.id).where(
+            Contact.tenant_id == principal.tenant_id, Contact.linkedin_url.in_(urls))))  # fmt: skip
+        result["in_list"] = _to_list(db, principal, body.list_id, ids)
     audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
           action="extension.linkedin_saved", entity_type="contact", entity_id=None,
           ip=client_ip(request))  # fmt: skip

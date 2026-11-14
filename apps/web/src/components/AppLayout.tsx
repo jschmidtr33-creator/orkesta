@@ -2,7 +2,6 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
-  BookOpenText,
   CalendarDays,
   Check,
   ChevronsUpDown,
@@ -52,7 +51,6 @@ export const NAV: NavItem[] = [
   { to: "/calendario", label: "Calendario", icon: CalendarDays, group: "Vender" },
   { to: "/automatizacion", label: "Automatización", icon: Workflow, group: "Vender" },
   { to: "/reportes", label: "Reportes", icon: BarChart3, group: "Medir" },
-  { to: "/producto", label: "Mi producto", icon: BookOpenText, group: "Ajustes" },
 ];
 
 /** Solo para jefaturas y administración: lo que trabaja cada persona a cargo. */
@@ -217,6 +215,15 @@ function Sidebar({
             </NavLink>
           </Fragment>
         ))}
+        {["admin", "supervisor"].includes(session.workspace?.role ?? "") && NAV[NAV.length - 1]?.group === "Medir" && (
+          <NavLink to={TEAM_NAV.to} className={linkClass} onClick={onNavigate}>
+            <TEAM_NAV.icon className="size-[18px]" aria-hidden />
+            {TEAM_NAV.label}
+          </NavLink>
+        )}
+        <p className="mt-2 px-3 pb-0.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-white/35">
+          Ajustes
+        </p>
         <NavLink to="/configuracion" className={linkClass} onClick={onNavigate}>
           <Settings className="size-[18px]" aria-hidden />
           Configuración

@@ -531,6 +531,110 @@ OBJECTIONS: tuple[Objection, ...] = (
             ),
         ),
     ),
+    Objection(
+        "interno",
+        "Lo hacemos internamente",
+        "Su equipo ya lo resuelve a su manera. La puerta está en el tiempo y el costo que hoy le dedica su gente y en lo que no alcanza a cubrir.",
+        "[¿Te|¿Le] queda claro qué ganaría [tu|su] equipo si deja de hacerlo a mano?",
+        (
+            r"\blo hacemos (internamente|nosotros|en casa)\b",
+            r"\btenemos (un )?equipo (propio|interno)\b",
+            r"\b(lo|eso) (manejamos|resolvemos) internamente\b",
+            r"\bin.?house\b",
+        ),
+        (
+            Approach(
+                "tiempo",
+                "Poner en números el tiempo de su equipo",
+                "Lo interno parece gratis, pero cuesta horas de personas caras. Hazlo visible sin criticar a su equipo.",
+                (
+                    "Tiene todo el sentido: nadie conoce [tu|su] operación mejor que [tu|su] equipo.",
+                    "Justo por eso: ¿cuántas horas a la semana les toma hoy?",
+                    "Nuestros clientes con equipo propio lo usan para liberarlo de lo repetitivo: {valor}.",
+                    "[¿Te|¿Le] parece si lo comparamos en 20 minutos con [tu|su] forma actual?",
+                ),
+            ),
+            Approach(
+                "complemento",
+                "Sumar, no reemplazar",
+                "No compitas con su equipo: posiciónate como la herramienta que lo hace rendir más.",
+                (
+                    "Entiendo, y no se trata de reemplazar a [tu|su] equipo.",
+                    "Lo que hacemos es que rinda más: {diferencial}.",
+                    "¿Qué parte del proceso les quita más tiempo hoy?",
+                ),
+            ),
+        ),
+    ),
+    Objection(
+        "contrato",
+        "Tienen un contrato vigente",
+        "No puede cambiar ahora, pero sí puede planear. Gana quien llega antes de la renovación con una propuesta lista.",
+        "[¿Te|¿Le] parece bien que lo retomemos antes de la renovación?",
+        (
+            r"\b(tenemos|hay) (un )?contrato\b",
+            r"\bcontrato (vigente|firmado|anual)\b",
+            r"\bamarrados\b",
+            r"\bhasta (que )?(termine|venza|se venza) (el )?contrato\b",
+        ),
+        (
+            Approach(
+                "fecha",
+                "Convertirlo en una fecha",
+                "Pregunta cuándo vence y agenda desde ya: así entras en la evaluación y no después.",
+                (
+                    "Entiendo, hay que respetar el contrato.",
+                    "¿Cuándo vence? Lo ideal es revisarlo con un par de meses de anticipación, para que [tengas|tenga] con qué comparar.",
+                    "Mientras tanto [te|le] comparto {prueba}, para que lo [tengas|tenga] a mano.",
+                ),
+            ),
+            Approach(
+                "piloto",
+                "Proponer una prueba pequeña",
+                "Un piloto acotado no rompe el contrato y te deja demostrar resultados antes de la renovación.",
+                (
+                    "Tiene sentido no cambiar todo de un día para otro.",
+                    "Muchos clientes empezaron con una prueba pequeña en paralelo y compararon resultados.",
+                    "[¿Te|¿Le] interesaría probarlo con un equipo o una línea durante unas semanas?",
+                ),
+            ),
+        ),
+    ),
+    Objection(
+        "mala_experiencia",
+        "Ya probaron algo parecido y no funcionó",
+        "Hay una herida previa. Primero escucha qué falló; después muestra en qué eres distinto, con una prueba.",
+        "¿Lo que falló la vez pasada queda cubierto con lo que [te|le] propongo?",
+        (
+            r"\bya (lo )?(probamos|intentamos|usamos)\b",
+            r"\bno (nos )?(funciono|sirvio|dio resultado)\b",
+            r"\bmala experiencia\b",
+            r"\bnos fue mal\b",
+        ),
+        (
+            Approach(
+                "escuchar",
+                "Preguntar qué falló",
+                "Entender la causa real te da el argumento exacto y muestra respeto por su experiencia.",
+                (
+                    "Gracias por [contármelo|contármelo]; es muy útil saberlo.",
+                    "¿Qué fue lo que no funcionó: los resultados, la implementación o el acompañamiento?",
+                    "Así [te|le] digo con honestidad si lo nuestro lo resuelve o no.",
+                ),
+            ),
+            Approach(
+                "diferencia",
+                "Mostrar la diferencia con una prueba",
+                "No prometas: muestra un caso parecido al suyo y en qué cambia el enfoque.",
+                (
+                    "Entiendo la desconfianza.",
+                    "Lo que nos diferencia: {diferencial}.",
+                    "Un caso parecido: {prueba}.",
+                    "[¿Te|¿Le] muestro en 20 minutos cómo lo haríamos distinto en [tu|su] caso?",
+                ),
+            ),
+        ),
+    ),
 )
 
 OBJECTION_BY_CODE = {o.code: o for o in OBJECTIONS}

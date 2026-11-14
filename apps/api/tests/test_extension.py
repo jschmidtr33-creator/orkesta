@@ -147,6 +147,14 @@ def test_extension_saves_the_people_listed_on_screen(
     with session_factory() as session:
         names = set(session.scalars(select(CompanyDirectory.name)))
     assert "Lácteos del Valle" in names  # y su empresa, al directorio
+    # Guardar en una lista: los nuevos y los que ya estaban.
+    made = ext.post("/api/ext/lists", headers=headers, json={"name": "Feria Bogotá"})
+    assert made.status_code == 201
+    lst = made.json()["id"]
+    assert any(x["id"] == lst for x in ext.get("/api/ext/lists", headers=headers).json())
+    in_list = ext.post("/api/ext/contacts/bulk", headers=headers,
+                       json={**body, "list_id": lst}).json()  # fmt: skip
+    assert in_list["existing"] == 3 and in_list["in_list"] == 3
     too_many = {"people": [{"first_name": f"P{i}"} for i in range(101)]}
     assert ext.post("/api/ext/contacts/bulk", headers=headers, json=too_many).status_code == 422
 
