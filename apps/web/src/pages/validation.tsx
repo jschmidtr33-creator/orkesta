@@ -161,11 +161,12 @@ export function ValidationBanner() {
           <span><strong>{t.catch_all ?? 0}</strong> aceptan todo</span>
           <span><strong>{(t.desconocido ?? 0) + (t.riesgoso ?? 0)}</strong> sin confirmar o riesgosos</span>
           {latest.find_missing && <span><strong className="text-ork-blue">{t.found ?? 0}</strong> correos encontrados</span>}
+          {(t.estimated ?? 0) > 0 && <span><strong className="text-ork-violet">{t.estimated}</strong> estimados con el formato de su empresa</span>}
         </div>
       )}
       {t.smtp_blocked ? (
         <p className="mt-2 text-[12.5px] text-warn">
-          El servidor donde corre ORKESTA no tiene permitido conectarse al puerto 25, así que los buzones quedaron «Sin confirmar». La revisión de formato, dominio y desechables sí se hizo.
+          El servidor donde corre ORKESTA no tiene permitido conectarse al puerto 25, así que los buzones quedaron «Sin confirmar» y los correos que faltaban se dejaron «Estimados» con el formato de cada empresa. La revisión de formato, dominio y desechables sí se hizo. Para confirmar buzones hay que pedirle a AWS que abra el puerto 25 del servidor.
         </p>
       ) : null}
       {latest.status === "failed" && latest.error && <p className="mt-1 text-[12.5px] text-bad">{latest.error}</p>}

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import threading
 from dataclasses import dataclass, field
@@ -39,6 +40,9 @@ from orkesta.research.fetch import Fetcher, Page
 
 BASE = "https://google.serper.dev"
 CACHE_TTL = timedelta(days=14)
+
+
+logger = logging.getLogger(__name__)
 
 
 def enabled() -> bool:
@@ -104,8 +108,14 @@ def call(
         stats.error("red")
         return None
     text = response.text
+    lowered = text.lower()
+    # Serper responde 400 «Not enough credits» cuando se acaba el saldo: es tan definitivo como
+    # una clave inválida y hay que avisarlo, no seguir intentando.
+    if response.status_code in (400, 402) and "credit" in lowered:
+        stats.error("creditos")
+        stats.fatal = "creditos"
+        return None
     if response.status_code in (401, 403):
-        lowered = text.lower()
         kind = "creditos" if "credit" in lowered else "clave"
         stats.error(kind)
         stats.fatal = kind
@@ -115,6 +125,7 @@ def call(
         return None
     if response.status_code != 200:
         stats.error(str(response.status_code))
+        logger.warning("Serper respondió %s: %s", response.status_code, text[:200])
         return None
     try:
         data = json.loads(text)

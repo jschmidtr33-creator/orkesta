@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ORKESTA — Guardar contactos",
   "short_name": "ORKESTA",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Panel flotante para guardar en ORKESTA el perfil o la lista de contactos que ves en pantalla. ORKESTA verifica su correo.",
   "action": {
     "default_title": "Guardar en ORKESTA",
