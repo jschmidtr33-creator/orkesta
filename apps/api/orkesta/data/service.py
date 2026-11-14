@@ -924,7 +924,12 @@ def delete_contacts(
     ids: Iterable[uuid.UUID],
     owner_id: uuid.UUID | None = None,
 ) -> int:
-    """Borra contactos. Con ``owner_id`` solo los de esa persona (y los que no tienen dueño)."""
+    """Borra contactos de la base del cliente. Con ``owner_id`` solo los de esa persona (y los
+    que no tienen dueño). Lo aprendido de ellos sigue en el índice global de ORKESTA."""
+    from orkesta.brain.consolidate import keep_in_index
+
+    ids = list(ids)
+    keep_in_index(session, tenant_id, ids)
     query = delete(Contact).where(Contact.tenant_id == tenant_id, Contact.id.in_(list(ids)))
     if owner_id is not None:
         query = query.where(or_(Contact.owner_user_id.is_(None), Contact.owner_user_id == owner_id))

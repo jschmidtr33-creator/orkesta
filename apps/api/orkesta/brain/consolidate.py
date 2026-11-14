@@ -202,7 +202,9 @@ def _learn_sends(session: Session, tenant_id: uuid.UUID) -> dict[str, int]:
     return out
 
 
-def _profiles(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
+def _profiles(
+    session: Session, tenant_id: uuid.UUID, ids: list[uuid.UUID] | None = None
+) -> list[dict[str, Any]]:
     """Personas de la base del cliente para el índice de ORKESTA (todo el ecosistema): datos
     profesionales y correo CORPORATIVO (no estimado ni inválido; los validados quedan como
     confirmados). Nunca teléfonos ni correos personales; respeta la lista de exclusión."""
@@ -215,11 +217,12 @@ def _profiles(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
     from orkesta.research.people import person_key
 
     rows = []
+    only = [Contact.id.in_(ids)] if ids is not None else []
     for c in session.execute(select(
         Contact.full_name, Contact.first_name, Contact.last_name, Contact.job_title,
         Contact.company_name, Contact.country_code, Contact.city, Contact.linkedin_url,
         Contact.email, Contact.email_domain, Contact.email_status,
-    ).where(Contact.tenant_id == tenant_id, Contact.company_name.is_not(None),
+    ).where(*only, Contact.tenant_id == tenant_id, Contact.company_name.is_not(None),
             Contact.country_code.is_not(None),
             or_(Contact.linkedin_url.like("%linkedin.com/in/%"),
                 Contact.email.is_not(None)))):  # fmt: skip
@@ -249,6 +252,29 @@ def _profiles(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
             "source": "bases",
         })  # fmt: skip
     return rows
+
+
+def keep_in_index(session: Session, tenant_id: uuid.UUID, ids: list[uuid.UUID]) -> int:
+    """Antes de que un cliente borre contactos de su base, sus datos profesionales quedan en el
+    índice global de ORKESTA (lo que el cliente borra es su copia, no lo aprendido)."""
+    from orkesta.research import people as index
+
+    try:
+        rows = _profiles(session, tenant_id, ids)
+        if not rows:
+            return 0
+        factory = sessionmaker(bind=session.get_bind(), expire_on_commit=False)
+        _learn_companies_safe(factory, rows)
+        return index.upsert(factory, rows)
+    except Exception:
+        logger.exception("keep_in_index")
+        return 0
+
+
+def _learn_companies_safe(factory: sessionmaker[Session], rows: list[dict[str, Any]]) -> None:
+    from orkesta.extension.router import _learn_companies
+
+    _learn_companies(factory, rows)
 
 
 def run(factory: sessionmaker[Session], *, trigger: str = "nocturno") -> dict[str, Any]:
