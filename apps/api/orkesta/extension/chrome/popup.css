@@ -23,3 +23,17 @@ footer a { color: #2563eb; text-decoration: none; font-weight: 600; }
 .card .line { color: #334155; }
 .card .empty { color: #b45309; }
 .link { background: none; color: #2563eb; padding: 0; font-weight: 600; text-align: left; }
+body.panel { width: auto; min-height: 100vh; }
+body.panel header img, body.panel header strong { display: none; }
+body.panel header { padding: 7px 14px; background: #111833; }
+body.panel header .muted { margin-left: 0; max-width: none; }
+.rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+body.panel .rows { max-height: calc(100vh - 330px); min-height: 120px; }
+.person { flex-direction: row; align-items: flex-start; gap: 8px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; font-weight: 500; cursor: pointer; }
+.person input { margin-top: 3px; }
+.person .info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.person .pname { font-weight: 700; color: #0f172a; font-size: 13px; }
+.person .pline { color: #334155; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person.dim { opacity: 0.6; }
+.tag { font-size: 11px; font-weight: 700; color: #15803d; background: #dcfce7; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+footer { gap: 10px; }

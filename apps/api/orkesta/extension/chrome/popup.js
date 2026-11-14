@@ -1,6 +1,6 @@
 const API = "https://orkestaapp.com";
 const $ = (id) => document.getElementById(id);
-const show = (id) => ["connect", "linkedin", "form"].forEach((s) => ($(s).hidden = s !== id));
+const show = (id) => ["connect", "loading", "linkedin", "form", "list"].forEach((s) => ($(s).hidden = s !== id));
 const FIELDS = ["first_name", "last_name", "job_title", "company", "email", "phone", "website", "country"];
 
 async function call(path, token, body) {
@@ -18,7 +18,7 @@ async function call(path, token, body) {
 const EMAIL = /[A-Z0-9._%+'-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const PHONE = /\+?\d[\d\s().-]{7,}\d/;
 const TITLE = /\b(ceo|cfo|cio|cto|cmo|coo|cdo|ciso|chief|head|director|directora|gerente|jefe|jefa|vp|vice ?president|presidente|presidenta|manager|lead|líder|lider|coordinador|coordinadora|founder|co-?founder|fundador|fundadora|socio|socia|partner|owner|dueño|analista|especialista|ejecutivo|ejecutiva|consultor|consultora|ingeniero|ingeniera|abogado|abogada|asesor|asesora|subgerente|supervisor|supervisora|account|sales|marketing|officer)\b/i;
-const SKIP_HOSTS = /(google|gmail|outlook|live|yahoo|facebook|instagram|x\.com|twitter|youtube|wikipedia|lemlist|hubspot|salesforce|apollo|pipedrive|zoho)\./i;
+const SKIP_HOSTS = /(google|gmail|outlook|live|yahoo|facebook|instagram|x\.com|twitter|youtube|wikipedia|lemlist|hubspot|salesforce|apollo|prospeo|lusha|wiza|pipedrive|zoho)\./i;
 const AT = /\s(?:at|en|@)\s(?!.*\s(?:at|en|@)\s)(.+)$/i;
 const NOISE = /^(contact|contacto|perfil|profile|email|correo|teléfono|telefono|phone|empresa|company|cargo|title|linkedin|ver más|editar|edit|follow|seguir)$/i;
 
@@ -90,21 +90,6 @@ function fromPage(page) {
   return out;
 }
 
-async function capture(tab) {
-  const stored = (await chrome.storage.session.get("pending")).pending;
-  if (stored && Date.now() - stored.at < 60_000) {
-    await chrome.storage.session.remove("pending");
-    return stored;
-  }
-  if (!tab || !tab.id) return {};
-  try {
-    const [out] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaCapture });
-    return (out && out.result) || {};
-  } catch (e) {
-    return { url: tab.url || "", title: tab.title || "" };
-  }
-}
-
 function render(values) {
   const name = `${values.first_name} ${values.last_name}`.trim();
   $("sName").textContent = name || "No encontré el nombre";
@@ -114,8 +99,29 @@ function render(values) {
   $("sSource").textContent = values.source ? `Leído de ${values.source}.` : "";
 }
 
+// --- De dónde sale lo que está en pantalla ----------------------------------------------------
+// En el panel flotante, la página se lee desde el panel (panel.js) y llega por mensaje. En la
+// ventana de respaldo (páginas del navegador) no hay página que leer.
+const PANEL = new URLSearchParams(location.search).has("panel");
+const NONCE = location.hash.slice(1);
+const PARENT = "*"; // el panel verifica la ventana y la marca; aquí no hay datos sensibles
+function askPage() {
+  if (PANEL) window.parent.postMessage({ type: "orkesta-read", nonce: NONCE }, PARENT);
+}
+let token = "";
+let current = null;
+let trusted = false;
+
 async function main() {
-  const { token } = await chrome.storage.local.get("token");
+  if (PANEL && !trusted) {
+    const ok = await chrome.runtime.sendMessage({ type: "panel-check", nonce: NONCE }).catch(() => null);
+    if (!ok || !ok.ok) {
+      document.body.textContent = "";
+      return;
+    }
+    trusted = true;
+  }
+  ({ token } = await chrome.storage.local.get("token"));
   if (!token) {
     show("connect");
     return;
@@ -132,108 +138,103 @@ async function main() {
   }
   $("who").textContent = `${me.name} · ${me.company}`;
   $("logout").hidden = false;
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const pending = (await chrome.storage.session.get("pending")).pending;
-  const fresh = pending && Date.now() - pending.at < 60_000;
-  const url = (fresh && pending.url) || (tab && tab.url) || "";
-  let host = "";
-  try { host = new URL(url).hostname; } catch (e) {}
-  if (/(^|\.)linkedin\.com$/i.test(host)) {
+  $("reread").hidden = !PANEL;
+  if (PANEL) {
+    show("loading");
+    askPage();
+  } else {
+    showPage({ url: "", host: "", list: { people: [] } });
+  }
+}
+
+function showPage(page) {
+  current = page;
+  const url = page.url || "";
+  const people = (page.list && page.list.people) || [];
+  if (people.length >= 2) return showList(page, people);
+  if (page.linkedin) return linkedinProfile(page.linkedin, url);
+  if (page.salesnav) return salesNav(page.salesnav, url);
+  if (/(^|\.)linkedin\.com$/i.test(page.host || "")) {
     show("linkedin");
-    $("liMore").onclick = () => { $("liFields").hidden = false; $("liMore").hidden = true; };
-    if (/linkedin\.com\/sales\//i.test(url)) return salesNav(tab, token, url);
-    if (!/linkedin\.com\/in\//i.test(url)) {
-      $("liBtn").hidden = true;
-      $("liMore").hidden = true;
-      $("liMsg").textContent = "Abre el perfil de una persona (linkedin.com/in/…) para agregarlo.";
-      return;
-    }
-    // Se lee al abrir la extensión: así se ve lo que se va a guardar antes de tocar el botón.
-    let seen = { name: "", title: "", company: "", location: "" };
-    try {
-      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaLinkedIn });
-      if (res && res.result) seen = res.result;
-    } catch (e) {}
-    if (seen.name) {
-      $("liSummary").hidden = false;
-      $("liName").textContent = seen.name;
-      $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa visibles";
-      $("liPlace").textContent = seen.location;
-      $("liHint").hidden = true;
-      $("liCompany").value = seen.company || "";
-    } else {
-      $("liHint").textContent = "No pude leer el perfil (recarga la página de LinkedIn y vuelve a abrir la extensión). Igual puedes agregarlo: ORKESTA lo buscará por su dirección.";
-    }
-    $("liBtn").onclick = async () => {
-      $("liBtn").disabled = true;
-      $("liMsg").textContent = "Guardando…";
-      $("liMsg").className = "msg";
-      try {
-        const r = await call("/api/ext/linkedin", token, {
-          url,
-          company: $("liCompany").value.trim(),
-          country: $("liCountry").value.toUpperCase(),
-          name: seen.name, title: seen.title, location: seen.location,
-        });
-        $("liMsg").textContent = r.created || r.updated
-          ? (r.with_email ? "Guardado con su correo." : r.enrichment_id ? "Guardado. ORKESTA está buscando su correo." : "Guardado en Contactos.")
-          : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.";
-        $("liMsg").className = "msg ok";
-      } catch (e) {
-        $("liMsg").textContent = e.message;
-        $("liMsg").className = "msg bad";
-      } finally {
-        $("liBtn").disabled = false;
-      }
-    };
+    $("liSummary").hidden = true;
+    $("liBtn").hidden = true;
+    $("liMore").hidden = true;
+    $("liFields").hidden = true;
+    $("liHint").hidden = false;
+    $("liHint").textContent = "Abre el perfil de una persona o una búsqueda de personas y toca «Leer de nuevo».";
+    $("liMsg").textContent = "";
     return;
   }
-  const page = await capture(tab);
-  const values = fromPage(page);
-  for (const k of FIELDS) if ($(k)) $(k).value = values[k] || "";
-  render(values);
-  show("form");
-  const found = values.first_name && values.last_name;
-  if (!found) {
-    $("fields").hidden = false;
-    $("editBtn").hidden = true;
-    $("hint").textContent = "No encontré un perfil en esta página. Selecciona con el mouse el nombre, cargo y empresa de la persona y vuelve a abrir la extensión (o clic derecho → «Guardar en ORKESTA»).";
+  if (people.length === 1 && !(page.page && (page.page.heading || page.page.person || page.page.selection))) {
+    const [first, last] = splitName(people[0].name);
+    return showForm({ first_name: first, last_name: last, job_title: people[0].title, company: people[0].company,
+      email: people[0].email, phone: people[0].phone || "", website: "", country: people[0].location, source: "la lista en pantalla" }, url);
   }
-  $("editBtn").onclick = () => { $("fields").hidden = false; $("editBtn").hidden = true; };
-  for (const k of FIELDS) if ($(k)) $(k).oninput = () => render({ ...values, ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])) });
-  $("saveBtn").onclick = async () => {
-    $("saveBtn").disabled = true;
-    $("saveMsg").textContent = "";
-    const body = { source_url: page.url || url, enrich: $("enrich").checked };
-    for (const k of FIELDS) body[k] = $(k).value.trim();
+  return showForm(fromPage(page.page || {}), url);
+}
+
+function savedText(r) {
+  return r.email ? "Guardado con su correo." : r.enrichment_id ? "Guardado. ORKESTA está buscando su correo." : "Guardado en Contactos.";
+}
+function msg(id, text, kind) {
+  $(id).textContent = text;
+  $(id).className = `msg ${kind || ""}`;
+}
+
+// --- Perfil de LinkedIn ---------------------------------------------------------------------------
+function linkedinProfile(seen, url) {
+  show("linkedin");
+  $("liBtn").hidden = false;
+  $("liMore").hidden = false;
+  $("liFields").hidden = true;
+  msg("liMsg", "");
+  $("liMore").onclick = () => { $("liFields").hidden = false; $("liMore").hidden = true; };
+  if (seen.name) {
+    $("liSummary").hidden = false;
+    $("liName").textContent = seen.name;
+    $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa visibles";
+    $("liPlace").textContent = seen.location;
+    $("liHint").hidden = true;
+    $("liCompany").value = seen.company || "";
+  } else {
+    $("liSummary").hidden = true;
+    $("liHint").hidden = false;
+    $("liHint").textContent = "No pude leer el perfil (espera a que cargue y toca «Leer de nuevo»). Igual puedes agregarlo: ORKESTA lo buscará por su dirección.";
+  }
+  $("liBtn").onclick = async () => {
+    $("liBtn").disabled = true;
+    msg("liMsg", "Guardando…");
     try {
-      const r = await call("/api/ext/contacts", token, body);
-      $("saveMsg").textContent = r.email ? `Guardado: ${r.name}.` : r.enrichment_id ? `Guardado: ${r.name}. ORKESTA está buscando su correo.` : `Guardado: ${r.name}.`;
-      $("saveMsg").className = "msg ok";
+      const r = await call("/api/ext/linkedin", token, {
+        url, company: $("liCompany").value.trim(), country: $("liCountry").value.toUpperCase(),
+        name: seen.name, title: seen.title, location: seen.location,
+      });
+      msg("liMsg", r.created || r.updated ? savedText({ email: r.with_email, enrichment_id: r.enrichment_id })
+        : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.", "ok");
     } catch (e) {
-      $("saveMsg").textContent = e.message;
-      $("saveMsg").className = "msg bad";
-      $("fields").hidden = false;
+      msg("liMsg", e.message, "bad");
     } finally {
-      $("saveBtn").disabled = false;
+      $("liBtn").disabled = false;
     }
   };
 }
 
-// Sales Navigator: la ficha del posible cliente abierta (panel o página del lead).
-async function salesNav(tab, token, url) {
-  let seen = { name: "", title: "", company: "", location: "", profile: "", lead: "" };
-  try {
-    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaSalesNav });
-    if (res && res.result) seen = res.result;
-  } catch (e) {}
+// --- Ficha abierta de Sales Navigator ---------------------------------------------------------------
+function salesNav(seen, url) {
+  show("linkedin");
+  $("liFields").hidden = true;
+  msg("liMsg", "");
   $("liMore").onclick = () => { $("liFields").hidden = false; $("liMore").hidden = true; };
   if (!seen.name) {
+    $("liSummary").hidden = true;
     $("liBtn").hidden = true;
     $("liMore").hidden = true;
-    $("liHint").textContent = "Abre la ficha de un posible cliente (haz clic en su nombre en la lista) y vuelve a abrir la extensión.";
+    $("liHint").hidden = false;
+    $("liHint").textContent = "Abre la ficha de un posible cliente o una búsqueda de leads y toca «Leer de nuevo».";
     return;
   }
+  $("liBtn").hidden = false;
+  $("liMore").hidden = false;
   $("liSummary").hidden = false;
   $("liName").textContent = seen.name;
   $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa visibles";
@@ -242,8 +243,7 @@ async function salesNav(tab, token, url) {
   $("liCompany").value = seen.company || "";
   $("liBtn").onclick = async () => {
     $("liBtn").disabled = true;
-    $("liMsg").textContent = "Guardando…";
-    $("liMsg").className = "msg";
+    msg("liMsg", "Guardando…");
     const company = $("liCompany").value.trim();
     try {
       let r;
@@ -253,43 +253,177 @@ async function salesNav(tab, token, url) {
         r = { ok: r.created || r.updated, email: r.with_email, enrichment_id: r.enrichment_id, existing: r.existing };
       } else {
         const [first, last] = splitName(seen.name);
-        const place = seen.location.split(",").map((x) => x.trim());
-        const saved = await call("/api/ext/contacts", token, {
-          first_name: first, last_name: last, job_title: seen.title, company,
-          country: $("liCountry").value.trim() || place[place.length - 1] || "",
-          source_url: seen.lead || url, enrich: true,
-        });
-        r = { ok: true, email: saved.email, enrichment_id: saved.enrichment_id };
+        const res = await call("/api/ext/contacts/bulk", token, { source_url: seen.lead || url, enrich: true,
+          people: [{ first_name: first, last_name: last, job_title: seen.title, company, location: seen.location }] });
+        r = { ok: res.created > 0, existing: res.existing > 0, enrichment_id: res.enrichment_id, error: res.errors[0] };
       }
-      $("liMsg").textContent = r.ok
-        ? (r.email ? "Guardado con su correo." : r.enrichment_id ? "Guardado. ORKESTA está buscando su correo." : "Guardado en Contactos.")
-        : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.";
-      $("liMsg").className = "msg ok";
+      if (r.error) throw new Error(r.error);
+      msg("liMsg", r.ok ? savedText(r) : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.", "ok");
     } catch (e) {
-      $("liMsg").textContent = e.message;
-      $("liMsg").className = "msg bad";
+      msg("liMsg", e.message, "bad");
     } finally {
       $("liBtn").disabled = false;
     }
   };
 }
 
+// --- Un contacto en cualquier página -----------------------------------------------------------------
+function showForm(values, url) {
+  for (const k of FIELDS) if ($(k)) $(k).value = values[k] || "";
+  render(values);
+  show("form");
+  msg("saveMsg", "");
+  const found = values.first_name && values.last_name;
+  $("fields").hidden = !!found;
+  $("editBtn").hidden = !found;
+  $("hint").textContent = found ? "" : "No encontré un perfil en esta página. Selecciona con el mouse el nombre, cargo y empresa de la persona y toca «Leer de nuevo» (o clic derecho → «Guardar en ORKESTA»).";
+  $("editBtn").onclick = () => { $("fields").hidden = false; $("editBtn").hidden = true; };
+  for (const k of FIELDS) if ($(k)) $(k).oninput = () => render({ ...values, ...Object.fromEntries(FIELDS.map((f) => [f, $(f).value])) });
+  $("saveBtn").onclick = async () => {
+    $("saveBtn").disabled = true;
+    msg("saveMsg", "");
+    const body = { source_url: url, enrich: $("enrich").checked };
+    for (const k of FIELDS) body[k] = $(k).value.trim();
+    try {
+      const r = await call("/api/ext/contacts", token, body);
+      msg("saveMsg", r.email ? `Guardado: ${r.name}.` : r.enrichment_id ? `Guardado: ${r.name}. ORKESTA está buscando su correo.` : `Guardado: ${r.name}.`, "ok");
+    } catch (e) {
+      msg("saveMsg", e.message, "bad");
+      $("fields").hidden = false;
+    } finally {
+      $("saveBtn").disabled = false;
+    }
+  };
+}
+
+// --- Varias personas en pantalla (búsqueda de leads, búsqueda de LinkedIn, tablas) -----------------
+const MAX_SAVE = 100;
+const SOURCES = { salesnav: "la búsqueda de Sales Navigator", linkedin: "la búsqueda de LinkedIn", table: "la tabla de esta página" };
+
+function toPerson(p) {
+  const [first, last] = splitName(p.name);
+  return { first_name: first, last_name: last, job_title: p.title || "", company: p.company || "", email: p.email || "",
+    phone: p.phone || "", location: p.location || "", linkedin_url: p.url || "" };
+}
+
+function showList(page, people) {
+  show("list");
+  msg("lMsg", "");
+  $("lTitle").textContent = `${people.length} personas en pantalla`;
+  $("lSource").textContent = `Leídas de ${SOURCES[page.list.kind] || "esta página"}. Para ver más, baja o pasa de página y toca «Leer de nuevo».`;
+  const rows = $("lRows");
+  rows.textContent = "";
+  const boxes = people.map((p, i) => {
+    const row = document.createElement("label");
+    row.className = "person";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.dataset.i = String(i);
+    const info = document.createElement("span");
+    info.className = "info";
+    const name = document.createElement("span");
+    name.className = "pname";
+    name.textContent = p.name;
+    const line = document.createElement("span");
+    line.className = "pline";
+    line.textContent = [p.title, p.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa";
+    const more = document.createElement("span");
+    more.className = "pline muted";
+    more.textContent = [p.email, p.location].filter(Boolean).join(" · ");
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.hidden = true;
+    info.append(name, line, more);
+    row.append(box, info, tag);
+    rows.append(row);
+    box.onchange = count;
+    return { box, tag, row };
+  });
+  function count() {
+    const n = boxes.filter((b) => b.box.checked).length;
+    $("lSave").textContent = `Guardar seleccionados (${n})`;
+    $("lSave").disabled = n === 0;
+    $("lAll").checked = n === boxes.length;
+  }
+  $("lAll").onchange = () => { boxes.forEach((b) => (b.box.checked = $("lAll").checked)); count(); };
+  count();
+  // Quién ya está en Contactos: se marca y se desmarca para no repetirlo.
+  const list = people.slice(0, MAX_SAVE * 3).map(toPerson);
+  (async () => {
+    for (let i = 0; i < list.length; i += MAX_SAVE) {
+      try {
+        const r = await call("/api/ext/contacts/check", token, { people: list.slice(i, i + MAX_SAVE) });
+        r.exists.forEach((yes, j) => {
+          const b = boxes[i + j];
+          if (yes && b) { b.tag.hidden = false; b.tag.textContent = "Ya está"; b.box.checked = false; b.row.classList.add("dim"); }
+        });
+      } catch (e) {}
+    }
+    if (current && current.list && current.list.people === people) count();
+  })();
+  const save = async (only) => {
+    const chosen = boxes.filter((b) => !only || b.box.checked).map((b) => Number(b.box.dataset.i));
+    if (!chosen.length) return;
+    const batch = chosen.slice(0, MAX_SAVE);
+    $("lSave").disabled = $("lSaveAll").disabled = true;
+    msg("lMsg", `Guardando ${batch.length}…`);
+    try {
+      const r = await call("/api/ext/contacts/bulk", token, { source_url: page.url, enrich: $("lEnrich").checked,
+        people: batch.map((i) => toPerson(people[i])) });
+      for (const i of batch) {
+        const b = boxes[i];
+        b.box.checked = false;
+        b.tag.hidden = false;
+        b.tag.textContent = "Guardado";
+        b.row.classList.add("dim");
+      }
+      const parts = [`${r.created} guardado(s)`];
+      if (r.existing) parts.push(`${r.existing} ya estaba(n)`);
+      if (r.pending && r.enrichment_id) parts.push(`ORKESTA busca el correo de ${r.pending}`);
+      else if (r.pending) parts.push(`${r.pending} sin correo: búscalos luego en Enriquecer`);
+      if (chosen.length > MAX_SAVE) parts.push(`guarda de a ${MAX_SAVE}: quedan ${chosen.length - MAX_SAVE} por guardar`);
+      msg("lMsg", parts.join(" · ") + ".", r.errors.length ? "bad" : "ok");
+      if (r.errors.length) $("lMsg").textContent += ` No se guardaron: ${r.errors.join("; ")}`;
+    } catch (e) {
+      msg("lMsg", e.message, "bad");
+    } finally {
+      $("lSaveAll").disabled = false;
+      count();
+    }
+  };
+  $("lSave").onclick = () => save(true);
+  $("lSaveAll").onclick = () => save(false);
+}
+
+window.addEventListener("message", (e) => {
+  const d = e.data || {};
+  if (!PANEL || !trusted || e.source !== window.parent || d.type !== "orkesta-page" || d.nonce !== NONCE || !token) return;
+  showPage(d.page || {});
+});
+$("reread").onclick = (e) => {
+  e.preventDefault();
+  show("loading");
+  askPage();
+};
 $("connectBtn").onclick = () => {
   chrome.tabs.create({ url: `${API}/app/conectar-extension` });
-  window.close();
+  if (!PANEL) window.close();
 };
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.token && changes.token.newValue) $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
-main();
+  if (changes.token && changes.token.newValue) main();
 });
 $("logout").onclick = async (e) => {
   e.preventDefault();
-  const { token } = await chrome.storage.local.get("token");
-  if (token) await fetch(`${API}/api/ext/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  const stored = (await chrome.storage.local.get("token")).token;
+  if (stored) await fetch(`${API}/api/ext/logout`, { method: "POST", headers: { Authorization: `Bearer ${stored}` } }).catch(() => {});
   await chrome.storage.local.remove("token");
+  token = "";
   $("who").textContent = "";
   $("logout").hidden = true;
+  $("reread").hidden = true;
   show("connect");
 };
+if (PANEL) document.body.classList.add("panel");
 $("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 main();

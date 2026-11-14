@@ -3,7 +3,8 @@
 - Desde el panel de administración (solo la plataforma): crear, ver y revocar claves y descargar
   la extensión. No es una función de la app para los usuarios.
 - Con la clave (``Authorization: Bearer ork_…``): quién soy, guardar un contacto que la persona
-  eligió en una página, y agregar un perfil por su dirección de LinkedIn (sin leer LinkedIn).
+  eligió en una página, agregar un perfil por su dirección de LinkedIn, marcar quién de una lista
+  en pantalla ya está en Contactos y guardar de una vez (hasta 100) los que la persona eligió.
 
 La clave solo se guarda como huella; solo sirve para crear y consultar contactos de su dueño, y
 cada uso queda en la bitácora.
@@ -286,6 +287,120 @@ def save_contact(body: ExtContactIn, request: Request, principal: Extension,
           ip=client_ip(request))  # fmt: skip
     return {"id": str(contact.id), "name": contact.full_name, "email": contact.email,
             "enrichment_id": enrichment}  # fmt: skip
+
+
+class ExtPersonIn(BaseModel):
+    first_name: str = Field(default="", max_length=200)
+    last_name: str = Field(default="", max_length=200)
+    job_title: str = Field(default="", max_length=300)
+    company: str = Field(default="", max_length=300)
+    email: str = Field(default="", max_length=320)
+    phone: str = Field(default="", max_length=40)
+    location: str = Field(default="", max_length=200)
+    linkedin_url: str = Field(default="", max_length=600)
+
+
+class ExtListIn(BaseModel):
+    people: list[ExtPersonIn] = Field(max_length=100)
+    source_url: str = Field(default="", max_length=600)
+    enrich: bool = True
+
+
+def _person_input(p: ExtPersonIn) -> Any:
+    from orkesta.data import service as svc
+    from orkesta.engine.normalize import parse_location
+
+    first, last = p.first_name.strip(), p.last_name.strip()
+    if first and not last and " " in first:
+        first, _, last = first.partition(" ")
+    email = p.email.strip()
+    if email and ("@" not in email or "." not in email.split("@")[-1]):
+        email = ""  # lo que se ve en pantalla a veces es «Ver correo» o un correo cortado
+    place = p.location.strip()
+    if place and not parse_location(place).country_code:
+        place = ""  # «Área metropolitana», «Remoto»…: mejor sin país que con error
+    return svc.ContactInput(first_name=first, last_name=last, job_title=p.job_title,
+                            company=p.company, email=email, phone=p.phone,
+                            country=place)  # fmt: skip
+
+
+def _profile_url(url: str) -> str:
+    from orkesta.data.linkedin import parse
+
+    profiles, _ = parse(url) if "linkedin.com/in/" in url else ([], [])
+    return profiles[0].url if profiles else ""
+
+
+@router.post("/ext/contacts/check")
+def check_people(body: ExtListIn, principal: Extension, db: Db) -> dict[str, Any]:
+    """¿Cuáles de las personas de la pantalla ya están en Contactos? (no guarda nada)."""
+    from orkesta.core.db import unscoped
+    from orkesta.data import service as svc
+    from orkesta.data.models import Contact
+
+    keys, urls = [], []
+    for p in body.people:
+        try:
+            values = svc._clean_input(_person_input(p))
+        except svc.DataError:
+            values = {"email": None, "full_name": "", "company_key": ""}
+        keys.append(svc.dedup_key(values["email"], values["full_name"], values["company_key"])
+                    if values["full_name"] else "-")  # fmt: skip
+        urls.append(_profile_url(p.linkedin_url))
+    with unscoped(db):
+        found_keys = set(db.scalars(select(Contact.dedup_key).where(
+            Contact.tenant_id == principal.tenant_id, Contact.dedup_key.in_(keys))))  # fmt: skip
+        wanted = [u for u in urls if u]
+        found_urls = set(db.scalars(select(Contact.linkedin_url).where(
+            Contact.tenant_id == principal.tenant_id, Contact.linkedin_url.in_(wanted)))
+        ) if wanted else set()  # fmt: skip
+    return {
+        "exists": [
+            k in found_keys or bool(u and u in found_urls) for k, u in zip(keys, urls, strict=True)
+        ]
+    }
+
+
+@router.post("/ext/contacts/bulk")
+def save_people(body: ExtListIn, request: Request, principal: Extension,
+                db: Db) -> dict[str, Any]:  # fmt: skip
+    """Guarda las personas que la persona eligió de la lista en pantalla (máximo 100) y las que
+    no tienen correo pasan juntas a un solo enriquecimiento."""
+    from orkesta.data import service as svc
+    from orkesta.data.models import Contact, DataPoint
+
+    created: list[uuid.UUID] = []
+    existing = 0
+    errors: list[str] = []
+    for p in body.people:
+        try:
+            contact = svc.create_contact(db, tenant_id=principal.tenant_id, user=principal.user,
+                                         data=_person_input(p))  # fmt: skip
+        except svc.DataError as exc:
+            if exc.status == 409:
+                existing += 1
+            else:
+                errors.append(f"{p.first_name} {p.last_name}: {exc}"[:160])
+                if exc.status in (402, 403):
+                    break  # límite del plan: no tiene sentido seguir
+            continue
+        if url := _profile_url(p.linkedin_url):
+            contact.linkedin_url = url[:300]
+        if body.source_url:
+            db.add(DataPoint(tenant_id=contact.tenant_id, contact_id=contact.id, field="fuente",
+                             value=body.source_url[:1000], source_type="manual",
+                             source_label="Guardado con la extensión de Chrome (lista)",
+                             confidence=100, actor_user_id=principal.user.id))  # fmt: skip
+        created.append(contact.id)
+    db.flush()
+    pending = [c for c in created if (x := db.get(Contact, c)) is not None
+               and not x.email and x.company_name]  # fmt: skip
+    enrichment = _start_enrichment(db, principal, pending) if body.enrich else None
+    audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id,
+          action="extension.list_saved", entity_type="contact", entity_id=None,
+          ip=client_ip(request))  # fmt: skip
+    return {"created": len(created), "existing": existing, "errors": errors[:10],
+            "enrichment_id": enrichment, "pending": len(pending)}  # fmt: skip
 
 
 class ExtLinkedInIn(BaseModel):

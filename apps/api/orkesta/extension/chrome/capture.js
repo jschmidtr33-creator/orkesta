@@ -1,7 +1,7 @@
-// Se ejecuta SOLO cuando la persona abre la extensión o elige «Guardar en ORKESTA», y solo en la
-// pestaña que está viendo: lee el perfil que tiene en pantalla (datos estructurados de la
-// página, el título principal y el bloque que lo rodea, correos y teléfonos visibles) o lo que
-// seleccionó. No recorre otras páginas ni pestañas. En LinkedIn no se ejecuta.
+// Lectores de la página. Solo se ejecutan en la pestaña que la persona está viendo, cuando abre
+// el panel de ORKESTA o toca «Leer de nuevo»: leen lo que está en pantalla (un perfil o una lista
+// de personas). No navegan, no hacen scroll, no abren otras páginas ni pestañas y no hacen nada
+// en el sitio.
 function orkestaCapture() {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
   const meta = (name) =>
@@ -158,4 +158,125 @@ function orkestaSalesNav() {
   const lead = nameEl.closest('a[href*="/sales/lead/"]') || panel.querySelector('a[href*="/sales/lead/"]');
   if (lead) out.lead = lead.href;
   return out;
+}
+
+// Lista de personas en pantalla: búsqueda de Sales Navigator, búsqueda de personas de LinkedIn o
+// una tabla de contactos (Prospeo, Apollo, un CRM…). Solo lo que ya está cargado y visible; no
+// hace scroll ni pasa de página.
+function orkestaList() {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const shown = (el) => !el.closest('[hidden], [aria-hidden="true"]') && getComputedStyle(el).display !== "none";
+  const EMAIL = /[A-Z0-9._%+'-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+  const AT = /\s(?:at|en|@)\s(?!.*\s(?:at|en|@)\s)(.+)$/i;
+  const people = [];
+  const seen = new Set();
+  const push = (p) => {
+    p = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, clean(v)]));
+    if (!p.name || p.name.length > 80 || /@|^\d+$/.test(p.name)) return;
+    const key = `${p.name}|${p.company}`.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    people.push(p);
+  };
+  // La fila de una persona: el contenedor más grande que solo la tiene a ella.
+  const rowOf = (el, count) => {
+    let row = el;
+    while (row.parentElement && row.parentElement !== document.body && count(row.parentElement) === 1) row = row.parentElement;
+    return row;
+  };
+
+  // 1) Sales Navigator (marcas data-anonymize de cada resultado).
+  if (/(^|\.)linkedin\.com$/.test(location.hostname) && location.pathname.startsWith("/sales/")) {
+    const names = [...document.querySelectorAll('[data-anonymize="person-name"]')].filter((el) => clean(el.innerText));
+    const count = (box) => box.querySelectorAll('[data-anonymize="person-name"]').length;
+    for (const nameEl of names) {
+      const row = rowOf(nameEl, count);
+      const pick = (attr) => clean(row.querySelector(`[data-anonymize="${attr}"]`)?.innerText);
+      let title = pick("title") || pick("job-title") || pick("headline");
+      if (title.length > 90) title = title.split(/\s[|I•]\s/)[0];
+      const lead = nameEl.closest('a[href*="/sales/lead/"]') || row.querySelector('a[href*="/sales/lead/"]');
+      const profile = row.querySelector('a[href*="linkedin.com/in/"]');
+      push({ name: nameEl.innerText, title, company: pick("company-name"), location: pick("location"),
+        email: "", url: (profile && profile.href) || (lead && lead.href) || "" });
+    }
+    return { kind: "salesnav", people };
+  }
+
+  // 2) Búsqueda de personas de LinkedIn: cada resultado enlaza a un perfil /in/.
+  if (/(^|\.)linkedin\.com$/.test(location.hostname) && location.pathname.startsWith("/search/")) {
+    const NOISE = /^(•|·)|^\d+\s*(º|°)|\b(1er|2º|3er|1st|2nd|3rd)\b|conectar|connect|mensaje|message|seguir|follow|en común|in common|ver perfil|view .*profile|contactos|connections|seguidores|followers|^actual:|^current:|^anterior:|^past:|premium|verificad|verified|^status|^estado/i;
+    const slug = (a) => (a.getAttribute("href").match(/\/in\/([^/?#]+)/) || [])[1] || "";
+    const links = [...document.querySelectorAll('main a[href*="/in/"], a[href*="linkedin.com/in/"]')].filter((a) => slug(a));
+    const count = (box) => new Set([...box.querySelectorAll('a[href*="/in/"]')].map(slug).filter(Boolean)).size;
+    const done = new Set();
+    for (const a of links) {
+      const id = slug(a);
+      if (done.has(id)) continue;
+      const row = rowOf(a, count);
+      const lines = String(row.innerText || "").split("\n").map(clean).filter(Boolean);
+      const name = clean((a.querySelector('span[aria-hidden="true"]') || a).innerText).split("\n")[0]
+        || lines[0] || "";
+      if (!name || name.split(" ").length > 7) continue;
+      done.add(id);
+      const rest = lines.filter((l) => l !== name && !l.startsWith(name) && !NOISE.test(l));
+      const headline = rest[0] || "";
+      const at = headline.match(AT);
+      push({ name: name.replace(/\s*[•·].*$/, ""), title: at ? headline.slice(0, at.index) : headline,
+        company: at ? at[1] : "", location: rest[1] || "", email: "", url: `https://www.linkedin.com/in/${id}/` });
+    }
+    return { kind: "linkedin", people };
+  }
+
+  // 3) Tablas: encabezados por nombre (Name, Company, Title, Email, Location… en español o inglés).
+  const ROLES = [
+    ["first", /^(first ?name|nombres?|primer nombre)$/i],
+    ["last", /^(last ?name|apellidos?)$/i],
+    ["name", /^(name|full ?name|nombre completo|nombre|contact|contacto|person|persona|lead|prospect|prospecto)$/i],
+    ["title", /^(title|job ?title|cargo|puesto|position|posición|role|rol|headline)$/i],
+    ["company", /^(company|company name|empresa|organization|organización|account|cuenta|compañía)$/i],
+    ["email", /(e-?mail|correo)/i],
+    ["phone", /(phone|teléfono|telefono|mobile|móvil|celular)/i],
+    ["location", /^(location|ubicación|ubicacion|country|país|pais|city|ciudad|region|región)$/i],
+    ["url", /linkedin/i],
+  ];
+  const tables = [];
+  document.querySelectorAll("table").forEach((t) => {
+    const heads = [...t.querySelectorAll("thead th, thead td")];
+    const headRow = heads.length ? heads : [...(t.querySelector("tr")?.querySelectorAll("th") || [])];
+    if (!headRow.length) return;
+    const rows = [...t.querySelectorAll("tbody tr, tr")].filter((r) => r.querySelector("td") && shown(r));
+    tables.push({ heads: headRow.map((h) => clean(h.innerText)), rows: rows.map((r) => [...r.querySelectorAll("td")]) });
+  });
+  document.querySelectorAll('[role="grid"], [role="table"], [role="treegrid"]').forEach((g) => {
+    const heads = [...g.querySelectorAll('[role="columnheader"]')];
+    if (!heads.length) return;
+    const rows = [...g.querySelectorAll('[role="row"]')].filter((r) => r.querySelector('[role="cell"], [role="gridcell"]') && shown(r));
+    tables.push({ heads: heads.map((h) => clean(h.innerText)), rows: rows.map((r) => [...r.querySelectorAll('[role="cell"], [role="gridcell"]')]) });
+  });
+  for (const t of tables) {
+    const map = {};
+    t.heads.forEach((h, i) => {
+      const role = ROLES.find(([key, re]) => !(key in map) && re.test(h));
+      if (role) map[role[0]] = i;
+    });
+    if (!("name" in map) && !("first" in map)) continue;
+    // Si la tabla tiene una columna de selección sin encabezado, las celdas van corridas.
+    const shift = t.rows.length && t.rows[0].length === t.heads.length + 1 ? 1 : 0;
+    for (const cells of t.rows) {
+      const cell = (key) => (key in map && cells[map[key] + shift]) || null;
+      const text = (key) => (cell(key) ? String(cell(key).innerText || "") : "");
+      const nameLines = text("name").split("\n").map(clean).filter(Boolean);
+      const name = nameLines[0] || clean(`${text("first")} ${text("last")}`);
+      const emailCell = text("email");
+      const email = (emailCell.match(EMAIL) || [])[0]
+        || (cell("email")?.querySelector('a[href^="mailto:"]')?.getAttribute("href") || "").slice(7);
+      const link = (cells.map((c) => c.querySelector('a[href*="linkedin.com/in/"]')).find(Boolean)) || null;
+      const companyLines = text("company").split("\n").map(clean).filter(Boolean);
+      push({ name, title: text("title").split("\n")[0] || nameLines[1] || "", company: companyLines[0] || "",
+        location: text("location").split("\n")[0] || "", email: email || "", phone: text("phone").split("\n")[0] || "",
+        url: (link && link.href) || "" });
+    }
+    if (people.length) return { kind: "table", people };
+  }
+  return { kind: "", people };
 }
