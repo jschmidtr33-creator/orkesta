@@ -125,3 +125,37 @@ function orkestaLinkedIn() {
   }
   return out;
 }
+
+// Sales Navigator: SOLO cuando la persona abre la extensión, y solo la ficha del posible cliente
+// que tiene abierta (panel lateral o página del lead). Usa las marcas de la ficha (nombre,
+// titular, empresa y ubicación); no recorre la lista de resultados.
+function orkestaSalesNav() {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const out = { name: "", title: "", company: "", location: "", profile: "", lead: "" };
+  const names = [...document.querySelectorAll('[data-anonymize="person-name"]')].filter((el) => clean(el.innerText));
+  // La ficha abierta no está dentro de la lista de resultados.
+  const inList = (el) => !!el.closest("ol li, [data-x-search-result], .artdeco-list__item");
+  const nameEl = names.find((el) => !inList(el)) || (location.pathname.startsWith("/sales/lead/") ? names[0] : null);
+  if (!nameEl) return out;
+  out.name = clean(nameEl.innerText);
+  // El panel: el contenedor del nombre que también tiene el titular o la ubicación.
+  let panel = nameEl;
+  for (let i = 0; i < 12 && panel.parentElement; i++) {
+    panel = panel.parentElement;
+    if (panel.querySelector('[data-anonymize="headline"], [data-anonymize="location"]') && panel.querySelector('[data-anonymize="company-name"]')) break;
+  }
+  const pick = (attr) => clean(panel.querySelector(`[data-anonymize="${attr}"]`)?.innerText);
+  out.title = pick("headline") || pick("job-title");
+  out.company = pick("company-name");
+  out.location = pick("location");
+  if (!out.location) {
+    const pin = [...panel.querySelectorAll("div, span")].map((e) => clean(e.innerText)).find((t) => /,/.test(t) && t.length < 60 && /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|dominicana|brasil|españa|estados unidos|united states|area|área/i.test(t));
+    out.location = pin || "";
+  }
+  if (out.title.length > 70) out.title = out.title.split(/\s[|I•]\s/)[0];
+  const profile = panel.querySelector('a[href*="linkedin.com/in/"]');
+  if (profile) out.profile = profile.href;
+  const lead = nameEl.closest('a[href*="/sales/lead/"]') || panel.querySelector('a[href*="/sales/lead/"]');
+  if (lead) out.lead = lead.href;
+  return out;
+}
