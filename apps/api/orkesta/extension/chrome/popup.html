@@ -21,31 +21,43 @@
 
   <section id="linkedin" hidden>
     <h1>Agregar este perfil</h1>
-    <p class="muted">ORKESTA no lee la página de LinkedIn: usa solo la dirección del perfil. Si la persona está en el índice trae sus datos; si no, busca su correo con la empresa.</p>
-    <label>Empresa (si la sabes)<input id="liCompany" /></label>
-    <label>País (código, ej. CO)<input id="liCountry" maxlength="2" /></label>
+    <p class="muted">Con un clic: ORKESTA busca a esta persona por la dirección del perfil (nombre, cargo, empresa y correo) sin leer la página de LinkedIn.</p>
     <button id="liBtn">Agregar a ORKESTA</button>
+    <button class="link" id="liMore" type="button">Agregar empresa o país (opcional)</button>
+    <div id="liFields" hidden>
+      <label>Empresa<input id="liCompany" /></label>
+      <label>País (código, ej. CO)<input id="liCountry" maxlength="2" /></label>
+    </div>
     <p id="liMsg" class="msg"></p>
   </section>
 
   <section id="form" hidden>
     <h1>Guardar contacto</h1>
-    <p class="muted" id="hint">Selecciona en la página el nombre, cargo o empresa y vuelve a abrir la extensión, o completa los campos.</p>
-    <div class="row">
-      <label>Nombre<input id="first_name" /></label>
-      <label>Apellido<input id="last_name" /></label>
+    <div class="card" id="summary">
+      <span class="name" id="sName"></span>
+      <span class="line" id="sTitle"></span>
+      <span class="line" id="sEmail"></span>
+      <span class="line muted" id="sSource"></span>
     </div>
-    <label>Cargo<input id="job_title" /></label>
-    <label>Empresa<input id="company" /></label>
-    <div class="row">
-      <label>Sitio web<input id="website" placeholder="empresa.com" /></label>
-      <label>País<input id="country" placeholder="Colombia" /></label>
-    </div>
-    <label>Correo<input id="email" type="email" /></label>
-    <label>Teléfono<input id="phone" /></label>
-    <label class="check"><input id="enrich" type="checkbox" checked /> Buscar y verificar su correo si falta</label>
-    <button id="saveBtn">Guardar en ORKESTA</button>
+    <p class="muted" id="hint"></p>
+    <button id="saveBtn">Guardar contacto</button>
     <p id="saveMsg" class="msg"></p>
+    <button class="link" id="editBtn" type="button">Corregir datos</button>
+    <div id="fields" hidden>
+      <div class="row">
+        <label>Nombre<input id="first_name" /></label>
+        <label>Apellido<input id="last_name" /></label>
+      </div>
+      <label>Cargo<input id="job_title" /></label>
+      <label>Empresa<input id="company" /></label>
+      <div class="row">
+        <label>Sitio web<input id="website" placeholder="empresa.com" /></label>
+        <label>País<input id="country" placeholder="Colombia" /></label>
+      </div>
+      <label>Correo<input id="email" type="email" /></label>
+      <label>Teléfono<input id="phone" /></label>
+    </div>
+    <label class="check"><input id="enrich" type="checkbox" checked /> Buscar y verificar su correo si falta</label>
   </section>
 
   <footer>
