@@ -98,3 +98,14 @@ def test_any_user_connects_the_extension_by_logging_in(client: TestClient) -> No
     assert ext.post("/api/ext/logout", headers=headers).status_code == 200
     assert ext.get("/api/ext/me", headers=headers).status_code == 401
     assert TestClient(client.app).post("/api/extension/connect").status_code == 401  # sin sesión
+
+
+def test_manifest_meets_chrome_web_store_limits() -> None:
+    """La Chrome Web Store rechaza descripciones de más de 132 caracteres y nombres de más de 75."""
+    import json
+
+    from orkesta.extension.router import FILES
+
+    manifest = json.loads((FILES / "manifest.json").read_text())
+    assert len(manifest["description"]) <= 132 and len(manifest["name"]) <= 75
+    assert manifest["manifest_version"] == 3 and manifest["version"]
