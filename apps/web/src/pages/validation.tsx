@@ -166,7 +166,7 @@ export function ValidationBanner() {
       )}
       {t.smtp_blocked ? (
         <p className="mt-2 text-[12.5px] text-warn">
-          El servidor donde corre ORKESTA no tiene permitido conectarse al puerto 25, así que los buzones quedaron «Sin confirmar» y los correos que faltaban se dejaron «Estimados» con el formato de cada empresa. La revisión de formato, dominio y desechables sí se hizo. Para confirmar buzones hay que pedirle a AWS que abra el puerto 25 del servidor.
+          Algunos buzones no se pudieron confirmar: quedaron «Sin confirmar», y los correos que faltaban se dejaron «Estimados» con el formato de cada empresa. La revisión de formato, dominio y desechables sí se hizo.
         </p>
       ) : null}
       {latest.status === "failed" && latest.error && <p className="mt-1 text-[12.5px] text-bad">{latest.error}</p>}
@@ -300,7 +300,6 @@ export function EnrichmentBanner() {
           <span className="text-ork-mist">{t.evidence_pattern ?? 0} empresas con formato verificado · {t.common_pattern ?? 0} con formato común (por validar)</span>
         </div>
       )}
-      {latest.status === "completed" && latest.progress.log?.at(-2)?.text.includes("SERPER") && <p className="mt-1 text-[12.5px] text-warn">{latest.progress.log.at(-2)?.text}</p>}
       {latest.status === "failed" && latest.error && <p className="mt-1 text-[12.5px] text-bad">{latest.error}</p>}
     </div>
   );

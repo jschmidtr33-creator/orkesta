@@ -75,6 +75,19 @@ class SerpStats:
         }
 
 
+_ALERTED: set[str] = set()
+
+
+def _alert(fetcher: Fetcher, kind: str) -> None:
+    """Avisa a la administración (una vez por proceso) que el buscador no funciona."""
+    if kind in _ALERTED:
+        return
+    _ALERTED.add(kind)
+    from orkesta.admin import alerts
+
+    alerts.record(fetcher.factory, kind)
+
+
 def call(
     fetcher: Fetcher, endpoint: str, payload: dict[str, Any], stats: SerpStats
 ) -> dict[str, Any] | None:
@@ -114,11 +127,13 @@ def call(
     if response.status_code in (400, 402) and "credit" in lowered:
         stats.error("creditos")
         stats.fatal = "creditos"
+        _alert(fetcher, "creditos")
         return None
     if response.status_code in (401, 403):
         kind = "creditos" if "credit" in lowered else "clave"
         stats.error(kind)
         stats.fatal = kind
+        _alert(fetcher, kind)
         return None
     if response.status_code == 429:
         stats.error("ritmo")
@@ -133,6 +148,15 @@ def call(
         stats.error("formato")
         return None
     fetcher._store(Page(cache_url, cache_url, 200, "application/json", text))
+    if _ALERTED:
+        _ALERTED.clear()
+        try:
+            with fetcher.factory.begin() as session:
+                from orkesta.admin import alerts
+
+                alerts.clear(session, "buscador")
+        except Exception:
+            logger.exception("service_alert_clear")
     return data if isinstance(data, dict) else None
 
 

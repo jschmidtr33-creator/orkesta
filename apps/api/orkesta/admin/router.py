@@ -932,6 +932,14 @@ def demos(
     ]
 
 
+def _verifier_key() -> str:
+    from orkesta.core.db import get_session_factory
+    from orkesta.validation.api_verifier import configured_key
+
+    with get_session_factory()() as session:
+        return configured_key(session)
+
+
 @router.get("/integrations")
 def integrations(
     principal: Annotated[Principal, Depends(require("integraciones"))],
@@ -963,12 +971,56 @@ def integrations(
             "detail": "SERPER_API_KEY",
         },
         {
+            "key": "verifier",
+            "name": "Verificador de correos (MillionVerifier)",
+            "ok": bool(_verifier_key()),
+            "detail": "Se conecta abajo, en «Verificador de correos»",
+        },
+        {
             "key": "worker",
             "name": "Motor de tareas en segundo plano",
             "ok": bool(s.run_worker),
             "detail": "RUN_WORKER",
         },
     ]
+
+
+class VerifierIn(BaseModel):
+    key: str = Field(default="", max_length=200)
+
+
+@router.get("/verifier")
+def verifier_status(
+    principal: Annotated[Principal, Depends(require("integraciones"))], db: Db
+) -> dict[str, Any]:
+    """Verificador de correos (MillionVerifier): si está conectado y cuántos créditos quedan.
+    La clave nunca se devuelve."""
+    from orkesta.validation import api_verifier
+
+    key = api_verifier.configured_key(db)
+    return {"configured": bool(key), "credits": api_verifier.balance(key) if key else None}
+
+
+@router.put("/verifier")
+def verifier_save(
+    body: VerifierIn, principal: Annotated[Principal, Depends(require("integraciones"))], db: Db
+) -> dict[str, Any]:
+    from orkesta.admin import alerts
+    from orkesta.validation import api_verifier
+
+    key = body.key.strip()
+    if key:
+        left = api_verifier.balance(key)
+        if left is None:
+            raise HTTPException(
+                400, "MillionVerifier no aceptó esa clave. Cópiala de nuevo desde tu cuenta."
+            )
+    else:
+        left = None
+    api_verifier.save_key(db, key)
+    alerts.clear(db, "verificador")
+    svc.log(db, principal.user, "integrations.verifier", "", configured=bool(key))
+    return {"configured": bool(key), "credits": left}
 
 
 @router.get("/settings")

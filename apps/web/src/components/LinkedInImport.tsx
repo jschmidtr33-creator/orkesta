@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../lib/api";
+import { useSession } from "../lib/session";
 import { Alert, Button, Modal, SelectField, TextField } from "./ui";
 
 type Result = {
@@ -37,6 +38,8 @@ export function LinkedInImportButton({ variant = "secondary" }: { variant?: "sec
 }
 
 export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { session } = useSession();
+  const staff = Boolean(session?.user.platform_admin);
   const client = useQueryClient();
   const options = useQuery({ queryKey: ["research-options"], queryFn: () => api<Options>("/api/research/options"), staleTime: Infinity, enabled: open });
   const lists = useQuery({ queryKey: ["lists"], queryFn: () => api<ListItem[]>("/api/lists"), enabled: open });
@@ -125,8 +128,11 @@ export function LinkedInImportModal({ open, onOpenChange }: { open: boolean; onO
           <ul className="list-disc pl-5">
             <li>{r.from_index} ya estaban en el índice de ORKESTA ({r.with_email} con correo publicado).</li>
             {(r.from_search ?? 0) > 0 && <li>{r.from_search} con nombre, cargo, empresa y ciudad tomados del resultado público de Google de su perfil.</li>}
-            {r.search_off && <li className="text-warn">El buscador no está disponible: sin él solo se completa lo que ya conoce el índice.</li>}
-            {r.search_error && <li className="text-warn">El buscador respondió con un error ({r.search_error === "creditos" ? "sin créditos" : r.search_error === "clave" ? "clave inválida" : r.search_error}): revisa «Probar conexiones» en el panel.</li>}
+            {staff && r.search_off && <li className="text-warn">Solo administración: el buscador no está configurado.</li>}
+            {staff && r.search_error && <li className="text-warn">Solo administración: el buscador respondió con un error ({r.search_error === "creditos" ? "sin créditos" : r.search_error === "clave" ? "clave inválida" : r.search_error}).</li>}
+            {!staff && (r.search_off || r.search_error) && r.created + (r.existing ?? 0) > r.from_index && (
+              <li>Algunos perfiles quedaron solo con el nombre. Ábrelos en LinkedIn con la extensión de ORKESTA para completar cargo y empresa, o escribe la empresa y vuelve a pegarlos.</li>
+            )}
             {!r.search_off && !r.search_error && (r.from_search ?? 0) === 0 && r.created + (r.existing ?? 0) > r.from_index && (
               <li>Google no muestra públicamente {r.created + r.existing - r.from_index === 1 ? "ese perfil" : "esos perfiles"}: escribe la empresa (y el país) y vuelve a pegarlos para buscar su correo.</li>
             )}

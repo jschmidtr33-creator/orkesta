@@ -2515,12 +2515,7 @@ export function GmailCard() {
       <SmtpModal open={smtpOpen} onOpenChange={setSmtpOpen} />
       {!enabled && (
         <p className="text-[13px] text-ork-mist">
-          En Render agrega GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y
-          PUBLIC_BASE_URL, y en Google Cloud la URI de redirección
-          <code className="mx-1 rounded bg-ork-ink/5 px-1">
-            /api/mail/google/callback
-          </code>
-          .
+          Esta conexión aún no está disponible. Mientras tanto puedes conectar tu correo por SMTP.
         </p>
       )}
       <ul className="mt-3 flex flex-col gap-3">

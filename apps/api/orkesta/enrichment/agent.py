@@ -441,12 +441,9 @@ def execute(progress: Progress, scope: dict[str, Any], factory: sessionmaker[Ses
             except Exception:
                 logger.exception("enrich_group_failed")
     progress.add("serp_calls", stats.calls)
-    if stats.fatal == "clave":
-        progress.note("El buscador no funcionó: revisa SERPER_API_KEY en Render.")
-    elif stats.fatal == "creditos":
-        progress.note("Se acabaron los créditos de Serper: recarga en serper.dev.")
-    elif not serp.enabled():
-        progress.note("Sin buscador (SERPER_API_KEY) solo se usan tu base y los sitios web.")
+    # Los detalles del buscador (créditos, clave) solo los ve la administración en su panel.
+    if stats.fatal or not serp.enabled():
+        logger.warning("enrichment_without_search %s", stats.fatal or "sin_clave")
 
 
 def _finish(

@@ -793,10 +793,8 @@ def _serp_people(run: Run, fetcher: Fetcher, filters: Filters, batch: list[Candi
             total += n
             if n:
                 run.log(f"Buscador · {company.name}: {n} decisores con perfil público")
-    if run.serp.fatal == "clave":
-        run.log("Buscador: la clave SERPER_API_KEY no es válida. Revísala en Render.")
-    elif run.serp.fatal == "creditos":
-        run.log("Buscador: se acabaron los créditos de Serper. Recarga en serper.dev.")
+    if run.serp.fatal:
+        logger.warning("research_without_search %s", run.serp.fatal)
     else:
         run.log(f"Buscador de Google: {total} decisores ({run.serp.calls} consultas usadas).")
 
