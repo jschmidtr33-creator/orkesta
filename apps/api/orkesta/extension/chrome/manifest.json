@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "ORKESTA — Guardar contactos",
   "short_name": "ORKESTA",
-  "version": "1.1.0",
-  "description": "Guarda en ORKESTA, con un clic, los contactos que tú eliges en cualquier página. ORKESTA busca su correo y lo verifica.",
+  "version": "1.2.0",
+  "description": "Guarda en ORKESTA, con un clic, el perfil que estás viendo en cualquier página. ORKESTA lee los datos de la persona, busca su correo y lo verifica.",
   "action": {
     "default_title": "Guardar en ORKESTA",
     "default_popup": "popup.html",
