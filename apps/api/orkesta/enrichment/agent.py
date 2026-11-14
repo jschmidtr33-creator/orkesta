@@ -441,9 +441,33 @@ def execute(progress: Progress, scope: dict[str, Any], factory: sessionmaker[Ses
             except Exception:
                 logger.exception("enrich_group_failed")
     progress.add("serp_calls", stats.calls)
+    _verify_estimates(progress, [m.id for g in groups for m in g.members])
     # Los detalles del buscador (créditos, clave) solo los ve la administración en su panel.
     if stats.fatal or not serp.enabled():
         logger.warning("enrichment_without_search %s", stats.fatal or "sin_clave")
+
+
+def _verify_estimates(progress: Progress, ids: list[uuid.UUID]) -> None:
+    """Con el verificador de correos conectado, los correos recién estimados se validan solos
+    (y los que no existen se reemplazan por el formato correcto)."""
+    from orkesta.data.models import Contact
+    from orkesta.enrichment.models import EnrichmentRun
+    from orkesta.validation import api_verifier, router
+
+    try:
+        with progress.tx() as session:
+            if not api_verifier.configured_key(session):
+                return
+            estimated = list(session.scalars(select(Contact.id).where(
+                Contact.id.in_(ids), Contact.email_status == "estimado")))  # fmt: skip
+            run = session.get(EnrichmentRun, progress.run_id)
+            if estimated and run is not None and router.start_for(
+                session, progress.tenant_id, run.created_by, estimated,
+                f"{len(estimated)} correos estimados por el enriquecimiento",
+            ):  # fmt: skip
+                progress.note("Verificando los correos estimados…")
+    except Exception:
+        logger.exception("verify_estimates")
 
 
 def _finish(
