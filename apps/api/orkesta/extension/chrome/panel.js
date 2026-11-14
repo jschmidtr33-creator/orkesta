@@ -99,14 +99,25 @@
     } catch (e) {}
     return out;
   };
+  // Solo se envía cuando la ventana de la extensión ya cargó y pidió la lectura (antes de cargar,
+  // el marco todavía tiene el origen de la página y el navegador rechaza el mensaje).
+  let ready = false;
   const send = () => {
-    if (frame && frame.contentWindow) frame.contentWindow.postMessage({ type: "orkesta-page", nonce, page: read() }, EXT.replace(/\/$/, ""));
+    if (!ready || !frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage({ type: "orkesta-page", nonce, page: read() }, EXT.replace(/\/$/, ""));
+    } catch (e) {
+      ready = false;
+    }
   };
   window.addEventListener("message", (e) => {
     if (!frame || e.source !== frame.contentWindow) return;
     const d = e.data || {};
     if (d.nonce !== nonce) return;
-    if (d.type === "orkesta-read") send();
+    if (d.type === "orkesta-read") {
+      ready = true;
+      send();
+    }
     if (d.type === "orkesta-minimize") minimize();
   });
 

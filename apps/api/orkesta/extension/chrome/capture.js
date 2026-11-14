@@ -87,17 +87,32 @@ function orkestaCapture() {
 // ni hace acciones en LinkedIn.
 function orkestaLinkedIn() {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
-  const NOISE = /lemlist|apollo|lusha|contactos|connections|seguidores|followers|información de contacto|contact info|^más$|^more$|mensaje|message|conectar|connect|seguir|follow|tengo interés|open to|añadir sección|add section|concertar|recursos|resources|guardar en|save in|sales navigator|en común|in common|^[•·]|^\W*\d+\s*(º|°|er|nd|rd|th)\b|\b(1er|2º|3er|1st|2nd|3rd)\b|^ver |^see |verificad|verified|he\/him|she\/her|premium|^\d+$/i;
+  const NOISE = /lemlist|apollo|lusha|wiza|contactos|connections|seguidores|followers|información de contacto|contact info|^más$|^more$|mensaje|message|conectar|connect|seguir|follow|tengo interés|open to|añadir sección|add section|concertar|agendar|recursos|resources|guardar en|save in|sales navigator|en común|in common|^[•·]|^\W*\d+\s*(º|°|er|nd|rd|th)\b|^\W*(1er|2º|3er|1st|2nd|3rd)\W*$|\b(1er|2º|3er|1st|2nd|3rd)\b|^ver |^see |verificad|verified|he\/him|she\/her|ella\/|él\/|premium|^\d+$|^…|^\.\.\./i;
   const SCHOOL = /universidad|university|universit|colegio|school|escuela|instituto|institute|college|academia|academy|politécnico|politecnico|tecnológico|tecnologico|business school|maestr|mba\b/i;
-  const COUNTRY = /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|panama|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|dominicana|puerto rico|honduras|el salvador|nicaragua|cuba|brasil|brazil|españa|spain|estados unidos|united states|canadá|canada|portugal|reino unido|united kingdom|metropolitan|metropolitana/i;
+  const COUNTRY = /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|panama|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|dominicana|puerto rico|honduras|el salvador|nicaragua|cuba|brasil|brazil|españa|spain|estados unidos|united states|canadá|canada|portugal|reino unido|united kingdom|metropolitan|metropolitana|alrededores|greater|área de|area\b/i;
+  const DURATION = /^\d+\s*(año|años|mes|meses|yr|yrs|year|years|mo|mos|month|months)\b|\b(actualidad|present)\b/i;
   const fromTitle = clean(document.title.replace(/^\(\d+\)\s*/, "").split("|")[0]);
-  const h1 = [...document.querySelectorAll("main h1, h1")].find((h) => clean(h.innerText).length > 2);
-  const name = clean(h1 && h1.innerText) || fromTitle;
+  const main = document.querySelector("main") || document.body;
+  // El nombre: el h1 o, si LinkedIn ya no usa h1, el elemento más chico cuyo texto es el nombre.
+  let nameEl = [...main.querySelectorAll("h1")].find((h) => clean(h.innerText).length > 2);
+  if (!nameEl && fromTitle) {
+    nameEl = [...main.querySelectorAll("h1, h2, h3, span, div, p, a")]
+      .filter((el) => clean(el.innerText) === fromTitle)
+      .find((el) => ![...el.children].some((c) => clean(c.innerText) === fromTitle));
+  }
+  const name = clean(nameEl && nameEl.innerText) || fromTitle;
   const out = { name, title: "", company: "", location: "" };
-  if (!h1) return out;
-  // El encabezado del perfil: la sección que contiene el nombre.
-  let top = h1;
-  while (top.parentElement && top.tagName !== "SECTION" && !/^(MAIN|BODY)$/.test(top.parentElement.tagName)) top = top.parentElement;
+  if (!nameEl) return out;
+  // El encabezado del perfil: se sube desde el nombre hasta la tarjeta que tiene «Información de
+  // contacto» o hasta una sección, sin pasar a las tarjetas de abajo.
+  let top = nameEl;
+  const isHeader = (el) => /información de contacto|contact info|contactos|connections|seguidores|followers/i.test(el.innerText || "");
+  while (top.parentElement && top.parentElement !== main && top.tagName !== "SECTION") {
+    const up = top.parentElement;
+    if (clean(up.innerText).length > 2500) break;
+    top = up;
+    if (isHeader(top) && clean(top.innerText).length > 60) break;
+  }
   // Las líneas en el orden en que se ven, desde el nombre.
   const all = String(top.innerText || "").split(/\n|\s·\s|·/).map(clean).filter(Boolean);
   const start = Math.max(0, all.findIndex((l) => l === name || l.startsWith(name)));
@@ -109,19 +124,49 @@ function orkestaLinkedIn() {
   if (firm) out.company = clean(firm.getAttribute("aria-label").split(":").slice(1).join(":")).replace(/\.\s.*$/, "").replace(/\.\s*$/, "");
   if (!out.company) {
     const withLogo = [...top.querySelectorAll("a, button, li, div")]
-      .filter((el) => el.querySelector("img, svg") && !el.contains(h1))
+      .filter((el) => el.querySelector("img, svg") && !el.contains(nameEl))
       .map((el) => clean(el.innerText))
       .filter((t) => t && t.length >= 2 && t.length <= 80 && !t.includes("\n") && t !== name && !NOISE.test(t) && !SCHOOL.test(t) && !COUNTRY.test(t));
     out.company = withLogo[0] || "";
   }
+  const schools = new Set(lines.filter((l) => SCHOOL.test(l)));
   // Cargo: el titular, la primera línea con texto debajo del nombre.
-  out.title = lines.find((l) => l !== out.location && l !== out.company && l.split(" ").length >= 2 && !SCHOOL.test(l)) || "";
-  // Titulares largos («Gerente General & Director Comercial | Dirección de P&L | …»): el cargo es
-  // la primera parte.
+  out.title = lines.find((l) => l !== out.location && l !== out.company && !schools.has(l) && l.split(" ").length >= 2) || "";
   if (out.title.length > 90 && out.title.includes(" | ")) out.title = out.title.split(" | ")[0];
   if (!out.company && out.title) {
-    const m = out.title.match(/\s(?:at|en|@)\s(?!.*\s(?:at|en|@)\s)(.+)$/i);
-    if (m) out.company = clean(m[1]);
+    // «Gerente Comercial en Banco X» o «CTO at X»; «Licenciada en Gestión Hotelera» no es empresa.
+    const m = out.title.match(/\s(at|en|@)\s(?!.*\s(?:at|en|@)\s)(.+)$/i);
+    const before = m ? out.title.slice(0, m.index) : "";
+    const ROLE = /\b(ceo|cfo|cto|cio|coo|cmo|ciso|chief|head|director|directora|gerente|jefe|jefa|vp|vicepresident|presidente|presidenta|manager|lead|líder|lider|coordinador|coordinadora|founder|fundador|fundadora|socio|socia|partner|analista|especialista|ejecutivo|ejecutiva|consultor|consultora|asesor|asesora|supervisor|supervisora|account|executive|officer|representative|representante|engineer|developer|desarrollador)/i;
+    if (m && (m[1].toLowerCase() !== "en" || ROLE.test(before)) && !/^(licenciad|ingenier|estudiante|graduad|magíster|magister|bachiller|técnic|tecnic|abogad|contador|psicólog|médic)/i.test(before)) {
+      out.company = clean(m[2]);
+      out.title = clean(before);
+    }
+  }
+  // La experiencia actual (primer puesto de «Experiencia»), si está cargada en la página: da el
+  // cargo y la empresa reales aunque el titular sea otra cosa («Licenciada en …»).
+  const heads = [...main.querySelectorAll("h2, h3, [id='experience'], span, div")]
+    .filter((el) => /^(experiencia|experience)$/i.test(clean(el.innerText)) && !el.querySelector("h2, h3"));
+  for (const head of heads) {
+    let card = head;
+    for (let i = 0; i < 8 && card.parentElement && clean(card.innerText).length < 40; i++) card = card.parentElement;
+    while (card.parentElement && card.parentElement !== main && !/^(SECTION|LI)$/.test(card.tagName)
+      && clean(card.parentElement.innerText).length < 4000 && !isHeader(card.parentElement)) card = card.parentElement;
+    const xs = String(card.innerText || "").split("\n").map(clean).filter(Boolean)
+      .filter((l) => !/^(experiencia|experience|mostrar|show|ver todo|see all)/i.test(l) && !NOISE.test(l));
+    if (xs.length < 2) continue;
+    let role = "";
+    let company = "";
+    if (DURATION.test(xs[1]) && xs[2]) {
+      [company, role] = [xs[0], xs[2]]; // empresa con varios puestos: empresa, duración, puesto
+    } else {
+      role = xs[0];
+      company = xs[1].split(/\s·\s|·/)[0];
+    }
+    company = clean(company.replace(/\b(jornada completa|tiempo completo|full-time|part-time|media jornada|autónomo|freelance|contrato|contract|prácticas|internship)\b.*$/i, ""));
+    if (role && !DURATION.test(role) && role.length < 120) out.title = role;
+    if (company && !DURATION.test(company) && company.length < 100 && !SCHOOL.test(company)) out.company = company;
+    break;
   }
   return out;
 }

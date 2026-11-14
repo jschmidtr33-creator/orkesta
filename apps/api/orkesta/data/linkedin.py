@@ -229,7 +229,11 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
         # correo publicado).
         found = {profiles[0].slug: on_screen}
     else:
-        found = _from_search(session, [p for p in profiles if p.slug not in known])
+        # También se busca a quien el índice conoce a medias (sin cargo o sin empresa).
+        found = _from_search(session, [
+            p for p in profiles
+            if p.slug not in known or not (known[p.slug].title and known[p.slug].company)
+        ])  # fmt: skip
     search_error = str(found.pop("__error__", ""))
     created: list[uuid.UUID] = []
     existing = 0
@@ -244,7 +248,7 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
             (row.first_name or p.first, row.last_name or p.last) if row else (p.first, p.last)
         )
         screen = on_screen is not None and hit is on_screen
-        if row is None and hit is not None and not screen:
+        if hit is not None and not screen:
             from_search += 1
         if (row is None or screen) and hit is not None and hit.name:
             from orkesta.engine.normalize.names import split_full_name
@@ -265,9 +269,9 @@ def add(session: Session, *, tenant_id: uuid.UUID, user: Any, text: str, company
             title, firm, city = h_title or r_title, h_company or r_company or company, h_city
         else:
             found_country = r_country or h_country or code
-            title = r_title if row else h_title
+            title = r_title or h_title
             firm = r_company or h_company or company
-            city = h_city if not row else ""
+            city = h_city
         data = ContactInput(
             first_name=first,
             last_name=last,

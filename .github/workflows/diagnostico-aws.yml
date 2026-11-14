@@ -34,7 +34,7 @@ jobs:
           echo "==> Memoria"; free -m | head -2
           echo "==> Reinicios"; docker inspect orkesta-app-1 --format 'reinicios={{.RestartCount}} oom={{.State.OOMKilled}} salida={{.State.ExitCode}} inicio={{.State.StartedAt}}'
           dmesg 2>/dev/null | grep -i -E "killed process|out of memory" | tail -5
-          echo "==> Últimas líneas de la app"; docker compose logs --tail 60 app 2>&1 | grep -v "/api/health"
+          echo "==> Últimas líneas de la app"; docker compose logs --tail 60 app 2>&1 | grep -v "/api/health" | sed -E "s/[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/<ip>/g"
           echo "==> Cifras"
           docker compose exec -T db psql -U postgres -d orkesta -At -c "
             SELECT 'admin_audit', count(*) FROM orkesta.admin_audit UNION ALL
@@ -107,6 +107,29 @@ jobs:
             SELECT status, count(*), count(content) AS con_archivo FROM orkesta.imports GROUP BY 1;
             SELECT left(created_at::text,16), status, totals FROM orkesta.enrichment_runs ORDER BY created_at DESC LIMIT 8;
             SELECT task, version, active, n_train, round((metrics->>'accuracy')::numeric,3) acc FROM orkesta.brain_models WHERE active;" </dev/null 2>&1 | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/<correo>/g'
+          echo "==> Contactos agregados por LinkedIn (solo cifras)"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT left(created_at::date::text,10), count(*), count(job_title), count(company_name), count(country_code)
+            FROM orkesta.contacts WHERE linkedin_url IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 8;" </dev/null
+          echo "==> Buscador con un perfil público de prueba"
+          docker compose exec -T app python - <<'PY' 2>&1 | tail -40
+          from orkesta.core.config import get_settings
+from orkesta.core.db import get_session_factory
+          from orkesta.research import serp
+          from orkesta.research.fetch import Fetcher
+          print("buscador configurado:", serp.enabled())
+          factory = get_session_factory()
+          for slug in ("williamhgates", "satyanadella"):
+              stats = serp.SerpStats(budget=8)
+              with Fetcher(factory) as f:
+                  data = serp.call(f, "search", {"q": f"site:linkedin.com/in/{slug}", "num": 5, "hl": "es"}, stats)
+                  for row in (data or {}).get("organic", [])[:2]:
+                      print("  titulo:", row.get("title")); print("  resumen:", str(row.get("snippet"))[:200])
+                  print(slug, "->", serp.profile_by_url(f, stats, slug), "errores:", stats.errors, stats.fatal)
+import httpx
+r = httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": "orkesta"}, timeout=20)
+print("respuesta directa:", r.status_code, r.text[:160])
+          PY
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"

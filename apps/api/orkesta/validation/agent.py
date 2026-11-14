@@ -251,6 +251,34 @@ def _domain_work(
                         confidence=90,
                     )
                 )
+    if find and not info.smtp_ok and info.mx_hosts and not info.disposable:
+        # Sin conversación SMTP (puerto 25 bloqueado o el servidor no responde) no se puede
+        # confirmar el buzón: se deja el correo más probable según el formato aprendido de la
+        # empresa, marcado «Estimado» para validarlo antes de escribir.
+        from orkesta.research.memory import next_email
+
+        estimated = 0
+        with progress.tx() as session:
+            for target in find[:FIND_PER_DOMAIN]:
+                contact = session.get(Contact, target.id)
+                if contact is None or contact.email or target.replace:
+                    continue
+                email, pattern = next_email(session, target.first_name, target.last_name, domain)
+                if not email:
+                    continue
+                contact.email = email
+                contact.email_domain = domain
+                contact.email_status = "estimado"
+                contact.email_check_reason = (
+                    f"Formato {pattern} de {domain}: el dominio recibe correo, buzón por confirmar"
+                )[:300]
+                contact.search_text = f"{contact.search_text} {email}"[:2000]
+                session.add(DataPoint(tenant_id=progress.tenant_id, contact_id=target.id,
+                                      field="email", value=email, source_type="validacion",
+                                      source_label="Estimado con el formato de la empresa",
+                                      confidence=50))  # fmt: skip
+                estimated += 1
+        progress.add("estimated", estimated)
     if find:
         progress.add("found", found_here)
         progress.add("find_attempted", min(len(find), FIND_PER_DOMAIN))
