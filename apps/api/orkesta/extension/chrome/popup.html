@@ -21,7 +21,12 @@
 
   <section id="linkedin" hidden>
     <h1>Agregar este perfil</h1>
-    <p class="muted">Con un clic: ORKESTA busca a esta persona por la dirección del perfil (nombre, cargo, empresa y correo) sin leer la página de LinkedIn.</p>
+    <div class="card" id="liSummary" hidden>
+      <span class="name" id="liName"></span>
+      <span class="line" id="liTitle"></span>
+      <span class="line" id="liPlace"></span>
+    </div>
+    <p class="muted" id="liHint">Toca «Agregar a ORKESTA»: lee el encabezado de este perfil (nombre, cargo, empresa y ubicación) y ORKESTA busca su correo.</p>
     <button id="liBtn">Agregar a ORKESTA</button>
     <button class="link" id="liMore" type="button">Agregar empresa o país (opcional)</button>
     <div id="liFields" hidden>
@@ -62,6 +67,7 @@
 
   <footer>
     <a href="https://orkestaapp.com/app/contactos" target="_blank" rel="noopener">Abrir Contactos</a>
+    <span class="muted" id="ver"></span>
     <a href="#" id="logout" hidden>Desconectar</a>
   </footer>
   <script src="capture.js"></script>

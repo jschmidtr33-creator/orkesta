@@ -49,6 +49,18 @@ def test_extension_keys_contacts_and_revoke(
     profile = ext.post("/api/ext/linkedin", headers=headers,
                        json={"url": "https://www.linkedin.com/in/pedro-ruiz-12ab34", "company": "Banco Andino"})  # fmt: skip
     assert profile.status_code == 200 and profile.json()["created"] == 1
+    # El encabezado que la persona ve en pantalla: nombre, cargo, empresa y ubicación.
+    seen = ext.post("/api/ext/linkedin", headers=headers, json={
+        "url": "https://www.linkedin.com/in/jennschmidtr/", "name": "Jenn Schmidt",
+        "title": "Corporate Sales Team Leader", "company": "America Digital Congress",
+        "location": "Bogotá, Distrito Capital, Colombia"})  # fmt: skip
+    assert seen.status_code == 200 and seen.json()["created"] == 1
+    jenn = next(
+        c for c in client.get("/api/contacts").json()["items"] if c["last_name"] == "Schmidt"
+    )
+    assert jenn["company"] == "America Digital Congress" and jenn["country_code"] == "CO"
+    assert jenn["job_title"] == "Corporate Sales Team Leader" and jenn["city"]
+    assert client.get("/api/admin/extension/info").json()["version"]
 
     zipped = client.get("/api/admin/extension/download")
     names = zipfile.ZipFile(io.BytesIO(zipped.content)).namelist()
