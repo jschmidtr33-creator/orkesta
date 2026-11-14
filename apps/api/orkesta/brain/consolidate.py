@@ -11,6 +11,9 @@ otro):
 3. Empresas de cada cliente que no tenían sitio web: se completan con lo aprendido.
 4. Correos enviados: si pasaron 3 días sin rebote, el formato queda «entregado» (evidencia
    fuerte para los próximos estimados); los rebotes quedan para no volver a proponerlos.
+5. Perfiles públicos de LinkedIn guardados (con la extensión o «Agregar desde LinkedIn»): pasan
+   al índice de personas que alimenta Prospección con sus datos profesionales públicos (nombre,
+   cargo, empresa, país y perfil), sin el correo ni el teléfono de la base del cliente.
 """
 
 from __future__ import annotations
@@ -199,6 +202,35 @@ def _learn_sends(session: Session, tenant_id: uuid.UUID) -> dict[str, int]:
     return out
 
 
+def _profiles(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Perfiles públicos de LinkedIn de los contactos del cliente, para el índice de personas."""
+    from orkesta.data.models import Contact
+    from orkesta.engine.taxonomy.titles import classify_title
+    from orkesta.research.directory import name_key
+    from orkesta.research.people import person_key
+
+    rows = []
+    for c in session.execute(select(
+        Contact.full_name, Contact.first_name, Contact.last_name, Contact.job_title,
+        Contact.company_name, Contact.country_code, Contact.city, Contact.linkedin_url,
+    ).where(Contact.tenant_id == tenant_id, Contact.linkedin_url.like("%linkedin.com/in/%"),
+            Contact.company_name.is_not(None), Contact.country_code.is_not(None))):  # fmt: skip
+        if not c.full_name or " " not in c.full_name.strip():
+            continue
+        level, area = classify_title(c.job_title)
+        ckey = name_key(c.company_name)
+        rows.append({
+            "key": person_key(c.country_code, ckey, c.full_name, c.linkedin_url),
+            "country": c.country_code, "full_name": c.full_name[:200],
+            "first_name": (c.first_name or "")[:120], "last_name": (c.last_name or "")[:160],
+            "title": (c.job_title or "")[:300], "level": level, "area": area,
+            "company": c.company_name[:300], "company_key": ckey, "domain": None,
+            "location": (c.city or "")[:200], "linkedin": c.linkedin_url[:300],
+            "email": None, "email_status": None, "source": "linkedin",
+        })  # fmt: skip
+    return rows
+
+
 def run(factory: sessionmaker[Session], *, trigger: str = "nocturno") -> dict[str, Any]:
     """Repasa toda la data y guarda el resultado para el panel."""
     from orkesta.admin.service import _put
@@ -227,10 +259,19 @@ def run(factory: sessionmaker[Session], *, trigger: str = "nocturno") -> dict[st
             result["pattern_domains"] = _save_patterns(session, acc["patterns"])
             result["domains_added"] = _save_domains(session, acc["domains"])
             result["directory_filled"] = _fill_directory(session)
+        from orkesta.research import people as index
+
+        result["profiles_indexed"] = 0
         for tenant_id in tenants:
             with factory.begin() as session:
                 set_context(session, tenant_id=tenant_id)
                 result["companies_filled"] += _fill_companies(session, tenant_id)
+                profiles = _profiles(session, tenant_id)
+            if profiles:
+                from orkesta.extension.router import _learn_companies
+
+                _learn_companies(factory, profiles)
+            result["profiles_indexed"] += index.upsert(factory, profiles)
         result.update(contacts=acc["contacts"], corporate=acc["corporate"], state="done",
                       trigger=trigger, finished_at=datetime.now(UTC).isoformat(),
                       seconds=round((datetime.now(UTC) - started).total_seconds()))  # fmt: skip

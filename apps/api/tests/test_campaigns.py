@@ -17,6 +17,7 @@ import jwt
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.campaigns import service as svc
@@ -912,6 +913,8 @@ def test_delivered_estimated_emails_teach_the_format(
         conn.execute("UPDATE orkesta.contacts SET email_status = 'estimado' "
                      "WHERE email LIKE '%@entrega.co'")  # fmt: skip
         conn.execute("UPDATE orkesta.companies SET domain = NULL")
+        conn.execute("UPDATE orkesta.contacts SET linkedin_url = "
+                     "'https://www.linkedin.com/in/pedro-diaz-x1' WHERE first_name = 'Pedro'")  # fmt: skip
     campaign = client.post("/api/campaigns", json={"name": "Prueba"}).json()
     client.patch(f"/api/campaigns/{campaign['id']}", json={
         "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
@@ -925,6 +928,13 @@ def test_delivered_estimated_emails_teach_the_format(
     first = consolidate.run(session_factory)
     assert first["delivered"] == 0  # aún no pasan 3 días
     assert first["companies_filled"] >= 1  # Base SAS recupera su sitio web
+    # El perfil público de LinkedIn pasa al índice de Prospección, sin el correo del cliente.
+    from orkesta.research.models import PersonIndex
+
+    assert first["profiles_indexed"] == 1
+    with session_factory() as session:
+        pedro = session.scalar(select(PersonIndex).where(PersonIndex.full_name == "Pedro Diaz"))
+        assert pedro is not None and pedro.email is None and pedro.country == "CO"
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute("UPDATE orkesta.campaign_messages SET sent_at = sent_at - interval '4 days'")
     result = consolidate.run(session_factory)

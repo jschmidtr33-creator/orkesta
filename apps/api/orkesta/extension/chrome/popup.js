@@ -181,6 +181,15 @@ function msg(id, text, kind) {
   $(id).className = `msg ${kind || ""}`;
 }
 
+// Un perfil leído: se avisa si ya está en Contactos (y ORKESTA lo suma a su índice de personas).
+function checkOne(seen, url) {
+  const [first, last] = splitName(seen.name || "");
+  call("/api/ext/contacts/check", token, { people: [{ first_name: first, last_name: last, job_title: seen.title || "",
+    company: seen.company || "", location: seen.location || "", linkedin_url: url || "" }] })
+    .then((r) => { if (r.exists && r.exists[0]) msg("liMsg", "Ya está en tus contactos.", "ok"); })
+    .catch(() => {});
+}
+
 // --- Perfil de LinkedIn ---------------------------------------------------------------------------
 function linkedinProfile(seen, url) {
   show("linkedin");
@@ -196,6 +205,7 @@ function linkedinProfile(seen, url) {
     $("liPlace").textContent = seen.location;
     $("liHint").hidden = true;
     $("liCompany").value = seen.company || "";
+    checkOne(seen, url);
   } else {
     $("liSummary").hidden = true;
     $("liHint").hidden = false;
@@ -241,6 +251,7 @@ function salesNav(seen, url) {
   $("liPlace").textContent = seen.location;
   $("liHint").hidden = true;
   $("liCompany").value = seen.company || "";
+  checkOne(seen, seen.profile || "");
   $("liBtn").onclick = async () => {
     $("liBtn").disabled = true;
     msg("liMsg", "Guardando…");
