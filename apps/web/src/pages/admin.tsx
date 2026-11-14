@@ -2064,6 +2064,9 @@ type BrainTask = {
           eval_rules?: number;
           eval_model?: number;
           eval_decides?: number;
+          top1?: number;
+          top3?: number;
+          top_n?: number;
         } | null;
       })
     | null;
@@ -2216,6 +2219,13 @@ function BrainCard({ task, onChange }: { task: BrainTask; onChange: () => void }
                 Prueba independiente ({a.extra.eval_n} respuestas que nunca usó para aprender): las listas de frases aciertan{" "}
                 <strong>{pct(a.extra.eval_rules)}</strong>; el modelo decide solo en el <strong>{pct(a.extra.eval_decides)}</strong> y acierta{" "}
                 <strong className="text-ok">{pct(a.extra.eval_model)}</strong>. El resto te lo pregunta.
+              </p>
+            )}
+            {a.extra?.top3 != null && (
+              <p className="text-[12.5px] text-ork-graphite">
+                En {n(a.extra.top_n ?? 0)} empresas que nunca vio: el formato correcto es el primero que prueba{" "}
+                <strong>{pct(a.extra.top1)}</strong> y está entre los 3 primeros{" "}
+                <strong className="text-ok">{pct(a.extra.top3)}</strong>. La validación prueba hasta 4, de a uno.
               </p>
             )}
             {a.extra?.titles != null && (
@@ -2392,7 +2402,10 @@ function BrainPage() {
                 <li key={t.name} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13.5px]">
                   <span className="font-semibold text-ork-ink">{t.label}</span>
                   <span className="flex items-center gap-3">
-                    <span className="text-ork-graphite">{t.active?.accuracy != null ? `Acierta ${ofTen(t.active.accuracy)}` : "Sin datos aún"}</span>
+                    <span className="text-ork-graphite">
+                      {t.active?.accuracy != null ? `Acierta ${ofTen(t.active.accuracy)}` : "Sin datos aún"}
+                      {t.active?.extra?.top3 != null && ` al primer intento · ${ofTen(t.active.extra.top3)} dentro de 3 intentos`}
+                    </span>
                     <Badge tone={v.tone}>{v.text}</Badge>
                   </span>
                 </li>

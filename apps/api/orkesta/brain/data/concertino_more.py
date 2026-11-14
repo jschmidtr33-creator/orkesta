@@ -1,0 +1,58 @@
+# ruff: noqa: E501
+"""Más frases semilla para los modelos de Concertino (redactadas por ORKESTA): cómo cuentan los
+vendedores lo que les dijo el cliente y qué preguntan, con tuteo, usted y regionalismos."""
+
+from __future__ import annotations
+
+OBJECTIONS: dict[str, tuple[str, ...]] = {
+    "precio": ("me dijo que está carísimo", "dice que se sale del presupuesto", "le pareció costoso",
+               "pidió un descuento grande", "dice que por ese precio no", "comparó el precio y le pareció alto",
+               "no tienen plata para eso", "el cliente dice que es muy caro para su tamaño"),
+    "prioridad": ("me dijo que ahora no es el momento", "tienen otras prioridades este trimestre",
+                  "que lo hablemos el próximo año", "están en cierre fiscal", "dice que lo deja para después",
+                  "que le escriba en unos meses"),
+    "proveedor": ("ya trabajan con otro proveedor", "están felices con su proveedor actual",
+                  "ya tienen una herramienta parecida", "dice que ya usan otra plataforma", "tienen un aliado para eso"),
+    "persona": ("me dijo que no es la persona correcta", "que le escriba a compras", "eso lo maneja otra área",
+                "me derivó con su jefe", "no es quien decide"),
+    "info": ("me pidió que le mande información", "quiere una presentación por correo", "que le envíe el portafolio",
+             "pidió la cotización por escrito", "me pidió más detalles antes de reunirse"),
+    "riesgo": ("le preocupa la implementación", "teme que su equipo no lo adopte", "dice que migrar es un dolor de cabeza",
+               "le da miedo cambiar de sistema", "le preocupa la seguridad de los datos"),
+    "confianza": ("no nos conocen", "me pidió referencias", "quiere ver casos de éxito", "dice que somos muy nuevos",
+                  "no confía en proveedores pequeños"),
+    "competencia": ("tiene una cotización más barata", "está comparando con otra empresa", "la competencia le ofreció más",
+                    "está evaluando tres proveedores", "otro le dio mejores condiciones"),
+    "comite": ("lo tiene que aprobar la junta", "debe consultarlo con su gerente", "lo decide su socio",
+               "tiene que pasar por el comité de compras", "lo tiene que validar finanzas"),
+    "silencio": ("no me ha vuelto a responder", "me ignoró después de la propuesta", "no contesta las llamadas",
+                 "desde la demo no sé nada", "lo llamo y no contesta"),
+    "no_interes": ("me dijo que no le interesa", "que no lo necesitan", "dijo que no rotundamente", "no le vio valor",
+                   "me pidió que no insista"),
+    "interno": ("lo hacen internamente", "tienen un equipo propio para eso", "dice que lo resuelven ellos mismos",
+                "lo manejan en casa", "tienen desarrolladores que lo hacen", "su equipo interno se encarga"),
+    "contrato": ("tienen contrato con otro proveedor", "están amarrados a un contrato anual", "el contrato vence el otro año",
+                 "firmaron por dos años con otro", "hasta que termine el contrato no pueden", "tienen contrato vigente"),
+    "mala_experiencia": ("ya probaron algo así y no funcionó", "tuvieron una mala experiencia con otro proveedor",
+                         "les fue mal con una herramienta parecida", "ya lo intentaron y no dio resultado",
+                         "dice que eso no sirve porque ya lo probaron", "quedaron quemados con otra empresa"),
+}  # fmt: skip
+
+TOPICS: dict[str, tuple[str, ...]] = {
+    "objecion": ("me dijo que lo hacen internamente, qué le respondo", "cómo respondo si dice que tienen contrato",
+                 "qué le digo si ya probaron algo y no funcionó", "el cliente pide descuento, qué hago",
+                 "cómo rebato que no es el momento", "me pusieron una objeción de precio"),
+    "perfil": ("qué le duele a un gerente de logística", "cómo le escribo a un director financiero",
+               "qué mensaje le funciona a recursos humanos", "cómo abordo a un gerente general de una pyme"),
+    "cuenta": ("esta oportunidad lleva un mes quieta", "cómo destrabo esta negociación", "qué siguiente paso doy con este cliente",
+               "cómo hago seguimiento a esta propuesta enviada"),
+    "campana": ("arma una secuencia de tres correos", "escríbeme un correo en frío", "crea una campaña para bancos",
+                "qué asunto le pongo a mi correo", "mis correos no tienen respuesta, qué cambio"),
+    "propuesta": ("qué precio pongo en la propuesta", "cómo armo una propuesta para este cliente",
+                  "cómo presento las opciones de precio", "qué incluyo en la cotización"),
+    "reunion": ("prepárame para una llamada de descubrimiento", "qué preguntas hago en la primera reunión",
+                "cómo cierro la reunión con un siguiente paso", "tengo demo mañana, ayúdame"),
+    "estrategia": ("qué sector me conviene atacar", "a qué cargo le apunto", "dónde están mis mejores clientes",
+                   "qué país me responde más"),
+    "producto": ("qué vendo", "resúmeme mi propuesta de valor", "cuál es mi diferencial", "explícame mi producto en una frase"),
+}  # fmt: skip

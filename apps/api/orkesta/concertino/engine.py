@@ -43,7 +43,7 @@ def objection_rules(text: str) -> tuple[str | None, int]:
 
 
 def topic_rules(text: str) -> dict[str, float]:
-    folded = fold(text)
+    folded = fold(text).lower()
     out: dict[str, float] = {}
     for topic, pats in pb.TOPIC_RULES.items():
         # Un cargo suelto pesa menos: «reunión con el gerente» es de reunión, no de perfil.

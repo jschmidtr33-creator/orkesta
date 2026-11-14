@@ -202,7 +202,7 @@ register(Task(
                 "tamaño y empresas parecidas.",
     step=4, status=_patterns_status, method="El formato más común del país",
     build=_patterns.build, make=_patterns.make, baseline=_patterns.baseline,
-    predictor=_patterns.predictor, threshold=0.01, min_examples=40,
+    predictor=_patterns.predictor, threshold=0.01, min_examples=40, extras=_patterns.extras,
 ))  # fmt: skip
 register(Task(
     name="puntaje", label="Puntaje que aprende de resultados",
@@ -232,6 +232,7 @@ def _concertino_tasks() -> None:
         step=7, status=lambda s: _cc.status(s, "concertino_objecion"),
         method="Mapa de objeciones",
         build=_cc.build_objections, make=_cc.make, baseline=_cc.baseline_objections,
+        predictor=_cc.predict_objection,
         min_examples=30, target=0.9,
     ))  # fmt: skip
     register(Task(
@@ -240,6 +241,7 @@ def _concertino_tasks() -> None:
                     "campaña, propuesta, reunión, estrategia o producto).",
         step=7, status=lambda s: _cc.status(s, "concertino_tema"), method="Palabras clave",
         build=_cc.build_topics, make=_cc.make, baseline=_cc.baseline_topics,
+        predictor=_cc.predict_topic,
         min_examples=30, target=0.9,
     ))  # fmt: skip
 
