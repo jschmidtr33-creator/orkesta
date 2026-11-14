@@ -114,7 +114,7 @@ jobs:
           echo "==> Buscador con un perfil público de prueba"
           docker compose exec -T app python - <<'PY' 2>&1 | tail -40
           from orkesta.core.config import get_settings
-from orkesta.core.db import get_session_factory
+          from orkesta.core.db import get_session_factory
           from orkesta.research import serp
           from orkesta.research.fetch import Fetcher
           print("buscador configurado:", serp.enabled())
@@ -126,9 +126,9 @@ from orkesta.core.db import get_session_factory
                   for row in (data or {}).get("organic", [])[:2]:
                       print("  titulo:", row.get("title")); print("  resumen:", str(row.get("snippet"))[:200])
                   print(slug, "->", serp.profile_by_url(f, stats, slug), "errores:", stats.errors, stats.fatal)
-import httpx
-r = httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": "orkesta"}, timeout=20)
-print("respuesta directa:", r.status_code, r.text[:160])
+          import httpx
+          r = httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": "orkesta"}, timeout=20)
+          print("respuesta directa:", r.status_code, r.text[:160])
           PY
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
