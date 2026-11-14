@@ -396,8 +396,10 @@ export function CrmPage() {
       )}
 
       {!deals.isLoading && view !== "tareas" && view !== "pronostico" && (deals.data?.deals.length ?? 0) === 0 && !q && (
-        <Card className="mt-4 text-center">
-          <p className="text-[14px] text-ork-graphite">Aún no hay oportunidades. Crea la primera desde aquí o desde la ficha de un contacto.</p>
+        <Card className="mt-4 flex flex-col items-center gap-3 py-8 text-center">
+          <p className="text-[15px] font-semibold text-ork-ink">Aún no tienes oportunidades</p>
+          <p className="max-w-md text-[13.5px] text-ork-mist">Una oportunidad es un posible negocio con un contacto: la mueves por etapas hasta ganarla o perderla.</p>
+          <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setCreating(true)}>Crear mi primera oportunidad</Button>
         </Card>
       )}
 

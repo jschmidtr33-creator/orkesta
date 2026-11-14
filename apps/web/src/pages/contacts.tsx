@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import {
   CalendarDays,
+  ChevronDown,
   Download,
   ExternalLink,
   FileUp,
@@ -36,7 +37,8 @@ import {
   TextField,
 } from "../components/ui";
 import { AskConcertino } from "../components/Concertino";
-import { LinkedInImportButton } from "../components/LinkedInImport";
+import { LinkedInImportModal } from "../components/LinkedInImport";
+import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -156,6 +158,8 @@ export function ContactsPage() {
   const [params, setParams] = useSearchParams();
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
+  const [linkedInOpen, setLinkedInOpen] = useState(false);
+  const navigate = useNavigate();
   const [q, setQ] = useState(params.get("q") ?? "");
   const query = useDebounced(q);
   const filters = {
@@ -223,33 +227,27 @@ export function ContactsPage() {
             >
               Listas
             </Link>
-            <Link
-              to="/contactos/importar"
-              className="ork-focus inline-flex h-10 items-center gap-2 rounded-xl border border-ork-line bg-ork-card px-4 text-sm font-semibold text-ork-ink hover:border-ork-blue/40"
-            >
-              <FileUp className="size-4" aria-hidden /> Importar
-            </Link>
-            <LinkedInImportButton />
-            <Button
+            <ActionMenu
+              label="Mejorar mis datos"
               variant="secondary"
               icon={<Sparkles className="size-4" aria-hidden />}
-              onClick={() => setEnrichOpen(true)}
-            >
-              Enriquecer
-            </Button>
-            <Button
-              variant="secondary"
-              icon={<MailCheck className="size-4" aria-hidden />}
-              onClick={() => setValidateOpen(true)}
-            >
-              Validar correos
-            </Button>
-            <Button
+              items={[
+                { title: "Enriquecer", hint: "Completa sitio web, cargo y correo de los que les falta", onSelect: () => setEnrichOpen(true) },
+                { title: "Validar correos", hint: "Confirma que cada correo existe antes de escribirle", onSelect: () => setValidateOpen(true) },
+              ]}
+            />
+            <ActionMenu
+              label="Agregar contactos"
               icon={<Plus className="size-4" aria-hidden />}
-              onClick={() => setEditing("new")}
-            >
-              Agregar contacto
-            </Button>
+              items={[
+                { title: "Uno a mano", hint: "Escribe nombre, cargo y empresa", onSelect: () => setEditing("new") },
+                { title: "Importar Excel o CSV", hint: "Sube tu base; ORKESTA reconoce las columnas", onSelect: () => navigate("/contactos/importar") },
+                { title: "Desde LinkedIn", hint: "Pega la dirección de uno o varios perfiles", onSelect: () => setLinkedInOpen(true) },
+                { title: "Buscar posibles clientes", hint: "Encuentra decisores con filtros en Prospección", onSelect: () => navigate("/prospeccion") },
+                { title: "Con la extensión de Chrome", hint: "Guarda perfiles y listas desde LinkedIn o Prospeo", onSelect: () => window.open(EXTENSION_STORE, "_blank", "noopener") },
+              ]}
+            />
+            <LinkedInImportModal open={linkedInOpen} onOpenChange={setLinkedInOpen} />
           </div>
         }
       />
@@ -482,7 +480,7 @@ export function ContactsPage() {
                             )}
                           </p>
                           <p className="flex items-center gap-1.5 truncate text-[12.5px] text-ork-mist">
-                            {c.email ?? "Correo pendiente"}
+                            {c.email ?? <span className="text-ork-violet">Sin correo · usa «Mejorar mis datos»</span>}
                             {c.email && c.email_status !== "sin_validar" && (
                               <EmailBadge status={c.email_status} />
                             )}
@@ -702,6 +700,40 @@ function SourceText({ label }: { label: string }) {
         {match[0].replace(/^https?:\/\/(www\.)?/, "").slice(0, 60)}
       </a>
     </>
+  );
+}
+
+const EXTENSION_STORE = "https://chromewebstore.google.com/detail/cfaooobjacoehihnbhapaomnoidcoidp";
+
+/** Botón con un menú corto: cada opción dice en una línea qué hace. */
+function ActionMenu({ label, icon, items, variant }: {
+  label: string;
+  icon: React.ReactNode;
+  variant?: "secondary";
+  items: { title: string; hint: string; onSelect: () => void }[];
+}) {
+  return (
+    <Menu.Root>
+      <Menu.Trigger asChild>
+        <Button variant={variant} icon={icon}>
+          {label} <ChevronDown className="size-4" aria-hidden />
+        </Button>
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Content align="end" sideOffset={6} className="z-50 w-[300px] rounded-xl border border-ork-line bg-ork-card p-1.5 shadow-[var(--shadow-pop)]">
+          {items.map((it) => (
+            <Menu.Item
+              key={it.title}
+              onSelect={it.onSelect}
+              className="flex cursor-pointer flex-col rounded-lg px-3 py-2 outline-none data-[highlighted]:bg-ork-surface"
+            >
+              <span className="text-[13.5px] font-semibold text-ork-ink">{it.title}</span>
+              <span className="text-[12px] text-ork-mist">{it.hint}</span>
+            </Menu.Item>
+          ))}
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 

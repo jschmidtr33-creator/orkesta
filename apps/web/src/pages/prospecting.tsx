@@ -194,9 +194,9 @@ export function ProspectingPage() {
   };
 
   const tabs: { value: Tab; label: string; icon: ReactNode; count?: number }[] = [
-    { value: "filtros", label: "Filtros de búsqueda", icon: <Search className="size-4" aria-hidden /> },
-    { value: "personas", label: "Posibles clientes", icon: <Users className="size-4" aria-hidden />, count: run?.people.length },
-    { value: "empresas", label: "Cuentas", icon: <Building2 className="size-4" aria-hidden />, count: run?.companies.length },
+    { value: "filtros", label: "Filtros", icon: <Search className="size-4" aria-hidden /> },
+    { value: "personas", label: "Personas encontradas", icon: <Users className="size-4" aria-hidden />, count: run?.people.length },
+    { value: "empresas", label: "Empresas encontradas", icon: <Building2 className="size-4" aria-hidden />, count: run?.companies.length },
   ];
 
   return (
@@ -541,11 +541,13 @@ function FilterPanel({
         onSubmit();
       }}
     >
+      <div className="flex flex-wrap items-center gap-3">
+      <span className="text-[13.5px] font-semibold text-ork-ink">¿Qué buscas?</span>
       <div className="inline-flex self-start rounded-xl border border-ork-line bg-ork-card p-1" role="tablist" aria-label="Tipo de búsqueda">
         {(
           [
-            ["leads", "Posible cliente"],
-            ["accounts", "Cuentas"],
+            ["leads", "Personas que deciden"],
+            ["accounts", "Empresas"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -560,6 +562,7 @@ function FilterPanel({
           </button>
         ))}
       </div>
+      </div>
       <div className="flex flex-col gap-3 rounded-2xl border border-ork-line bg-ork-surface/60 p-3 sm:flex-row sm:items-center">
         <label className="relative flex-1">
           <span className="sr-only">Palabras clave</span>
@@ -567,7 +570,7 @@ function FilterPanel({
           <input
             value={filters.keywords}
             onChange={(e) => set({ keywords: e.target.value.slice(0, 80) })}
-            placeholder="Buscar por palabras clave"
+            placeholder="Palabras clave · ej.: logística, BBVA, gerente comercial"
             className="ork-focus h-11 w-full rounded-xl border border-ork-line bg-ork-card pl-9 pr-3 text-[14px] placeholder:text-ork-mist"
           />
         </label>
