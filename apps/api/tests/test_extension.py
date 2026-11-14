@@ -61,6 +61,19 @@ def test_extension_keys_contacts_and_revoke(
     assert jenn["company"] == "America Digital Congress" and jenn["country_code"] == "CO"
     assert jenn["job_title"] == "Corporate Sales Team Leader" and jenn["city"]
     assert client.get("/api/admin/extension/info").json()["version"]
+    # Un perfil que se agregó antes con el nombre pegado se corrige con lo que se ve en pantalla.
+    ext.post(
+        "/api/ext/linkedin", headers=headers, json={"url": "linkedin.com/in/juanignacioscilino"}
+    )
+    fixed = ext.post("/api/ext/linkedin", headers=headers, json={
+        "url": "https://www.linkedin.com/in/juanignacioscilino/", "name": "Juan Ignacio Scilino",
+        "title": "Gerente Comercial", "company": "Banco Andino", "location": "Lima, Perú"})  # fmt: skip
+    assert fixed.json()["updated"] == 1
+    juan = next(
+        c for c in client.get("/api/contacts").json()["items"] if c["first_name"].startswith("Juan")
+    )
+    assert (juan["first_name"], juan["last_name"]) == ("Juan Ignacio", "Scilino")
+    assert juan["company"] == "Banco Andino" and juan["country_code"] == "PE"
 
     zipped = client.get("/api/admin/extension/download")
     names = zipfile.ZipFile(io.BytesIO(zipped.content)).namelist()
