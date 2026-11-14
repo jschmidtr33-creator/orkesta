@@ -130,6 +130,11 @@ jobs:
           r = httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": "orkesta"}, timeout=20)
           print("respuesta directa:", r.status_code, r.text[:160])
           PY
+          echo "==> Cerebro: últimas versiones por modelo"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT task, version, active, n_train, n_test, round((metrics->>'accuracy')::numeric,2), round((baseline->>'accuracy')::numeric,2), left(notes,60), left(created_at::text,16)
+            FROM (SELECT *, row_number() OVER (PARTITION BY task ORDER BY version DESC) rn FROM orkesta.brain_models) t WHERE rn <= 2 ORDER BY task, version DESC;
+            SELECT task, count(*) FROM orkesta.brain_feedback GROUP BY 1;" </dev/null
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"
