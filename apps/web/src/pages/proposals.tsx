@@ -305,10 +305,16 @@ export function ProposalsPage() {
           {list.isLoading ? (
             <Spinner />
           ) : !list.data?.length ? (
-            <p className="px-5 py-12 text-center text-[13.5px] text-ork-mist">
-              Aún no hay propuestas. Crea la primera desde una oportunidad del
-              CRM.
-            </p>
+            <div className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+              <p className="text-[15px] font-semibold text-ork-ink">Aún no tienes propuestas</p>
+              <p className="max-w-md text-[13.5px] text-ork-mist">
+                Arma una propuesta con tu catálogo, compártela con un enlace y ORKESTA te avisa
+                cuando el cliente la abre, la acepta o la rechaza.
+              </p>
+              <Button icon={<FilePlus2 className="size-4" aria-hidden />} onClick={() => setCreating(true)}>
+                Crear mi primera propuesta
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left text-[13.5px]">

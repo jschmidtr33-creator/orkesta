@@ -138,10 +138,15 @@ export function TeamPage() {
       ) : q.error ? (
         <Alert>{q.error.message}</Alert>
       ) : d && d.people.length === 0 ? (
-        <Card>
-          <p className="py-6 text-center text-[14px] text-ork-graphite">
-            {isAdmin ? "Todavía no hay más personas en tu empresa. Invítalas en Configuración → Equipo." : "Todavía no tienes personas a cargo. La administración de tu empresa te las asigna en Configuración → Equipo."}
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <p className="text-[14px] text-ork-graphite">
+            {isAdmin ? "Todavía no hay más personas en tu empresa." : "Todavía no tienes personas a cargo. La administración de tu empresa te las asigna en Configuración → Equipo."}
           </p>
+          {isAdmin && (
+            <Link to="/configuracion/equipo" className="ork-focus inline-flex h-10 items-center rounded-xl bg-ork-blue px-4 text-sm font-semibold text-white">
+              Invitar a mi equipo
+            </Link>
+          )}
         </Card>
       ) : d && t ? (
         <div className={cx("flex flex-col gap-5", q.isFetching && "opacity-70")}>
