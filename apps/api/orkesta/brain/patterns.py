@@ -159,3 +159,20 @@ def ranking(session: Session, domain: str) -> list[tuple[str, int]] | None:
         return None
     ordered = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
     return [(label, round(100 * p)) for label, p in ordered if p > 0]
+
+
+def extras(session: Session, _model: Any, _threshold: float) -> dict[str, Any]:
+    """Cuántas veces el formato correcto está entre los 3 primeros que ORKESTA prueba (la
+    validación prueba hasta 4 por persona, de a uno, empezando por el más probable)."""
+    train, test = ml.split(build(session))
+    if not train or not test:
+        return {}
+    model = make().fit([ex.x for ex in train], [ex.y for ex in train])
+    top1 = top3 = 0
+    for ex in test:
+        ranked = sorted(model.predict_proba(ex.x).items(), key=lambda kv: -kv[1])
+        labels = [label for label, _ in ranked]
+        top1 += labels[:1] == [ex.y]
+        top3 += ex.y in labels[:3]
+    return {"top1": round(top1 / len(test), 4), "top3": round(top3 / len(test), 4),
+            "top_n": len(test)}  # fmt: skip

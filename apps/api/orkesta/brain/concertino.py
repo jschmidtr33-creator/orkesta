@@ -88,6 +88,11 @@ def _feedback(session: Session, task: str, labels: set[str]) -> list[tuple[str, 
 
 
 def _build(session: Session, task: str, seed: dict[str, tuple[str, ...]]) -> list[ml.Example]:
+    from orkesta.brain.data import concertino_more
+
+    extra = (concertino_more.OBJECTIONS if task == engine.OBJECTION_TASK
+             else concertino_more.TOPICS)  # fmt: skip
+    seed = {k: (*seed.get(k, ()), *extra.get(k, ())) for k in {*seed, *extra}}
     examples = [ml.Example(f"s:{ml.fold(t)}", ml.word_features(t), label, t)
                 for label, texts in seed.items() for t in texts]  # fmt: skip
     vocabulary = {k for ex in examples for k in ex.x}
@@ -102,6 +107,27 @@ def _build(session: Session, task: str, seed: dict[str, tuple[str, ...]]) -> lis
         if shared:
             examples += [ml.Example(f"f:{ml.fold(text)}", shared, label, text)] * FEEDBACK_WEIGHT
     return examples
+
+
+def predict_objection(model: Any, threshold: float, ex: ml.Example) -> tuple[str | None, float]:
+    """Igual que en producción (engine.classify_objection): el modelo decide si está seguro y
+    las reglas no son contundentes; si no, mandan las reglas; si no hay regla, el modelo."""
+    rule, hits = engine.objection_rules(str(ex.raw))
+    label, confidence = ml.predict(model, ex.x)
+    if label in pb.OBJECTION_BY_CODE and confidence >= threshold and (rule is None or hits == 1):
+        return label, confidence
+    return (rule, 1.0) if rule is not None else (label, confidence)
+
+
+def predict_topic(model: Any, threshold: float, ex: ml.Example) -> tuple[str | None, float]:
+    """Igual que en producción (engine.classify_topic): reglas más el voto del modelo."""
+    scores = dict(engine.topic_rules(str(ex.raw)))
+    label, confidence = ml.predict(model, ex.x)
+    if confidence >= threshold:
+        scores[label] = scores.get(label, 0) + 2
+    if not scores:
+        return label, confidence
+    return max(scores, key=lambda k: scores[k]), confidence
 
 
 def build_objections(session: Session) -> list[ml.Example]:

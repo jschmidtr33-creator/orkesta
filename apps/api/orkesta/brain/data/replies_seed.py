@@ -203,4 +203,7 @@ EXAMPLES: dict[str, list[str]] = {
 
 def examples() -> list[tuple[str, str]]:
     """(texto, categoría)."""
-    return [(text, category) for category, texts in EXAMPLES.items() for text in texts]
+    from orkesta.brain.data.replies_more import MORE
+
+    return [(text, category) for source in (EXAMPLES, MORE)
+            for category, texts in source.items() for text in texts]  # fmt: skip
