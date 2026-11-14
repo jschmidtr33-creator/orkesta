@@ -37,3 +37,7 @@ body.panel .rows { max-height: calc(100vh - 330px); min-height: 120px; }
 .person.dim { opacity: 0.6; }
 .tag { font-size: 11px; font-weight: 700; color: #15803d; background: #dcfce7; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 footer { gap: 10px; }
+.dest { padding: 10px 14px 0; display: flex; flex-direction: column; gap: 6px; }
+.destrow { flex-direction: row; align-items: center; gap: 8px; font-size: 12.5px; }
+.destrow select { flex: 1; font: inherit; font-weight: 500; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; }
+button.small { padding: 6px 12px; font-size: 12.5px; }

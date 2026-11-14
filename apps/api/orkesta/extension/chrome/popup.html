@@ -19,6 +19,16 @@
     <p id="connectMsg" class="msg"></p>
   </section>
 
+  <div id="dest" class="dest" hidden>
+    <label class="destrow">Guardar en
+      <select id="destList"><option value="">Solo en Contactos</option></select>
+    </label>
+    <div id="newListRow" class="row" hidden>
+      <input id="newListName" placeholder="Nombre de la lista nueva" maxlength="120" />
+      <button id="newListBtn" type="button" class="small">Crear</button>
+    </div>
+  </div>
+
   <section id="loading" hidden>
     <p class="muted">Leyendo la página…</p>
   </section>

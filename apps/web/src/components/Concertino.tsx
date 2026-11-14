@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, Copy, Music2, Send, ThumbsDown, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { Alert, Badge, Button, cx } from "./ui";
 
@@ -34,6 +34,7 @@ type Advice = {
   missing: string[];
   sources: string[];
   suggestions?: string[];
+  interview?: Interview | null;
   actions?: { kind: "campana"; label: string; name: string; steps: { subject: string; body: string; delay_days: number }[] }[];
 };
 type Info = {
@@ -43,7 +44,9 @@ type Info = {
   user_name?: string;
   welcome?: string;
   starters?: string[];
+  interview?: Interview | null;
 };
+type Interview = { kind: string; question: string; step: number; total: number; required: boolean };
 type Turn = { id: number; question: string; advice?: Advice; error?: string };
 
 const QUICK: { label: string; mode?: string; question?: string; needs?: keyof AskContext }[] = [
@@ -93,18 +96,35 @@ export function AskConcertino({ children = "Pregúntale a Concertino", size = "s
 let counter = 0;
 const CHIP = "ork-focus rounded-full border border-ork-line bg-ork-card px-3 py-1.5 text-[12.5px] font-semibold text-ork-graphite hover:border-ork-blue/40 hover:text-ork-blue";
 
+function InterviewBar({ step }: { step: Interview }) {
+  return (
+    <div className="mt-3">
+      <div className="h-1.5 overflow-hidden rounded-full bg-ork-ink/5">
+        <div className="ork-gradient h-full rounded-full" style={{ width: `${Math.round(((step.step - 1) / step.total) * 100)}%` }} />
+      </div>
+      <p className="mt-1 text-[11.5px] text-ork-mist">
+        Aprendiendo lo que vendes · {step.step - 1} de {step.total} · respóndeme aquí abajo
+      </p>
+    </div>
+  );
+}
+
 function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void }) {
   const info = useQuery({ queryKey: ["concertino-info"], queryFn: () => api<Info>("/api/concertino/info"), staleTime: 300_000 });
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState(initial.question ?? "");
   const [trato, setTrato] = useState<"auto" | "tu" | "usted">("auto");
+  // Pregunta del producto que Concertino está haciendo (la respuesta se guarda en su memoria).
+  const [answering, setAnswering] = useState<string | null | undefined>(undefined);
+  const pendingKind = answering === undefined ? info.data?.interview?.kind ?? null : answering;
   const ask = useMutation({
-    mutationFn: (v: { question: string; mode?: string }) =>
+    mutationFn: (v: { question: string; mode?: string; answering?: string | null }) =>
       api<Advice>("/api/concertino/ask", {
         method: "POST",
         json: {
           question: v.question,
           mode: v.mode,
+          answering: v.answering ?? undefined,
           trato,
           contact_id: initial.contact_id,
           deal_id: initial.deal_id,
@@ -123,9 +143,12 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
     setTurns((t) => [...t, { id, question: label ?? question }]);
     setText("");
     ask.mutate(
-      { question, mode },
+      { question, mode, answering: mode ? null : pendingKind },
       {
-        onSuccess: (advice) => setTurns((t) => t.map((x) => (x.id === id ? { ...x, advice } : x))),
+        onSuccess: (advice) => {
+          setAnswering(advice.interview?.kind ?? null);
+          setTurns((t) => t.map((x) => (x.id === id ? { ...x, advice } : x)));
+        },
         onError: (e) => setTurns((t) => t.map((x) => (x.id === id ? { ...x, error: e.message } : x))),
       },
     );
@@ -166,7 +189,7 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
             </span>
             <div>
               <h2 className="text-[16px] font-bold text-ork-ink">Concertino</h2>
-              <p className="text-[12.5px] text-ork-mist">Tu asesor de ventas. Pregúntale lo que necesites.</p>
+              <p className="text-[12.5px] text-ork-mist">Tu IA de ventas: aprende lo que vendes y vende contigo.</p>
               {initial.label && <p className="mt-1 text-[12.5px] font-semibold text-ork-graphite">Sobre: {initial.label}</p>}
             </div>
           </div>
@@ -189,8 +212,9 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
         <div ref={scroller} className="flex-1 overflow-y-auto px-5 py-5">
           <div className="space-y-5">
           <Bubble>
-            <p>{info.data?.welcome ?? "Hola. Soy Concertino, tu asesor de ventas. ¿En qué te ayudo hoy?"}</p>
-            {turns.length === 0 && (
+            <p className="whitespace-pre-line">{info.data?.welcome ?? "Hola. Soy Concertino, tu asesor de ventas. ¿En qué te ayudo hoy?"}</p>
+            {info.data?.interview && turns.length === 0 && <InterviewBar step={info.data.interview} />}
+            {turns.length === 0 && !info.data?.interview && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {(info.data?.starters ?? []).map((q) => (
                   <button key={q} type="button" className={CHIP} onClick={() => send(q)}>
@@ -322,6 +346,7 @@ function AdviceCard({ advice, objections, latest, onAsk, onDone }: { advice: Adv
       <p className="whitespace-pre-line" aria-live={latest ? "polite" : undefined}>
         {typed}
       </p>
+      {advice.interview && latest && <InterviewBar step={advice.interview} />}
       {done && (
         <div className="mt-3 space-y-3 animate-[fadeIn_.25s_ease-out]">
           {advice.objection && advice.case_id && (
@@ -371,9 +396,7 @@ function AdviceCard({ advice, objections, latest, onAsk, onDone }: { advice: Adv
               {advice.missing.map((m) => (
                 <p key={m}>{m}</p>
               ))}
-              <Link to="/producto" className="font-semibold text-ork-blue hover:underline">
-                Abrir la ficha del producto
-              </Link>
+              <p className="font-semibold text-ork-blue">Escríbeme «actualizar mi producto» y lo completamos aquí.</p>
             </div>
           )}
           {(advice.actions ?? []).map((a) => (

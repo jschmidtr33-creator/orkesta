@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,18 @@ from orkesta.core.db import set_context
 from orkesta.platform.models import Tenant
 from tests.conftest import register
 from tests.test_supervision import _join, _pro
+
+
+@pytest.fixture(autouse=True)
+def _product_known(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Las pruebas de asesoría parten de una empresa que ya le enseñó su producto a Concertino;
+    la entrevista en el chat se prueba aparte."""
+    if "interview" in request.node.name:
+        return
+    from orkesta.concertino import interview
+
+    monkeypatch.setattr(interview, "pending", lambda session, tenant_id: None)
+
 
 FICHA = [
     ("producto", "Plataforma de prospección B2B para Latinoamérica", "", {}),
@@ -395,3 +408,47 @@ def test_event_sales_questions_and_specific_emails(
     assert "retomar mi mensaje anterior" in follow["options"][0]["text"]
     said = ask("¿Qué le respondo si me dice que ya fue el año pasado?")
     assert said["topic"] == "objecion" and "Esta edición" in said["options"][0]["text"]
+
+
+def test_concertino_interview_learns_the_product_in_the_chat(client: TestClient) -> None:
+    """Sin ficha, Concertino pregunta en el chat qué vende (una pregunta a la vez), guarda las
+    respuestas en la memoria de la empresa y al final pregunta qué se necesita."""
+    register(client, "ana@lacteos.co")
+    info = client.get("/api/concertino/info").json()
+    assert info["interview"]["kind"] == "producto" and "Pregunta 1" in info["welcome"]
+
+    def say(text: str, kind: str) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": text, "answering": kind})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    r = say("Leche y yogures para cadenas de supermercados en Colombia", "producto")
+    assert r["interview"]["kind"] == "publico"
+    r = say("Cadenas medianas; decide el jefe de compras", "publico")
+    r = say("Quiebres de inventario por proveedores incumplidos", "problema")
+    r = say("Entregas en 24 horas y cero quiebres", "valor")
+    assert r["interview"]["kind"] == "diferencial"
+    for kind in ("diferencial", "prueba", "precio", "competidor", "objecion"):
+        r = say("Saltar", kind)
+    assert r["interview"] is None and "¿Qué necesitas hoy?" in r["summary"]
+    facts = client.get("/api/concertino/facts").json()
+    assert "Leche y yogures" in str(facts)
+    # Ya conoce el producto: el saludo pregunta qué se necesita.
+    again = client.get("/api/concertino/info").json()
+    assert again["interview"] is None and "¿Qué necesitas hoy?" in again["welcome"]
+    # «Actualizar mi producto» vuelve a la primera pregunta mostrando lo guardado.
+    upd = client.post(
+        "/api/concertino/ask", json={"question": "quiero actualizar mi producto"}
+    ).json()
+    assert upd["interview"]["kind"] == "producto" and "Leche y yogures" in upd["summary"]
+
+
+def test_new_objections_are_recognized(client: TestClient) -> None:
+    register(client, "ana@lacteos.co")
+    _ficha(client)
+    for text, code in (("Ya probamos algo parecido y no nos funcionó", "mala_experiencia"),
+                       ("Tenemos un contrato vigente con otro proveedor", "contrato"),
+                       ("Eso lo hacemos internamente", "interno")):  # fmt: skip
+        r = client.post("/api/concertino/ask", json={"question": f"Me respondió: «{text}»"}).json()
+        assert r["objection"] == code, (text, r.get("topic"), r.get("objection"), r.get("summary"))
+        assert r["options"]

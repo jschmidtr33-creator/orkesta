@@ -149,10 +149,25 @@ def ask(
     mode: str | None = None, contact_id: uuid.UUID | None = None,
     deal_id: uuid.UUID | None = None, recipient_id: uuid.UUID | None = None,
     campaign_id: uuid.UUID | None = None, trato: str = "auto",
-    history: list[dict[str, Any]] | None = None,
+    history: list[dict[str, Any]] | None = None, answering: str | None = None,
+    role: str | None = None,
 ) -> dict[str, Any]:  # fmt: skip
+    from orkesta.concertino import interview
+
     question = (question or "").strip()[:4000]
     history = (history or [])[-6:]
+    # Aprender el producto en la misma conversación (una pregunta a la vez).
+    if answering in interview.KINDS and question:
+        can_edit = can_curate(role) or interview.pending(session, tenant_id) is not None
+        return interview.answer(session, tenant_id=tenant_id, user=user, can_edit=can_edit,
+                                kind=answering, text=question, name=chat.user_name(user))  # fmt: skip
+    if question and interview.wants_restart(question):
+        return interview.start(session, tenant_id, chat.user_name(user),
+                               can_edit=can_curate(role))  # fmt: skip
+    if (step := interview.pending(session, tenant_id)) is not None and mode is None:
+        return interview.ask_step(
+            step, intro="Antes de ayudarte necesito conocer bien lo que vendes."
+        )
     ctx = _context(session, tenant_id=tenant_id, user=user, contact_id=contact_id,
                    deal_id=deal_id, recipient_id=recipient_id, campaign_id=campaign_id,
                    trato=trato)  # fmt: skip
@@ -480,13 +495,26 @@ def _write(session: Session, ctx: engine.Context, *, user: User, tenant_id: uuid
 
 def welcome(session: Session, tenant_id: uuid.UUID, user: User) -> dict[str, Any]:
     """Saludo al abrir Concertino, con el nombre de la persona y preguntas para empezar."""
-    ctx = engine.Context(tenant_id=tenant_id, user_id=user.id, formal=False,
-                         facts=engine.load_facts(session, tenant_id))  # fmt: skip
+    from orkesta.concertino import interview
+
     name = chat.user_name(user)
-    text = (f"Hola, {name}. Soy Concertino, tu asesor de ventas. "
-            + ("Conozco tu producto y lo que le funciona a tu empresa. ¿En qué te ayudo hoy?"
-               if ctx.facts else "Cuéntame el caso y te ayudo a resolverlo."))  # fmt: skip
-    return {"user_name": name, "welcome": text, "starters": chat.starters(ctx)}
+    step = interview.pending(session, tenant_id)
+    if step is not None:
+        first = interview.ask_step(step, intro=(
+            f"Hola, {name}. Soy Concertino, tu IA de ventas. Para vender contigo primero necesito "
+            "conocer lo que vendes, con detalle: te haré unas preguntas cortas y guardaré tus "
+            "respuestas en la memoria de tu empresa."))  # fmt: skip
+        return {"user_name": name, "welcome": first["summary"], "starters": first["suggestions"],
+                "interview": step}  # fmt: skip
+    text = (f"Hola, {name}. Soy Concertino, tu IA de ventas: conozco tu producto y lo que le "
+            "funciona a tu empresa. ¿Qué necesitas hoy? ¿Una secuencia de correos, responder una "
+            "objeción, preparar una reunión o una propuesta?")  # fmt: skip
+    return {
+        "user_name": name,
+        "welcome": text,
+        "starters": [*interview.NEEDS[:3], "¿Qué vendo?", "Actualizar mi producto"],
+        "interview": None,
+    }
 
 
 def _own_case(session: Session, tenant_id: uuid.UUID, user: User, case_id: uuid.UUID) -> AdviceCase:

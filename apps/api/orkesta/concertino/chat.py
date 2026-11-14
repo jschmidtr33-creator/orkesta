@@ -111,8 +111,8 @@ def small_talk(question: str, ctx: engine.Context, name: str) -> dict[str, Any] 
             "campañas y de lo que te funciona a ti. "
             + ("Ya conozco tu producto: pregúntame qué vender, precios, cómo responder una objeción, "
                "cómo hablarle a un cargo o cómo seguir una cuenta." if has else
-               "Todavía no tengo la ficha de tu producto; cuando la carguen en la página Producto, "
-               "respondo con ella."),
+               "Todavía no conozco tu producto: escríbeme «actualizar mi producto» y te "
+               "pregunto lo necesario."),
             suggestions=starters(ctx),
         )  # fmt: skip
     if words > 4:
@@ -135,8 +135,8 @@ def catalog(question: str, ctx: engine.Context) -> dict[str, Any] | None:
         return None
     main = engine._best(ctx, "producto")
     if main is None:
-        return _reply("Todavía no tengo la ficha de tu producto. Cárgala en la página Producto y "
-                      "desde ese momento te respondo con ella.")  # fmt: skip
+        return _reply("Todavía no conozco tu producto. Escríbeme «actualizar mi producto» y te "
+                      "pregunto lo necesario en esta conversación.")  # fmt: skip
     offers: list[str] = []
     seen: set[str] = set()
     for kind in ("producto", "precio"):

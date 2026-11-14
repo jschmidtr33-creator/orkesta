@@ -111,6 +111,43 @@ function render(values) {
   $("sSource").textContent = values.source ? `Leído de ${values.source}.` : "";
 }
 
+// --- Dónde se guardan: solo en Contactos o también en una lista ---------------------------------
+const listId = () => { const v = $("destList").value; return v && v !== "__nueva" ? v : undefined; };
+async function loadLists(keep) {
+  try {
+    const lists = await call("/api/ext/lists", token);
+    const sel = $("destList");
+    sel.textContent = "";
+    sel.append(new Option("Solo en Contactos", ""));
+    for (const l of lists) sel.append(new Option(`Lista: ${l.name}`, l.id));
+    sel.append(new Option("+ Nueva lista…", "__nueva"));
+    const saved = keep || (await chrome.storage.local.get("destList")).destList || "";
+    sel.value = [...sel.options].some((o) => o.value === saved) ? saved : "";
+    $("dest").hidden = false;
+  } catch (e) {}
+}
+function setupLists() {
+  $("destList").onchange = () => {
+    const v = $("destList").value;
+    $("newListRow").hidden = v !== "__nueva";
+    if (v === "__nueva") { $("newListName").focus(); return; }
+    chrome.storage.local.set({ destList: v });
+  };
+  $("newListBtn").onclick = async () => {
+    const name = $("newListName").value.trim();
+    if (!name) return;
+    try {
+      const made = await call("/api/ext/lists", token, { name });
+      $("newListName").value = "";
+      $("newListRow").hidden = true;
+      await chrome.storage.local.set({ destList: made.id });
+      await loadLists(made.id);
+    } catch (e) {
+      $("newListName").placeholder = e.message;
+    }
+  };
+}
+
 // --- De dónde sale lo que está en pantalla ----------------------------------------------------
 // En el panel flotante, la página se lee desde el panel (panel.js) y llega por mensaje. En la
 // ventana de respaldo (páginas del navegador) no hay página que leer.
@@ -151,6 +188,8 @@ async function main() {
   $("who").textContent = `${me.name} · ${me.company}`;
   $("logout").hidden = false;
   $("reread").hidden = !PANEL;
+  setupLists();
+  loadLists();
   if (PANEL) {
     show("loading");
     askPage();
@@ -229,7 +268,7 @@ function linkedinProfile(seen, url) {
     try {
       const r = await call("/api/ext/linkedin", token, {
         url, company: $("liCompany").value.trim(), country: $("liCountry").value.toUpperCase(),
-        name: seen.name, title: seen.title, location: seen.location,
+        name: seen.name, title: seen.title, location: seen.location, list_id: listId(),
       });
       msg("liMsg", r.created || r.updated ? savedText({ email: r.with_email, enrichment_id: r.enrichment_id })
         : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.", "ok");
@@ -272,11 +311,11 @@ function salesNav(seen, url) {
       let r;
       if (seen.profile) {
         r = await call("/api/ext/linkedin", token, { url: seen.profile, company, country: $("liCountry").value.toUpperCase(),
-          name: seen.name, title: seen.title, location: seen.location });
+          name: seen.name, title: seen.title, location: seen.location, list_id: listId() });
         r = { ok: r.created || r.updated, email: r.with_email, enrichment_id: r.enrichment_id, existing: r.existing };
       } else {
         const [first, last] = splitName(seen.name);
-        const res = await call("/api/ext/contacts/bulk", token, { source_url: seen.lead || url, enrich: true,
+        const res = await call("/api/ext/contacts/bulk", token, { source_url: seen.lead || url, enrich: true, list_id: listId(),
           people: [{ first_name: first, last_name: last, job_title: seen.title, company, location: seen.location }] });
         r = { ok: res.created > 0, existing: res.existing > 0, enrichment_id: res.enrichment_id, error: res.errors[0] };
       }
@@ -305,7 +344,7 @@ function showForm(values, url) {
   $("saveBtn").onclick = async () => {
     $("saveBtn").disabled = true;
     msg("saveMsg", "");
-    const body = { source_url: url, enrich: $("enrich").checked };
+    const body = { source_url: url, enrich: $("enrich").checked, list_id: listId() };
     for (const k of FIELDS) body[k] = $(k).value.trim();
     try {
       const r = await call("/api/ext/contacts", token, body);
@@ -392,7 +431,7 @@ function showList(page, people) {
     $("lSave").disabled = $("lSaveAll").disabled = true;
     msg("lMsg", `Guardando ${batch.length}…`);
     try {
-      const r = await call("/api/ext/contacts/bulk", token, { source_url: page.url, enrich: $("lEnrich").checked,
+      const r = await call("/api/ext/contacts/bulk", token, { source_url: page.url, enrich: $("lEnrich").checked, list_id: listId(),
         people: batch.map((i) => toPerson(people[i])) });
       for (const i of batch) {
         const b = boxes[i];
@@ -402,6 +441,7 @@ function showList(page, people) {
         b.row.classList.add("dim");
       }
       const parts = [`${r.created} guardado(s)`];
+      if (r.in_list) parts.push(`${r.in_list} en la lista`);
       if (r.existing) parts.push(`${r.existing} ya estaba(n)`);
       if (r.pending && r.enrichment_id) parts.push(`ORKESTA busca el correo de ${r.pending}`);
       else if (r.pending) parts.push(`${r.pending} sin correo: búscalos luego en Enriquecer`);
@@ -445,6 +485,7 @@ $("logout").onclick = async (e) => {
   $("who").textContent = "";
   $("logout").hidden = true;
   $("reread").hidden = true;
+  $("dest").hidden = true;
   show("connect");
 };
 if (PANEL) document.body.classList.add("panel");
