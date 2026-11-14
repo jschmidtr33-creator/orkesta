@@ -153,9 +153,9 @@ function useDebounced<T>(value: T, ms = 300): T {
 }
 
 export function ContactsPage() {
-  const client = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const [removed, setRemoved] = useState<{ deleted: number; skipped: number } | null>(null);
+  const [removed, setRemoved] = useState<Removed | null>(null);
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [q, setQ] = useState(params.get("q") ?? "");
   const query = useDebounced(q);
   const filters = {
@@ -200,19 +200,7 @@ export function ContactsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const remove = useMutation({
-    mutationFn: (ids: string[]) =>
-      api<{ deleted: number; skipped: number }>("/api/contacts/delete", {
-        method: "POST",
-        json: { ids },
-      }),
-    onSuccess: (r) => {
-      setRemoved(r);
-      setSelected(new Set());
-      client.invalidateQueries({ queryKey: ["contacts"] });
-      client.invalidateQueries({ queryKey: ["lists"] });
-    },
-  });
+
 
   const data = contacts.data;
   const items = data?.items ?? [];
@@ -395,16 +383,8 @@ export function ContactsPage() {
             <Button
                 size="sm"
                 variant="danger"
-                loading={remove.isPending}
                 icon={<Trash2 className="size-3.5" aria-hidden />}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `¿Eliminar ${selected.size} contactos? Esta acción no se puede deshacer.`,
-                    )
-                  )
-                    remove.mutate([...selected]);
-                }}
+                onClick={() => setDeleteIds([...selected])}
               >
                 Eliminar
               </Button>
@@ -563,7 +543,9 @@ export function ContactsPage() {
       {removed && (
         <div className="mt-3" role="status">
           <Alert tone={removed.skipped ? "blue" : "ok"}>
-            {removed.deleted === 1 ? "Se eliminó 1 contacto." : `Se eliminaron ${removed.deleted} contactos.`}
+            {removed.list
+              ? `${removed.deleted === 1 ? "Se quitó 1 contacto" : `Se quitaron ${removed.deleted} contactos`} de la lista «${removed.list}». Siguen en tus contactos.`
+              : removed.deleted === 1 ? "Se eliminó 1 contacto." : `Se eliminaron ${removed.deleted} contactos.`}
             {removed.skipped > 0 &&
               ` ${removed.skipped} no se eliminaron porque pertenecen a otra persona del equipo.`}
           </Alert>
@@ -573,8 +555,16 @@ export function ContactsPage() {
         id={openId}
         onClose={() => setOpenId(null)}
         onEdit={(c) => setEditing(c)}
-        onDeleted={(r) => {
-          setOpenId(null);
+        onDelete={(cid) => setDeleteIds([cid])}
+      />
+      <DeleteContactsModal
+        ids={deleteIds}
+        defaultList={filters.lista}
+        onOpenChange={(o) => !o && setDeleteIds([])}
+        onDone={(r) => {
+          setDeleteIds([]);
+          setSelected(new Set());
+          if (!r.list) setOpenId(null);
           setRemoved(r);
         }}
       />
@@ -715,19 +705,108 @@ function SourceText({ label }: { label: string }) {
   );
 }
 
+type Removed = { deleted: number; skipped: number; list?: string };
+
+/** Confirmación al eliminar: quitar solo de una lista (sigue en Contactos) o eliminar de
+ * Contactos (y de todas sus listas). */
+function DeleteContactsModal({
+  ids,
+  defaultList,
+  onOpenChange,
+  onDone,
+}: {
+  ids: string[];
+  defaultList?: string;
+  onOpenChange: (open: boolean) => void;
+  onDone: (r: Removed) => void;
+}) {
+  const client = useQueryClient();
+  const lists = useLists();
+  const options = lists.data ?? [];
+  const [mode, setMode] = useState<"lista" | "contactos">("contactos");
+  const [listId, setListId] = useState("");
+  const open = ids.length > 0;
+  useEffect(() => {
+    if (!open) return;
+    const start = defaultList || "";
+    setListId(start || options[0]?.id || "");
+    setMode(start ? "lista" : "contactos");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultList]);
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["contacts"] });
+    client.invalidateQueries({ queryKey: ["lists"] });
+  };
+  const go = useMutation({
+    mutationFn: async (): Promise<Removed> => {
+      if (mode === "lista") {
+        const r = await api<{ removed: number }>(`/api/lists/${listId}/remove`, { method: "POST", json: { ids } });
+        return { deleted: r.removed, skipped: 0, list: options.find((l) => l.id === listId)?.name ?? "" };
+      }
+      return api<Removed>("/api/contacts/delete", { method: "POST", json: { ids } });
+    },
+    onSuccess: (r) => {
+      refresh();
+      onDone(r);
+    },
+  });
+  const who = ids.length === 1 ? "este contacto" : `estos ${ids.length} contactos`;
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title={`¿Qué quieres hacer con ${who}?`}>
+      <div className="flex flex-col gap-3">
+        <label className={cx("flex cursor-pointer items-start gap-3 rounded-xl border p-3", mode === "lista" ? "border-ork-blue bg-ork-blue/5" : "border-ork-line", !options.length && "opacity-50")}>
+          <input type="radio" className="mt-1 accent-ork-blue" checked={mode === "lista"} disabled={!options.length} onChange={() => setMode("lista")} />
+          <span className="flex flex-1 flex-col gap-2">
+            <span>
+              <strong className="text-ork-ink">Quitar solo de una lista</strong>
+              <span className="block text-[13px] text-ork-mist">Sigue en tu base de contactos y en tus otras listas.</span>
+            </span>
+            {mode === "lista" && options.length > 0 && (
+              <SelectField label="Lista" value={listId} onChange={(e) => setListId(e.target.value)}>
+                {options.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </SelectField>
+            )}
+            {!options.length && <span className="text-[12.5px] text-ork-mist">No tienes listas creadas.</span>}
+          </span>
+        </label>
+        <label className={cx("flex cursor-pointer items-start gap-3 rounded-xl border p-3", mode === "contactos" ? "border-bad bg-bad/5" : "border-ork-line")}>
+          <input type="radio" className="mt-1 accent-ork-blue" checked={mode === "contactos"} onChange={() => setMode("contactos")} />
+          <span>
+            <strong className="text-ork-ink">Eliminar de mis contactos</strong>
+            <span className="block text-[13px] text-ork-mist">Se borra de tu base de contactos y de todas tus listas. No se puede deshacer.</span>
+          </span>
+        </label>
+        {go.error && <Alert>{(go.error as Error).message}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button
+            variant={mode === "contactos" ? "danger" : "primary"}
+            loading={go.isPending}
+            disabled={mode === "lista" && !listId}
+            onClick={() => go.mutate()}
+          >
+            {mode === "lista" ? "Quitar de la lista" : "Eliminar"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ContactDrawer({
   id,
   onClose,
   onEdit,
-  onDeleted,
+  onDelete,
 }: {
   id: string | null;
   onClose: () => void;
   onEdit: (c: ContactDetail) => void;
-  onDeleted: (r: { deleted: number; skipped: number }) => void;
+  onDelete: (id: string) => void;
 }) {
   const { session } = useSession();
-  const client = useQueryClient();
   const detail = useQuery({
     queryKey: ["contact", id],
     queryFn: () => api<ContactDetail>(`/api/contacts/${id}`),
@@ -737,15 +816,6 @@ function ContactDrawer({
   // Cada quien edita y borra sus contactos; la administración, cualquiera.
   const canEdit =
     !!c && (session?.workspace?.role === "admin" || !c.owner_user_id || c.owner_user_id === session?.user.id);
-  const remove = useMutation({
-    mutationFn: (contactId: string) =>
-      api<{ deleted: number; skipped: number }>("/api/contacts/delete", { method: "POST", json: { ids: [contactId] } }),
-    onSuccess: (r) => {
-      client.invalidateQueries({ queryKey: ["contacts"] });
-      client.invalidateQueries({ queryKey: ["lists"] });
-      onDeleted(r);
-    },
-  });
   return (
     <Dialog.Root open={Boolean(id)} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
@@ -818,12 +888,8 @@ function ContactDrawer({
                       <Button
                         size="sm"
                         variant="danger"
-                        loading={remove.isPending}
                         icon={<Trash2 className="size-3.5" aria-hidden />}
-                        onClick={() =>
-                          window.confirm(`¿Eliminar a ${c.full_name}? Esta acción no se puede deshacer.`) &&
-                          remove.mutate(c.id)
-                        }
+                        onClick={() => onDelete(c.id)}
                       >
                         Eliminar
                       </Button>
