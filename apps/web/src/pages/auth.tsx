@@ -79,6 +79,8 @@ function GoogleButton({ label }: { label: string }) {
     queryFn: () => api<{ google: boolean }>("/api/auth/config"),
   });
   const enabled = config.data?.google;
+  // Si el ingreso con Google no está disponible, no se muestra (nada técnico en pantalla).
+  if (config.data && !enabled) return null;
   return (
     <div>
       <a
@@ -97,9 +99,6 @@ function GoogleButton({ label }: { label: string }) {
         </svg>
         {label}
       </a>
-      {config.data && !enabled && (
-        <p className="mt-1.5 text-center text-[12px] text-ork-mist">Inicio con Google: pendiente de conexión</p>
-      )}
       <div className="my-5 flex items-center gap-3 text-[12px] text-ork-mist">
         <span className="h-px flex-1 bg-ork-line" /> o con tu correo <span className="h-px flex-1 bg-ork-line" />
       </div>
