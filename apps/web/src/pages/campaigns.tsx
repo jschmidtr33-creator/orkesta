@@ -292,7 +292,7 @@ export function CampaignsPage() {
     <div>
       <PageHeader
         title="Campañas"
-        description="Secuencias de correos desde tu Gmail, con seguimiento de aperturas y clics. Cuando alguien responde, su secuencia se detiene sola."
+        description="Secuencias de correos desde tu propio correo, con seguimiento de aperturas y clics. Cuando alguien responde, su secuencia se detiene sola."
         action={
           <Button
             icon={<Plus className="size-4" aria-hidden />}
@@ -309,20 +309,24 @@ export function CampaignsPage() {
               <Mail className="mt-0.5 size-5 text-ork-blue" aria-hidden />
               <div>
                 <p className="text-[14.5px] font-semibold text-ork-ink">
-                  Conecta tu Gmail para enviar
+                  Paso 1: conecta tu correo para enviar
                 </p>
                 <p className="text-[13px] text-ork-mist">
-                  {boxes.data?.enabled
-                    ? "Los correos salen desde tu propio buzón: mejor entrega y las respuestas llegan a tu bandeja."
-                    : "Falta configurar el acceso a Google en el servidor (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET y PUBLIC_BASE_URL)."}
+                  Los correos salen desde tu propio buzón (Gmail, Outlook o el de tu empresa): mejor
+                  entrega y las respuestas llegan a tu bandeja.
                 </p>
               </div>
             </div>
-            {boxes.data?.enabled && (
-              <a href="/api/mail/google/start">
-                <Button>Conectar Gmail</Button>
-              </a>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {boxes.data?.providers?.gmail !== false && boxes.data?.enabled && (
+                <a href="/api/mail/google/start">
+                  <Button>Conectar Gmail</Button>
+                </a>
+              )}
+              <Link to="/configuracion/integraciones">
+                <Button variant="secondary">Outlook u otro correo</Button>
+              </Link>
+            </div>
           </Card>
         </div>
       )}
