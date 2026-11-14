@@ -130,6 +130,11 @@ jobs:
           r = httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": "orkesta"}, timeout=20)
           print("respuesta directa:", r.status_code, r.text[:160])
           PY
+          echo "==> Últimas validaciones (solo cifras)"
+          docker compose exec -T db psql -U postgres -d orkesta -At -c "
+            SELECT left(created_at::text,16), status, totals::text FROM orkesta.validation_runs ORDER BY created_at DESC LIMIT 4;
+            SELECT email_status, regexp_replace(left(coalesce(email_check_reason,''),45), '[^ ]+\.[a-z]{2,}', '<dominio>', 'g'), count(*)
+            FROM orkesta.contacts WHERE email_checked_at > now() - interval '3 hours' GROUP BY 1,2 ORDER BY 3 DESC LIMIT 15;" </dev/null
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"
