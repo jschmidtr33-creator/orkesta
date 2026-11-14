@@ -163,6 +163,8 @@ export function ValidationBanner() {
           {latest.find_missing && <span><strong className="text-ork-blue">{t.found ?? 0}</strong> correos encontrados</span>}
           {(t.estimated ?? 0) > 0 && <span><strong className="text-ork-violet">{t.estimated}</strong> estimados con el formato de su empresa</span>}
           {(t.replaced ?? 0) > 0 && <span><strong className="text-ok">{t.replaced}</strong> inválidos reemplazados por el correcto</span>}
+          {(t.no_format ?? 0) > 0 && <span><strong className="text-warn">{t.no_format}</strong> sin ningún formato válido (quizá ya no trabajan ahí)</span>}
+          {(t.already_tried ?? 0) > 0 && <span className="text-ork-mist">{t.already_tried} ya revisados antes: no se gastaron créditos en ellos</span>}
           {(t.bad_domain ?? 0) > 0 && <span><strong className="text-warn">{t.bad_domain}</strong> con un dominio que parece equivocado (revisa el sitio web de la empresa)</span>}
         </div>
       )}

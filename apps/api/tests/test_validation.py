@@ -205,3 +205,22 @@ def test_any_invalid_email_is_replaced_and_teaches_the_format(
     assert fixed["email"] == "agarcia@bancoandino.co" and fixed["email_status"] == "valido"
     with session_factory() as session:
         assert session.get(BouncedAddress, address_hash("andres.garcia@bancoandino.co"))
+
+
+def test_invalid_without_a_working_format_is_not_retried(
+    client: TestClient, session_factory: sessionmaker[Session], fake_network: FakeProber
+) -> None:
+    """Si ningún formato existe, queda anotado y la siguiente validación no vuelve a gastar
+    consultas en ese contacto."""
+    register(client, "ana@lacteos.co")
+    cid = _contact(
+        client, first_name="Pedro", last_name="Nadie", email="pedro.nadie@bancoandino.co"
+    )
+    first = _validate(client, session_factory, find_missing=True)
+    assert first["totals"].get("no_format") == 1
+    assert (
+        "Ningún formato existe" in client.get(f"/api/contacts/{cid}").json()["email_check_reason"]
+    )
+    sessions = fake_network.sessions
+    again = _validate(client, session_factory, find_missing=True)
+    assert again["totals"].get("already_tried") == 1 and fake_network.sessions == sessions

@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, update
@@ -44,6 +44,7 @@ VALIDATION_JOB = "validate_emails"
 MAX_CONTACTS = 5000
 WORKERS = 8
 RCPT_PER_SESSION = 20
+NO_FORMAT = "Ningún formato existe"
 FIND_PER_DOMAIN = 40
 
 # Las pruebas reemplazan la red: resolución DNS y conversación SMTP.
@@ -64,6 +65,8 @@ class Target:
     last_name: str
     email_status: str = ""
     replace: bool = False  # correo estimado que resultó inválido: buscar el correcto
+    reason: str = ""
+    checked_at: datetime | None = None
 
 
 def _checker() -> Checker:
@@ -170,14 +173,25 @@ def _targets(session: Session, tenant_id: uuid.UUID, scope: dict[str, Any]) -> l
             Contact.first_name,
             Contact.last_name,
             Contact.email_status,
+            Contact.email_check_reason,
+            Contact.email_checked_at,
         )
         .limit(MAX_CONTACTS)
     ).all()
     targets = []
-    for cid, email, email_domain, company_domain, first, last, status in rows:
+    for cid, email, email_domain, company_domain, first, last, status, reason, at in rows:
         domain = (email.split("@", 1)[1] if email else None) or company_domain or email_domain
         targets.append(
-            Target(cid, email, (domain or "").lower(), first or "", last or "", status or "")
+            Target(
+                cid,
+                email,
+                (domain or "").lower(),
+                first or "",
+                last or "",
+                status or "",
+                reason=reason or "",
+                checked_at=at,
+            )
         )
     return targets
 
@@ -279,6 +293,13 @@ def _domain_work(
                 break  # el dominio resultó catch-all o sin SMTP: no se puede adivinar
             hit = next((v for v in verdicts if v.status == "valido"), None)
             if hit is None:
+                if target.replace and any(v.status == "invalido" for v in verdicts):
+                    why = f"{NO_FORMAT} en {domain}: quizá ya no trabaja ahí o la empresa usa otro "
+                    with progress.tx() as session:
+                        session.execute(update(Contact).where(Contact.id == target.id).values(
+                            email_checked_at=datetime.now(UTC),
+                            email_check_reason=(why + "dominio")[:300]))  # fmt: skip
+                    progress.add("no_format")
                 continue
             found_here += 1
             progress.add("valido")
@@ -370,7 +391,21 @@ def execute(progress: Progress, scope: dict[str, Any]) -> None:
     find_missing = bool(scope.get("find_missing"))
     by_domain: dict[str, tuple[list[Target], list[Target]]] = {}
     skipped = 0
+    recent = datetime.now(UTC) - timedelta(days=30)
     for target in targets:
+        fresh = target.checked_at is not None and target.checked_at >= recent
+        if target.email and target.email_status == "invalido" and fresh:
+            # Ya se verificó hace poco que no existe: no se vuelve a gastar en él.
+            if (
+                not find_missing
+                or target.reason.startswith(NO_FORMAT)
+                or not (target.first_name and target.last_name)
+            ):
+                progress.add("already_tried")
+                continue
+            target.replace = True
+            by_domain.setdefault(target.domain, ([], []))[1].append(target)
+            continue
         if target.email:
             by_domain.setdefault(target.domain, ([], []))[0].append(target)
         elif find_missing and target.domain and target.first_name and target.last_name:
