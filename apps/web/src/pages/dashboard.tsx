@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Bell, CalendarClock, Check, CheckCircle2, Clock3, FileText, Reply } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Avatar, Badge, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
 import { api } from "../lib/api";
@@ -162,13 +163,109 @@ export function formatWhen(iso: string): string {
   return new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 
+type Step = { done: boolean; title: string; hint: string; to: string; action: string };
+
+/** Primeros pasos: qué hacer, en orden, para empezar a vender con ORKESTA sin capacitación. */
+function FirstSteps({ data }: { data: Summary | undefined }) {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem("ork-primeros-pasos") === "oculto";
+    } catch {
+      return false;
+    }
+  });
+  const boxes = useQuery({ queryKey: ["mailboxes"], queryFn: () => api<{ items: unknown[] }>("/api/mailboxes") });
+  const campaigns = useQuery({ queryKey: ["campaigns"], queryFn: () => api<{ items: unknown[] }>("/api/campaigns") });
+  if (!data || boxes.isLoading || campaigns.isLoading) return null;
+  const steps: Step[] = [
+    { done: data.contacts > 0, title: "Trae tus contactos", hint: "Importa un Excel, búscalos en Prospección o guárdalos desde LinkedIn con la extensión.", to: "/prospeccion", action: "Buscar contactos" },
+    { done: (data.kpis.emails_validated ?? 0) > 0, title: "Completa y valida sus correos", hint: "Selecciónalos en Contactos y toca «Enriquecer» y luego «Validar correos».", to: "/contactos", action: "Ir a Contactos" },
+    { done: (boxes.data?.items.length ?? 0) > 0, title: "Conecta tu correo", hint: "Gmail, Outlook o el de tu empresa: las campañas salen desde tu buzón.", to: "/campanas", action: "Conectar correo" },
+    { done: (campaigns.data?.items.length ?? 0) > 0, title: "Lanza tu primera campaña", hint: "Elige a quién escribirle y Concertino te ayuda a redactar los correos.", to: "/campanas", action: "Crear campaña" },
+    { done: (data.kpis.open_opportunities ?? 0) > 0, title: "Lleva tus oportunidades en el CRM", hint: "Cuando alguien responde, créale una oportunidad y envíale una propuesta.", to: "/crm", action: "Abrir CRM" },
+  ];
+  const done = steps.filter((st) => st.done).length;
+  if (hidden || done === steps.length) return null;
+  const next = steps.findIndex((st) => !st.done);
+  return (
+    <Card className="mb-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[16px] font-bold text-ork-ink">Primeros pasos</p>
+          <p className="text-[13px] text-ork-mist">{done} de {steps.length} listos · sigue el orden y en minutos estás enviando.</p>
+        </div>
+        <button
+          type="button"
+          className="text-[12.5px] font-semibold text-ork-mist hover:text-ork-ink"
+          onClick={() => {
+            setHidden(true);
+            try {
+              localStorage.setItem("ork-primeros-pasos", "oculto");
+            } catch {
+              /* sin almacenamiento: solo se oculta ahora */
+            }
+          }}
+        >
+          Ocultar
+        </button>
+      </div>
+      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-ork-ink/5">
+        <div className="ork-gradient h-full rounded-full" style={{ width: `${Math.max(4, (done / steps.length) * 100)}%` }} />
+      </div>
+      <ol className="flex flex-col gap-2">
+        {steps.map((st, i) => (
+          <li
+            key={st.title}
+            className={cx(
+              "flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2.5",
+              i === next ? "border-ork-blue/40 bg-ork-blue/5" : "border-ork-line",
+            )}
+          >
+            {st.done ? (
+              <CheckCircle2 className="size-5 shrink-0 text-ok" aria-hidden />
+            ) : (
+              <span className="grid size-5 shrink-0 place-items-center rounded-full border border-ork-line text-[11px] font-bold text-ork-mist">{i + 1}</span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className={cx("block text-[14px] font-semibold", st.done ? "text-ork-mist line-through" : "text-ork-ink")}>{st.title}</span>
+              {!st.done && <span className="block text-[12.5px] text-ork-mist">{st.hint}</span>}
+            </span>
+            {!st.done && (
+              <Link
+                to={st.to}
+                className={cx(
+                  "inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-[13px] font-semibold",
+                  i === next ? "bg-ork-blue text-white" : "text-ork-blue hover:bg-ork-blue/5",
+                )}
+              >
+                {st.action} <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
+/** Varias acciones iguales seguidas («creó un contacto» ×6) se muestran en una sola línea. */
+function grouped(items: AuditItem[]): (AuditItem & { times: number })[] {
+  const out: (AuditItem & { times: number })[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (last && last.actor === item.actor && last.label === item.label) last.times += 1;
+    else out.push({ ...item, times: 1 });
+  }
+  return out;
+}
+
 export function DashboardPage() {
   const { session } = useSession();
   const canSeeAudit = session?.workspace?.role !== "vendedor";
   const summary = useQuery({ queryKey: ["dashboard"], queryFn: () => api<Summary>("/api/dashboard/summary"), refetchInterval: 60000 });
   const audit = useQuery({
-    queryKey: ["audit", 6],
-    queryFn: () => api<AuditItem[]>("/api/audit?limit=6"),
+    queryKey: ["audit", 20],
+    queryFn: () => api<AuditItem[]>("/api/audit?limit=20"),
     enabled: canSeeAudit,
   });
   const firstName = session?.user.full_name.split(" ")[0];
@@ -181,6 +278,7 @@ export function DashboardPage() {
         title={`Resumen general${firstName ? `, ${firstName}` : ""}`}
         description={`Espacio de trabajo ${session?.workspace?.name}.`}
       />
+      <FirstSteps data={summary.data} />
       <TodayPanel />
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Card className="flex flex-col gap-3">
@@ -222,19 +320,20 @@ export function DashboardPage() {
 
       <div className="mt-6 grid gap-6">
         <Card>
-          <CardHeader title="Actividad reciente" description="Registro de auditoría de tu espacio." />
+          <CardHeader title="Actividad reciente" description="Lo último que pasó en tu espacio de trabajo." />
           {!canSeeAudit && <p className="text-[13.5px] text-ork-mist">Visible para administradores y supervisores.</p>}
           {canSeeAudit && audit.isLoading && <Spinner />}
           {canSeeAudit && audit.data && audit.data.length === 0 && (
             <p className="text-[13.5px] text-ork-mist">Sin actividad todavía.</p>
           )}
           <ul className="flex flex-col gap-3">
-            {audit.data?.map((item) => (
+            {grouped(audit.data ?? []).slice(0, 6).map((item) => (
               <li key={item.id} className="flex gap-3">
                 <Avatar name={item.actor} email="" size={28} src={item.actor_avatar} />
                 <div>
                   <p className="text-[13.5px] text-ork-ink">
                     <strong>{item.actor}</strong> {item.label}
+                    {item.times > 1 && <span className="ml-1 rounded-full bg-ork-ink/5 px-2 py-0.5 text-[11.5px] font-semibold text-ork-mist">×{item.times}</span>}
                   </p>
                   <p className="text-[12px] text-ork-mist">{formatWhen(item.at)}</p>
                 </div>

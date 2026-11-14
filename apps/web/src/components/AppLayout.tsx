@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { useTheme, type Theme } from "../lib/theme";
-import { useRef, useState, type ComponentType } from "react";
+import { Fragment, useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session, type Workspace } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -39,19 +39,20 @@ type NavItem = {
   label: string;
   icon: ComponentType<{ className?: string }>;
   end?: boolean;
+  group?: string;
 };
 
 export const NAV: NavItem[] = [
   { to: "/", label: "Inicio", icon: Home, end: true },
-  { to: "/prospeccion", label: "Prospección", icon: Radar },
-  { to: "/contactos", label: "Contactos", icon: Users },
-  { to: "/campanas", label: "Campañas", icon: Mail },
-  { to: "/automatizacion", label: "Automatización", icon: Workflow },
-  { to: "/crm", label: "CRM", icon: Handshake },
-  { to: "/calendario", label: "Calendario", icon: CalendarDays },
-  { to: "/propuestas", label: "Propuestas", icon: FileText },
-  { to: "/reportes", label: "Reportes", icon: BarChart3 },
-  { to: "/producto", label: "Producto", icon: BookOpenText },
+  { to: "/prospeccion", label: "Prospección", icon: Radar, group: "Encontrar clientes" },
+  { to: "/contactos", label: "Contactos", icon: Users, group: "Encontrar clientes" },
+  { to: "/campanas", label: "Campañas", icon: Mail, group: "Vender" },
+  { to: "/crm", label: "CRM", icon: Handshake, group: "Vender" },
+  { to: "/propuestas", label: "Propuestas", icon: FileText, group: "Vender" },
+  { to: "/calendario", label: "Calendario", icon: CalendarDays, group: "Vender" },
+  { to: "/automatizacion", label: "Automatización", icon: Workflow, group: "Vender" },
+  { to: "/reportes", label: "Reportes", icon: BarChart3, group: "Medir" },
+  { to: "/producto", label: "Mi producto", icon: BookOpenText, group: "Ajustes" },
 ];
 
 /** Solo para jefaturas y administración: lo que trabaja cada persona a cargo. */
@@ -182,7 +183,7 @@ function Sidebar({
   const navigate = useNavigate();
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     cx(
-      "ork-focus flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium transition",
+      "ork-focus flex items-center gap-3 rounded-xl px-3 py-2 text-[14px] font-medium transition",
       isActive
         ? "bg-ork-blue/20 text-white shadow-[inset_0_0_0_1px_rgb(37_99_235/0.35)]"
         : "text-ork-mist hover:bg-white/[0.05] hover:text-white",
@@ -194,25 +195,28 @@ function Sidebar({
       </div>
       <WorkspaceSwitcher session={session} />
       <nav aria-label="Módulos" className="flex flex-1 flex-col gap-1">
-        {NAV.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={linkClass}
-            onClick={onNavigate}
-          >
-            <Icon className="size-[18px]" aria-hidden />
-            {label}
-          </NavLink>
+        {NAV.map(({ to, label, icon: Icon, end, group }, i) => (
+          <Fragment key={to}>
+            {group && group !== NAV[i - 1]?.group && (
+              <>
+                {NAV[i - 1]?.group === "Medir" &&
+                  ["admin", "supervisor"].includes(session.workspace?.role ?? "") && (
+                    <NavLink to={TEAM_NAV.to} className={linkClass} onClick={onNavigate}>
+                      <TEAM_NAV.icon className="size-[18px]" aria-hidden />
+                      {TEAM_NAV.label}
+                    </NavLink>
+                  )}
+                <p className="mt-2 px-3 pb-0.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                  {group}
+                </p>
+              </>
+            )}
+            <NavLink to={to} end={end} className={linkClass} onClick={onNavigate}>
+              <Icon className="size-[18px]" aria-hidden />
+              {label}
+            </NavLink>
+          </Fragment>
         ))}
-        {["admin", "supervisor"].includes(session.workspace?.role ?? "") && (
-          <NavLink to={TEAM_NAV.to} className={linkClass} onClick={onNavigate}>
-            <TEAM_NAV.icon className="size-[18px]" aria-hidden />
-            {TEAM_NAV.label}
-          </NavLink>
-        )}
-        <div className="my-3 h-px bg-white/10" />
         <NavLink to="/configuracion" className={linkClass} onClick={onNavigate}>
           <Settings className="size-[18px]" aria-hidden />
           Configuración
