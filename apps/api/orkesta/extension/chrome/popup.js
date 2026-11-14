@@ -141,6 +141,7 @@ async function main() {
   if (/(^|\.)linkedin\.com$/i.test(host)) {
     show("linkedin");
     $("liMore").onclick = () => { $("liFields").hidden = false; $("liMore").hidden = true; };
+    if (/linkedin\.com\/sales\//i.test(url)) return salesNav(tab, token, url);
     if (!/linkedin\.com\/in\//i.test(url)) {
       $("liBtn").hidden = true;
       $("liMore").hidden = true;
@@ -215,6 +216,60 @@ async function main() {
       $("fields").hidden = false;
     } finally {
       $("saveBtn").disabled = false;
+    }
+  };
+}
+
+// Sales Navigator: la ficha del posible cliente abierta (panel o página del lead).
+async function salesNav(tab, token, url) {
+  let seen = { name: "", title: "", company: "", location: "", profile: "", lead: "" };
+  try {
+    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: orkestaSalesNav });
+    if (res && res.result) seen = res.result;
+  } catch (e) {}
+  $("liMore").onclick = () => { $("liFields").hidden = false; $("liMore").hidden = true; };
+  if (!seen.name) {
+    $("liBtn").hidden = true;
+    $("liMore").hidden = true;
+    $("liHint").textContent = "Abre la ficha de un posible cliente (haz clic en su nombre en la lista) y vuelve a abrir la extensión.";
+    return;
+  }
+  $("liSummary").hidden = false;
+  $("liName").textContent = seen.name;
+  $("liTitle").textContent = [seen.title, seen.company].filter(Boolean).join(" · ") || "Sin cargo ni empresa visibles";
+  $("liPlace").textContent = seen.location;
+  $("liHint").hidden = true;
+  $("liCompany").value = seen.company || "";
+  $("liBtn").onclick = async () => {
+    $("liBtn").disabled = true;
+    $("liMsg").textContent = "Guardando…";
+    $("liMsg").className = "msg";
+    const company = $("liCompany").value.trim();
+    try {
+      let r;
+      if (seen.profile) {
+        r = await call("/api/ext/linkedin", token, { url: seen.profile, company, country: $("liCountry").value.toUpperCase(),
+          name: seen.name, title: seen.title, location: seen.location });
+        r = { ok: r.created || r.updated, email: r.with_email, enrichment_id: r.enrichment_id, existing: r.existing };
+      } else {
+        const [first, last] = splitName(seen.name);
+        const place = seen.location.split(",").map((x) => x.trim());
+        const saved = await call("/api/ext/contacts", token, {
+          first_name: first, last_name: last, job_title: seen.title, company,
+          country: $("liCountry").value.trim() || place[place.length - 1] || "",
+          source_url: seen.lead || url, enrich: true,
+        });
+        r = { ok: true, email: saved.email, enrichment_id: saved.enrichment_id };
+      }
+      $("liMsg").textContent = r.ok
+        ? (r.email ? "Guardado con su correo." : r.enrichment_id ? "Guardado. ORKESTA está buscando su correo." : "Guardado en Contactos.")
+        : r.existing ? "Ya estaba en tus contactos." : "No se pudo agregar.";
+      $("liMsg").className = "msg ok";
+    } catch (e) {
+      $("liMsg").textContent = e.message;
+      $("liMsg").className = "msg bad";
+    } finally {
+      $("liBtn").disabled = false;
     }
   };
 }
