@@ -410,7 +410,8 @@ def test_invalid_search_key_is_reported(
     register(client, "ana@lacteos.co")
     run = _run(client, session_factory, companies=["Banco Andino"])
     assert run["totals"]["serp_fatal_clave"] == 1
-    assert any("SERPER_API_KEY" in line["text"] for line in run["progress"]["log"])
+    # El detalle técnico no se muestra a los usuarios: queda solo para la administración.
+    assert not any("SERPER" in line["text"] for line in run["progress"]["log"])
 
 
 def test_profile_title_parsing() -> None:

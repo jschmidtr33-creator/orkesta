@@ -31,6 +31,7 @@ from orkesta.validation.checks import (
     Checker,
     RemoteProber,
     Resolver,
+    SmtpHealth,
     SmtpProber,
     Verdict,
     dns_mx,
@@ -74,9 +75,33 @@ def _checker() -> Checker:
         if settings.verifier_url and settings.verifier_token and settings.verifier_fingerprint:
             prober = RemoteProber(settings.verifier_url, settings.verifier_token,
                                   settings.verifier_fingerprint)  # fmt: skip
+        elif key := _api_key():
+            # Servicio de verificación (el puerto 25 del servidor está cerrado).
+            from orkesta.validation.api_verifier import ApiProber
+
+            return Checker(prober=ApiProber(key), resolver=RESOLVER or dns_mx,
+                           health=SmtpHealth())  # fmt: skip
         else:
             prober = SmtpProber(helo, sender) if settings.smtp_probe else None
     return Checker(prober=prober, resolver=RESOLVER or dns_mx)
+
+
+def _paid(checker: Checker) -> bool:
+    from orkesta.validation.api_verifier import ApiProber
+
+    return isinstance(checker.prober, ApiProber)
+
+
+def _api_key() -> str:
+    from orkesta.core.db import get_session_factory
+    from orkesta.validation.api_verifier import configured_key
+
+    try:
+        with get_session_factory()() as session:
+            return configured_key(session)
+    except Exception:
+        logger.exception("verifier_key")
+        return ""
 
 
 class Progress:
@@ -218,7 +243,23 @@ def _domain_work(
             options = [o for o in _candidates(target) if o != target.email]
             if not options:
                 continue
-            verdicts = checker.verify(options)
+            if _paid(checker):
+                # Servicio de pago: primero el formato aprendido de la empresa y de a uno,
+                # hasta encontrar el buzón (máximo 4 consultas por persona).
+                with progress.tx() as session:
+                    from orkesta.research.memory import next_email
+
+                    best, _ = next_email(session, target.first_name, target.last_name, domain)
+                options = ([best] if best and best in options else []) + [
+                    o for o in options if o != best
+                ]
+                verdicts = []
+                for option in options[:4]:
+                    verdicts += checker.verify([option])
+                    if verdicts[-1].status == "valido" or info.catch_all or not info.smtp_ok:
+                        break
+            else:
+                verdicts = checker.verify(options)
             if bool(info.catch_all) or not info.smtp_ok:
                 break  # el dominio resultó catch-all o sin SMTP: no se puede adivinar
             hit = next((v for v in verdicts if v.status == "valido"), None)
@@ -321,9 +362,18 @@ def execute(progress: Progress, scope: dict[str, Any]) -> None:
                 raise
             except Exception:
                 logger.exception("validation_domain_failed %s", futures[future])
-    if checker.prober is not None and not checker.health.available():
+    if _paid(checker):
+        from orkesta.admin import alerts
+
+        if not checker.health.available():
+            progress.add("smtp_blocked", 1)
+            alerts.record(progress.factory, "verificador")
+        else:
+            with progress.factory.begin() as session:
+                alerts.clear(session, "verificador")
+    elif checker.prober is not None and not checker.health.available():
         progress.add("smtp_blocked", 1)
-        progress.note("La red del servidor no permite verificar buzones por SMTP (puerto 25).")
+        progress.note("Algunos buzones no se pudieron confirmar: quedaron «Sin confirmar».")
 
 
 def _finish(

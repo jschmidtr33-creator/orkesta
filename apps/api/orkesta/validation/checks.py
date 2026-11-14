@@ -20,6 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from email_validator import EmailNotValidError, validate_email
 
@@ -310,7 +311,7 @@ def _rejected(code: int, message: str) -> bool:
 
 @dataclass
 class Checker:
-    prober: SmtpProber | RemoteProber | None
+    prober: Any  # SmtpProber, RemoteProber, ApiProber o None
     resolver: Resolver = dns_mx
     health: SmtpHealth = HEALTH
     domains: dict[str, DomainInfo] = field(default_factory=dict)
@@ -341,7 +342,7 @@ class Checker:
         ask = ([canary] if info.catch_all is None else []) + addresses
         for mx in info.mx_hosts[:2]:
             try:
-                results = self.prober.probe(mx, ask)
+                results: dict[str, tuple[int, str]] = self.prober.probe(mx, ask)
             except SmtpUnavailable:
                 self.health.record(mx, ok=False)
                 continue

@@ -262,7 +262,10 @@ def overview(session: Session) -> dict[str, Any]:
         d = (now() - timedelta(days=29 - i)).astimezone().date().isoformat()
         series.append({"date": d, "signups": by_day.get(d, 0)})
     top = sorted(tenants, key=lambda t: -usage[t.id]["contacts"])[:5]
+    from orkesta.admin import alerts
+
     return {
+        "service_alerts": alerts.current(session),
         "tenants": len(tenants),
         "tenants_active": sum(1 for t in tenants if t.status == "active"),
         "tenants_new_30d": sum(1 for t in tenants if t.created_at >= since30),

@@ -362,6 +362,7 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 // --- Resumen --------------------------------------------------------------------------------
 
 type OverviewData = {
+  service_alerts?: { service: string; text: string; at: string }[];
   tenants: number;
   tenants_active: number;
   tenants_new_30d: number;
@@ -386,6 +387,9 @@ function Overview() {
         </Card>
       ) : (
         <div className="flex flex-col gap-5">
+          {(d.service_alerts ?? []).map((a) => (
+            <Alert key={a.service}>{a.text} <span className="text-[12px] opacity-70">({new Date(a.at).toLocaleString("es")})</span></Alert>
+          ))}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Empresas" value={n(d.tenants)} hint={`${d.tenants_active} activas · +${d.tenants_new_30d} en 30 días`} />
             <Stat label="Usuarios" value={n(d.users)} hint={`+${d.users_new_30d} en 30 días`} />
@@ -1376,7 +1380,8 @@ function Integrations() {
   const q = useQuery({ queryKey: ["admin-integrations"], queryFn: () => api<{ key: string; name: string; ok: boolean; detail: string }[]>("/api/admin/integrations") });
   return (
     <>
-      <Title title="Integraciones" description="Estado de las conexiones del servidor (se configuran en Render)." />
+      <Title title="Integraciones" description="Estado de las conexiones del servidor." />
+      <VerifierCard />
       <div className="grid gap-4 md:grid-cols-2">
         {(q.data ?? []).map((i) => (
           <Card key={i.key} className="flex items-start gap-3">
@@ -1389,6 +1394,44 @@ function Integrations() {
         ))}
       </div>
     </>
+  );
+}
+
+function VerifierCard() {
+  const client = useQueryClient();
+  const q = useQuery({ queryKey: ["admin-verifier"], queryFn: () => api<{ configured: boolean; credits: number | null }>("/api/admin/verifier") });
+  const [key, setKey] = useState("");
+  const save = useMutation({
+    mutationFn: (value: string) => api<{ configured: boolean; credits: number | null }>("/api/admin/verifier", { method: "PUT", json: { key: value } }),
+    onSuccess: () => {
+      setKey("");
+      client.invalidateQueries({ queryKey: ["admin-verifier"] });
+      client.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+  const d = q.data;
+  return (
+    <Card className="mb-4 flex flex-col gap-3">
+      <div>
+        <p className="text-[14.5px] font-semibold text-ork-ink">Verificador de correos (MillionVerifier)</p>
+        <p className="text-[13px] text-ork-mist">
+          Confirma si cada buzón existe sin usar el puerto 25 del servidor. Lo usan «Validar correos» y «Buscar correos faltantes»; lo verificado le enseña los formatos de cada empresa a ORKESTA. La clave se guarda cifrada y nunca se muestra.
+        </p>
+      </div>
+      {d?.configured ? (
+        <Alert tone="blue">Conectado{d.credits !== null ? ` · ${n(d.credits)} créditos disponibles` : " · no se pudo leer el saldo"}.</Alert>
+      ) : (
+        <p className="text-[13px] text-ork-graphite">Sin conectar: crea tu cuenta en millionverifier.com, copia tu clave de API (menú API) y pégala aquí.</p>
+      )}
+      {save.error && <Alert>{(save.error as Error).message}</Alert>}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
+        <div className="min-w-[240px] flex-1">
+          <TextField label={d?.configured ? "Cambiar clave" : "Clave de API"} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} />
+        </div>
+        <Button type="submit" loading={save.isPending} disabled={!key.trim()}>Guardar</Button>
+        {d?.configured && <Button type="button" variant="secondary" onClick={() => save.mutate("")}>Desconectar</Button>}
+      </form>
+    </Card>
   );
 }
 
