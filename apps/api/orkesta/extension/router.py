@@ -252,6 +252,9 @@ def save_contact(body: ExtContactIn, request: Request, principal: Extension,
                  db: Db) -> dict[str, Any]:  # fmt: skip
     """Guarda el contacto que la persona eligió en una página y, si falta el correo, lo
     enriquece (sitio web, formato de correo y verificación)."""
+    _remember(db, [ExtPersonIn(first_name=body.first_name, last_name=body.last_name,
+                               job_title=body.job_title, company=body.company, email=body.email,
+                               location=body.country)])  # fmt: skip
     from orkesta.data import service as svc
     from orkesta.data.models import Company, DataPoint
     from orkesta.engine.net.domains import registrable_domain
@@ -331,9 +334,77 @@ def _profile_url(url: str) -> str:
     return profiles[0].url if profiles else ""
 
 
+def _remember(db: Db, people: list[ExtPersonIn]) -> int:
+    """Suma al índice de personas de ORKESTA (el que alimenta Prospección) los perfiles que la
+    extensión leyó en pantalla: nombre, cargo, empresa, ubicación, LinkedIn y correo
+    corporativo. Respeta la lista de exclusión; sin país o sin empresa no se guarda."""
+    from sqlalchemy.orm import sessionmaker
+
+    from orkesta.engine.net.domains import is_non_corporate
+    from orkesta.engine.normalize import parse_location
+    from orkesta.engine.normalize.location import COUNTRIES
+    from orkesta.engine.normalize.names import split_full_name
+    from orkesta.engine.taxonomy.titles import classify_title
+    from orkesta.research import people as index
+    from orkesta.research.directory import name_key
+    from orkesta.research.extract import is_generic_email
+
+    rows = []
+    for p in people:
+        full = " ".join(f"{p.first_name} {p.last_name}".split())[:200]
+        company = " ".join(p.company.split())[:300]
+        place = parse_location(p.location) if p.location.strip() else None
+        country = place.country_code if place else ""
+        if not country and p.location.strip().upper() in COUNTRIES:
+            country = p.location.strip().upper()
+        if not full or " " not in full or not company or not country:
+            continue
+        split = split_full_name(full)
+        ckey = name_key(company)
+        url = _profile_url(p.linkedin_url)
+        email = p.email.strip().lower()
+        domain = email.split("@", 1)[1] if "@" in email else ""
+        if not domain or "." not in domain or is_non_corporate(domain) or is_generic_email(email):
+            email = ""
+        level, area = classify_title(p.job_title)
+        key = index.person_key(country, ckey, full, url)
+        rows.append({
+            "key": key, "country": country, "full_name": full,
+            "first_name": (split.first or full.split()[0])[:120],
+            "last_name": (split.last or " ".join(full.split()[1:]))[:160],
+            "title": p.job_title.strip()[:300], "level": level, "area": area,
+            "company": company, "company_key": ckey, "domain": domain or None,
+            "location": p.location.strip()[:200], "linkedin": url[:300] or None,
+            "email": email or None, "email_status": "estimado" if email else None,
+            "source": "extension",
+        })  # fmt: skip
+    if not rows:
+        return 0
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    _learn_companies(factory, rows)
+    return index.upsert(factory, rows)
+
+
+def _learn_companies(factory: Any, rows: list[dict[str, Any]]) -> None:
+    """Las empresas de esos perfiles también pasan al directorio de empresas."""
+    from types import SimpleNamespace
+
+    from orkesta.research import directory
+
+    by_country: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        by_country.setdefault(r["country"], {})[r["company_key"]] = SimpleNamespace(
+            name=r["company"], domain=r.get("domain") or "", website="", linkedin="",
+            industry_code="", industry="", city="", employees=None,
+        )  # fmt: skip
+    for country, companies in by_country.items():
+        directory.learn(factory, country, companies.values())
+
+
 @router.post("/ext/contacts/check")
 def check_people(body: ExtListIn, principal: Extension, db: Db) -> dict[str, Any]:
-    """¿Cuáles de las personas de la pantalla ya están en Contactos? (no guarda nada)."""
+    """¿Cuáles de las personas de la pantalla ya están en Contactos? (no las agrega a Contactos;
+    sí las suma al índice de personas que alimenta Prospección)."""
     from orkesta.core.db import unscoped
     from orkesta.data import service as svc
     from orkesta.data.models import Contact
@@ -354,6 +425,7 @@ def check_people(body: ExtListIn, principal: Extension, db: Db) -> dict[str, Any
         found_urls = set(db.scalars(select(Contact.linkedin_url).where(
             Contact.tenant_id == principal.tenant_id, Contact.linkedin_url.in_(wanted)))
         ) if wanted else set()  # fmt: skip
+    _remember(db, body.people)
     return {
         "exists": [
             k in found_keys or bool(u and u in found_urls) for k, u in zip(keys, urls, strict=True)
@@ -369,6 +441,7 @@ def save_people(body: ExtListIn, request: Request, principal: Extension,
     from orkesta.data import service as svc
     from orkesta.data.models import Contact, DataPoint
 
+    _remember(db, body.people)
     created: list[uuid.UUID] = []
     existing = 0
     errors: list[str] = []
@@ -418,6 +491,10 @@ def save_linkedin(body: ExtLinkedInIn, request: Request, principal: Extension,
                   db: Db) -> dict[str, Any]:  # fmt: skip
     """Agrega el perfil abierto: lo que la persona ve en pantalla (nombre, cargo, empresa y
     ubicación) y, si falta algo, el índice propio y el resultado público de Google."""
+    if body.name:
+        _remember(db, [ExtPersonIn(first_name=body.name, job_title=body.title,
+                                   company=body.company, location=body.location or body.country,
+                                   linkedin_url=body.url)])  # fmt: skip
     from orkesta.data import linkedin
     from orkesta.data import service as svc
 

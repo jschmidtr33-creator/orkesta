@@ -79,9 +79,13 @@ def summary(session: Session) -> dict[str, Any]:
                func.coalesce(func.sum(PatternStat.confirmed), 0),
                func.coalesce(func.sum(PatternStat.bounced), 0))
     ).one()  # fmt: skip
-    people, people_email, people_ok = session.execute(
+    from datetime import UTC, datetime, timedelta
+
+    week = datetime.now(UTC) - timedelta(days=7)
+    people, people_email, people_ok, people_week = session.execute(
         select(func.count(), func.count(PersonIndex.email),
-               func.count().filter(PersonIndex.email_status.in_(("publicado", "confirmado"))))
+               func.count().filter(PersonIndex.email_status.in_(("publicado", "confirmado"))),
+               func.count().filter(PersonIndex.first_seen >= week))
     ).one()  # fmt: skip
     sources = [
         {"source": src or "otro", "label": SOURCE_LABELS.get(src or "", src or "Otras fuentes"),
@@ -137,7 +141,7 @@ def summary(session: Session) -> dict[str, Any]:
         "knows": {
             "companies": int(directory), "with_site": int(with_site), "formats": int(formats),
             "people": int(people), "people_email": int(people_email),
-            "people_verified": int(people_ok),
+            "people_verified": int(people_ok), "people_week": int(people_week),
         },
         "evidence": {"seen": int(seen), "delivered": int(delivered),
                      "confirmed": int(confirmed), "bounced": int(bounced)},

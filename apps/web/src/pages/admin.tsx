@@ -1677,7 +1677,7 @@ function IndependenceCard() {
 }
 
 type Learning = {
-  knows: { companies: number; with_site: number; formats: number; people: number; people_email: number; people_verified: number };
+  knows: { companies: number; with_site: number; formats: number; people: number; people_email: number; people_verified: number; people_week?: number };
   evidence: { seen: number; delivered: number; confirmed: number; bounced: number };
   sources: { source: string; label: string; companies: number }[];
   platform: { contacts: number; corporate: number; estimated: number; companies: number; companies_no_site: number };
@@ -1765,7 +1765,7 @@ function LearningOverview() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Empresas conocidas" value={n(k.companies)} hint={`${n(k.with_site)} con sitio web (${share(k.with_site, k.companies)} %)`} />
         <Stat label="Empresas con formato de correo" value={n(k.formats)} hint="Sabe cómo arman los correos (nombre.apellido, inicial…)" />
-        <Stat label="Personas en el índice" value={n(k.people)} hint={`${n(k.people_verified)} con correo publicado o confirmado`} />
+        <Stat label="Personas en el índice" value={n(k.people)} hint={`${n(k.people_verified)} con correo publicado o confirmado · +${n(k.people_week ?? 0)} en los últimos 7 días`} />
         <Stat label="Contactos en la plataforma" value={n(d.platform.contacts)} hint={`${n(d.platform.corporate)} con correo real de empresa · ${n(d.platform.estimated)} estimados`} />
       </div>
 

@@ -100,7 +100,9 @@ def test_any_user_connects_the_extension_by_logging_in(client: TestClient) -> No
     assert TestClient(client.app).post("/api/extension/connect").status_code == 401  # sin sesión
 
 
-def test_extension_saves_the_people_listed_on_screen(client: TestClient) -> None:
+def test_extension_saves_the_people_listed_on_screen(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
     """Lista en pantalla (búsqueda de leads o una tabla): marca quién ya está en Contactos y
     guarda los elegidos de una vez; los repetidos no se duplican."""
     register(client, "lista@lacteos.co")
@@ -132,6 +134,19 @@ def test_extension_saves_the_people_listed_on_screen(client: TestClient) -> None
     assert rosa["last_name"] == "Paz" and not rosa["email"]
     marta = next(c for c in items if c["first_name"] == "Marta")
     assert marta["country_code"] == "CO" and marta["job_title"] == "Directora de Compras"
+    # Lo leído en pantalla alimenta el índice de personas de Prospección (con país y empresa).
+    from orkesta.research.models import PersonIndex
+
+    with session_factory() as session:
+        indexed = {r.full_name: r for r in session.scalars(select(PersonIndex))}
+    assert indexed["Marta Ríos"].country == "CO" and indexed["Marta Ríos"].source == "extension"
+    assert indexed["Marta Ríos"].title == "Directora de Compras"
+    assert "Rosa Paz" not in indexed  # sin país reconocible no entra
+    from orkesta.research.models import CompanyDirectory
+
+    with session_factory() as session:
+        names = set(session.scalars(select(CompanyDirectory.name)))
+    assert "Lácteos del Valle" in names  # y su empresa, al directorio
     too_many = {"people": [{"first_name": f"P{i}"} for i in range(101)]}
     assert ext.post("/api/ext/contacts/bulk", headers=headers, json=too_many).status_code == 422
 
