@@ -253,3 +253,29 @@ def people_of(fetcher: Fetcher, qids: list[str]) -> list[WikiPerson]:
         chunk = qids[start : start + 60]
         people += parse_people(_sparql(fetcher, _people_query(chunk), timedelta(days=3)))
     return people
+
+
+_SUFFIX = {"sa", "sas", "ltda", "inc", "corp", "llc", "spa", "srl", "cv", "sab", "de", "s", "a"}
+
+
+def _core(name: str) -> str:
+    from orkesta.engine.normalize.text import fold
+
+    words = [w for w in fold(name).replace(",", " ").replace(".", " ").split() if w not in _SUFFIX]
+    return " ".join(words)
+
+
+def company_domain(fetcher: Fetcher, name: str, country: str = "") -> str:
+    """Dominio del sitio oficial de una empresa con el mismo nombre, o ``""`` (gratis, sin
+    buscador pago; las respuestas quedan en caché)."""
+    core = _core(name)
+    if len(core) < 3:
+        return ""
+    try:
+        options = companies_by_qid(fetcher, search_company(fetcher, name)[:5])
+    except Exception:
+        return ""
+    for company in options:
+        if _core(company.name) == core and company.domain:
+            return company.domain
+    return ""

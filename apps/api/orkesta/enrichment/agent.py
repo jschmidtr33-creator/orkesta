@@ -245,7 +245,7 @@ def _work(
     profiles: bool,
 ) -> None:
     country_name = COUNTRIES.get(group.country, ("",))[0] if group.country else ""
-    use_serp = serp.enabled() and not stats.fatal
+    use_serp = serp.available() and not stats.fatal
     # 1. Dominio oficial de la empresa: primero la memoria de ORKESTA (sin gastar consultas).
     if not group.domain and group.name and group.country:
         from orkesta.research.agent import company_key
@@ -265,7 +265,7 @@ def _work(
         # 2. Sin gastar consultas: directorio propio y candidatos comprobados (MX + sitio).
         from orkesta.research import domain_guess
 
-        group.domain = domain_guess.from_directory(fetcher.factory, group.country, group.name)
+        group.domain, _ = domain_guess.free_domain(fetcher, group.name, group.country)
         if not group.domain and not use_serp:
             group.domain = domain_guess.guess(fetcher, group.name, group.country)
         if group.domain:

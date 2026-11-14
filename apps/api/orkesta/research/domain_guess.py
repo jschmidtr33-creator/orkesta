@@ -109,3 +109,14 @@ def guess(
         if page is not None and page.status < 400 and _mentions(page.text, name):
             return host
     return ""
+
+
+def free_domain(fetcher: Fetcher, name: str, country: str) -> tuple[str, str]:
+    """(dominio, fuente) sin gastar consultas pagas: directorio propio y Wikidata."""
+    from orkesta.research import wikidata
+
+    domain = from_directory(fetcher.factory, country, name)
+    if domain:
+        return domain, "directorio"
+    domain = wikidata.company_domain(fetcher, name, country)
+    return (domain, "wikidata") if domain else ("", "")
