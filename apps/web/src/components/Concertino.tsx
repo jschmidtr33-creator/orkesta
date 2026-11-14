@@ -70,7 +70,7 @@ export function ConcertinoProvider({ children }: { children: ReactNode }) {
       <button
         type="button"
         onClick={() => setContext({})}
-        className="ork-focus fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-ork-blue-solid px-4 py-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-pop)] hover:bg-ork-blue-solid/90 print:hidden"
+        className="ork-focus fixed bottom-4 right-4 z-30 flex items-center gap-1.5 rounded-full bg-ork-blue-solid px-3.5 py-2 text-[13px] font-semibold text-white shadow-[var(--shadow-pop)] hover:bg-ork-blue-solid/90 print:hidden"
         aria-label="Abrir Concertino, tu asesor de ventas"
       >
         <Music2 className="size-4" aria-hidden /> Concertino

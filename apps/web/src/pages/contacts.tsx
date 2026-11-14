@@ -113,6 +113,13 @@ export type ListItem = {
   contacts: number;
 };
 
+const STATUS_HELP: Record<string, string> = {
+  nuevo: "Recién agregado: aún le faltan datos o el correo",
+  enriquecido: "ORKESTA completó sus datos (sitio web, cargo o correo estimado)",
+  validado: "Su correo está confirmado: puedes escribirle",
+  en_proceso: "Tiene una oportunidad abierta en el CRM",
+};
+
 const STATUS_TONE: Record<
   string,
   "neutral" | "blue" | "violet" | "ok" | "warn"
@@ -280,6 +287,12 @@ export function ContactsPage() {
             );
           })}
         </div>
+        <p className="px-5 pt-3 text-[12px] text-ork-mist">
+          <strong className="text-ork-graphite">Nuevo:</strong> le faltan datos ·{" "}
+          <strong className="text-ork-graphite">Enriquecido:</strong> ORKESTA completó sus datos ·{" "}
+          <strong className="text-ork-graphite">Validado:</strong> correo confirmado, puedes escribirle ·{" "}
+          <strong className="text-ork-graphite">En proceso:</strong> tiene una oportunidad abierta
+        </p>
         <div className="flex flex-wrap items-center gap-2 p-4">
           <label className="relative min-w-[220px] flex-1">
             <span className="sr-only">Buscar</span>
@@ -500,9 +513,11 @@ export function ContactsPage() {
                       )}
                     </td>
                     <td className="py-3 pr-4">
-                      <Badge tone={STATUS_TONE[c.status]}>
-                        {c.status_label}
-                      </Badge>
+                      <span title={STATUS_HELP[c.status] ?? ""}>
+                        <Badge tone={STATUS_TONE[c.status]}>
+                          {c.status_label}
+                        </Badge>
+                      </span>
                     </td>
                   </tr>
                 ))}
