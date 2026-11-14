@@ -4,13 +4,25 @@ const show = (id) => ["connect", "loading", "linkedin", "form", "list"].forEach(
 const FIELDS = ["first_name", "last_name", "job_title", "company", "email", "phone", "website", "country"];
 
 async function call(path, token, body) {
-  const res = await fetch(API + path, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Un corte de red o un reinicio del servidor (por ejemplo, mientras se publica una versión
+  // nueva) no debe perder lo que la persona eligió: se reintenta dos veces antes de avisar.
+  let res;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(API + path, {
+        method: body ? "POST" : "GET",
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status !== 502 && res.status !== 503 && res.status !== 504) break;
+    } catch (e) {
+      res = null;
+    }
+    await new Promise((r) => setTimeout(r, 2500 * (attempt + 1)));
+  }
+  if (!res) throw new Error("No se pudo conectar con ORKESTA. Revisa tu internet e intenta de nuevo en un momento.");
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "No se pudo conectar con ORKESTA.");
+  if (!res.ok) throw new Error(data.detail || "ORKESTA no respondió. Intenta de nuevo en un momento.");
   return data;
 }
 
