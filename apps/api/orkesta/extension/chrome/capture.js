@@ -82,42 +82,45 @@ function orkestaCapture() {
 }
 
 // Perfil de LinkedIn abierto: SOLO cuando la persona abre la extensión en ese perfil, y solo el
-// encabezado visible (nombre, titular, empresa actual y ubicación). No navega, no abre otras
-// secciones, no recorre listas ni hace acciones en LinkedIn.
+// encabezado visible: nombre, el titular que está justo debajo (cargo), la empresa actual (la del
+// logo al lado del nombre) y la ubicación. No navega, no abre otras secciones, no recorre listas
+// ni hace acciones en LinkedIn.
 function orkestaLinkedIn() {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
-  const NOISE = /lemlist|apollo|lusha|contactos|connections|seguidores|followers|información de contacto|contact info|^más$|^more$|mensaje|message|conectar|connect|seguir|follow|tengo interés|open to|añadir sección|add section|concertar|recursos|resources|^·|\b(1er|2º|3er|1st|2nd|3rd)\b|^ver |^see |verificad|verified|he\/him|she\/her|él|ella|premium|^\d+$/i;
-  const COUNTRY = /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|panama|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|república dominicana|puerto rico|honduras|el salvador|nicaragua|cuba|brasil|brazil|españa|spain|estados unidos|united states|canadá|canada|portugal|reino unido|united kingdom|área|area|metropolitan|metropolitana/i;
+  const NOISE = /lemlist|apollo|lusha|contactos|connections|seguidores|followers|información de contacto|contact info|^más$|^more$|mensaje|message|conectar|connect|seguir|follow|tengo interés|open to|añadir sección|add section|concertar|recursos|resources|guardar en|save in|sales navigator|en común|in common|^[•·]|^\W*\d+\s*(º|°|er|nd|rd|th)\b|\b(1er|2º|3er|1st|2nd|3rd)\b|^ver |^see |verificad|verified|he\/him|she\/her|premium|^\d+$/i;
+  const SCHOOL = /universidad|university|universit|colegio|school|escuela|instituto|institute|college|academia|academy|politécnico|politecnico|tecnológico|tecnologico|business school|maestr|mba\b/i;
+  const COUNTRY = /colombia|méxico|mexico|chile|perú|peru|argentina|ecuador|panamá|panama|costa rica|guatemala|uruguay|paraguay|bolivia|venezuela|dominicana|puerto rico|honduras|el salvador|nicaragua|cuba|brasil|brazil|españa|spain|estados unidos|united states|canadá|canada|portugal|reino unido|united kingdom|metropolitan|metropolitana/i;
   const fromTitle = clean(document.title.replace(/^\(\d+\)\s*/, "").split("|")[0]);
   const h1 = [...document.querySelectorAll("main h1, h1")].find((h) => clean(h.innerText).length > 2);
-  const out = { name: clean(h1 && h1.innerText) || fromTitle, title: "", company: "", location: "" };
-  // El bloque del encabezado: el contenedor del nombre, hasta ~1.500 letras.
-  let top = h1 || null;
-  for (let i = 0; top && i < 8 && top.parentElement && !/^(MAIN|BODY|HTML)$/.test(top.parentElement.tagName) && clean(top.parentElement.innerText).length < 1500; i++) {
-    top = top.parentElement;
-    if (top.tagName === "SECTION") break;
-  }
-  if (!top) top = document.querySelector("main section") || document.body;
-  // Las clases que LinkedIn usa hoy para el titular y la ubicación (si cambian, se usa el texto).
-  const headline = top.querySelector(".text-body-medium");
-  const place = top.querySelector("span.text-body-small.inline, .text-body-small.inline");
-  const firm = document.querySelector('main [aria-label^="Empresa actual"], main [aria-label^="Current company"], main [aria-label*="mpresa actual"], main [aria-label*="urrent company"]');
+  const name = clean(h1 && h1.innerText) || fromTitle;
+  const out = { name, title: "", company: "", location: "" };
+  if (!h1) return out;
+  // El encabezado del perfil: la sección que contiene el nombre.
+  let top = h1;
+  while (top.parentElement && top.tagName !== "SECTION" && !/^(MAIN|BODY)$/.test(top.parentElement.tagName)) top = top.parentElement;
+  // Las líneas en el orden en que se ven, desde el nombre.
+  const all = String(top.innerText || "").split(/\n|\s·\s|·/).map(clean).filter(Boolean);
+  const start = Math.max(0, all.findIndex((l) => l === name || l.startsWith(name)));
+  const lines = all.slice(start + 1).filter((l) => !NOISE.test(l) && l !== name);
+  out.location = lines.find((l) => COUNTRY.test(l) && l.length < 90 && l.split(" ").length <= 9)
+    || lines.find((l) => /^[^,|]{2,40},\s?[^,|]{2,40}(,\s?[^,|]{2,40})?$/.test(l)) || "";
+  // Empresa actual: el elemento con logo al lado del nombre (no la universidad).
+  const firm = top.querySelector('[aria-label^="Empresa actual"], [aria-label^="Current company"], [aria-label*="mpresa actual"], [aria-label*="urrent company"]');
   if (firm) out.company = clean(firm.getAttribute("aria-label").split(":").slice(1).join(":")).replace(/\.\s.*$/, "").replace(/\.\s*$/, "");
-  const lines = String(top.innerText || "").split(/\n|·/).map(clean).filter((l) => l && l !== out.name && !NOISE.test(l) && l.length < 220);
-  out.location = clean(place && place.innerText).split("·")[0].trim()
-    || lines.find((l) => COUNTRY.test(l) && l.length < 90)
-    || lines.find((l) => /^[^,]{2,40},\s?[^,]{2,40}(,\s?[^,]{2,40})?$/.test(l)) || "";
-  out.title = clean(headline && headline.innerText)
-    || lines.find((l) => l !== out.location && l !== out.company && l.split(" ").length >= 2) || "";
   if (!out.company) {
-    // La empresa actual aparece junto al encabezado con su logo.
-    const logo = top.querySelector('img[alt]:not([alt=""])');
-    const items = [...top.querySelectorAll("ul li, button")].map((el) => clean(el.innerText)).filter((t) => t && t.length < 80 && !NOISE.test(t) && t !== out.name && t !== out.title && t !== out.location);
-    out.company = items[0] || "";
-    if (!out.company && logo) out.company = clean(logo.getAttribute("alt")).replace(/^(logo de|logo of)\s*/i, "");
+    const withLogo = [...top.querySelectorAll("a, button, li, div")]
+      .filter((el) => el.querySelector("img, svg") && !el.contains(h1))
+      .map((el) => clean(el.innerText))
+      .filter((t) => t && t.length >= 2 && t.length <= 80 && !t.includes("\n") && t !== name && !NOISE.test(t) && !SCHOOL.test(t) && !COUNTRY.test(t));
+    out.company = withLogo[0] || "";
   }
+  // Cargo: el titular, la primera línea con texto debajo del nombre.
+  out.title = lines.find((l) => l !== out.location && l !== out.company && l.split(" ").length >= 2 && !SCHOOL.test(l)) || "";
+  // Titulares largos («Gerente General & Director Comercial | Dirección de P&L | …»): el cargo es
+  // la primera parte.
+  if (out.title.length > 90 && out.title.includes(" | ")) out.title = out.title.split(" | ")[0];
   if (!out.company && out.title) {
-    const m = out.title.match(/\s(?:at|en|@|\||-)\s(?!.*\s(?:at|en|@|\||-)\s)(.+)$/i);
+    const m = out.title.match(/\s(?:at|en|@)\s(?!.*\s(?:at|en|@)\s)(.+)$/i);
     if (m) out.company = clean(m[1]);
   }
   return out;
