@@ -928,7 +928,8 @@ _LEVEL_TO_SN = {"c_level": "cxo", "duenio_socio": "propietario", "vp": "vp", "di
 
 
 def resolve_domains(run: Run, fetcher: Fetcher, companies: list[Candidate], country: str) -> None:
-    """Dominio de cada empresa: memoria de ORKESTA → buscador → deducido y verificado."""
+    """Dominio de cada empresa: memoria de ORKESTA → directorio y Wikidata → buscador →
+    deducido y verificado."""
     country_name = COUNTRIES.get(country, (country,))[0]
 
     def resolve(company: Candidate) -> None:
@@ -936,6 +937,11 @@ def resolve_domains(run: Run, fetcher: Fetcher, companies: list[Candidate], coun
             return
         domain = memory.known_domain(fetcher.factory, country, company.key)
         source = "memoria"
+        if not domain:
+            # Lo propio y lo gratuito antes que el buscador pago.
+            from orkesta.research import domain_guess
+
+            domain, source = domain_guess.free_domain(fetcher, company.name, country)
         if not domain and serp.enabled() and not run.serp.fatal:
             domain = serp.company_domain(fetcher, run.serp, company.name, country, country_name)
             source = "buscador"
@@ -1373,7 +1379,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         run.log("El índice propio de ORKESTA cubrió la búsqueda completa.", step="correos")
         estimated = infer_emails(run, filters)
         return _summary(run, filters, len(run.companies), estimated)
-    if serp.enabled() and not filters.companies:
+    if serp.available() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
     first, reserve = pool[: filters.limit], pool[filters.limit :]

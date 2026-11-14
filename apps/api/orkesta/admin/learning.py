@@ -16,6 +16,8 @@ SOURCE_LABELS = {
     "maps": "Mapas",
     "enriquecimiento": "Enriquecimientos",
     "sitio": "Sitios oficiales",
+    "wikidata": "Wikidata (base pública)",
+    "directorio": "Directorio de empresas",
 }
 SENT_DAYS = 90
 

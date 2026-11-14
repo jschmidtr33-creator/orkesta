@@ -1,8 +1,7 @@
 """Aprovechar toda la data cargada (IA propia).
 
 Cada noche, y cuando la administración lo pide desde el panel, ORKESTA repasa lo que hay en la
-plataforma y lo convierte en conocimiento de EMPRESAS (nunca copia personas de un cliente a
-otro):
+plataforma y lo convierte en conocimiento compartido por todo el ecosistema de ORKESTA:
 
 1. Formato de correo de cada dominio: de cada correo corporativo de las bases de contactos de
    todos los clientes (importadas, guardadas o manuales) que no sea estimado ni inválido.
@@ -11,9 +10,10 @@ otro):
 3. Empresas de cada cliente que no tenían sitio web: se completan con lo aprendido.
 4. Correos enviados: si pasaron 3 días sin rebote, el formato queda «entregado» (evidencia
    fuerte para los próximos estimados); los rebotes quedan para no volver a proponerlos.
-5. Perfiles públicos de LinkedIn guardados (con la extensión o «Agregar desde LinkedIn»): pasan
-   al índice de personas que alimenta Prospección con sus datos profesionales públicos (nombre,
-   cargo, empresa, país y perfil), sin el correo ni el teléfono de la base del cliente.
+5. Personas de las bases de todos los clientes (importadas, guardadas, de la extensión o de
+   LinkedIn): pasan al índice de personas que alimenta Prospección y Enriquecimiento para todo
+   el ecosistema, con nombre, cargo, empresa, país, perfil y correo corporativo (no estimado ni
+   inválido). Nunca teléfonos ni correos personales; respeta la lista de exclusión.
 """
 
 from __future__ import annotations
@@ -203,30 +203,50 @@ def _learn_sends(session: Session, tenant_id: uuid.UUID) -> dict[str, int]:
 
 
 def _profiles(session: Session, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Perfiles públicos de LinkedIn de los contactos del cliente, para el índice de personas."""
+    """Personas de la base del cliente para el índice de ORKESTA (todo el ecosistema): datos
+    profesionales y correo CORPORATIVO (no estimado ni inválido; los validados quedan como
+    confirmados). Nunca teléfonos ni correos personales; respeta la lista de exclusión."""
+    from sqlalchemy import or_
+
     from orkesta.data.models import Contact
     from orkesta.engine.taxonomy.titles import classify_title
     from orkesta.research.directory import name_key
+    from orkesta.research.extract import is_generic_email
     from orkesta.research.people import person_key
 
     rows = []
     for c in session.execute(select(
         Contact.full_name, Contact.first_name, Contact.last_name, Contact.job_title,
         Contact.company_name, Contact.country_code, Contact.city, Contact.linkedin_url,
-    ).where(Contact.tenant_id == tenant_id, Contact.linkedin_url.like("%linkedin.com/in/%"),
-            Contact.company_name.is_not(None), Contact.country_code.is_not(None))):  # fmt: skip
+        Contact.email, Contact.email_domain, Contact.email_status,
+    ).where(Contact.tenant_id == tenant_id, Contact.company_name.is_not(None),
+            Contact.country_code.is_not(None),
+            or_(Contact.linkedin_url.like("%linkedin.com/in/%"),
+                Contact.email.is_not(None)))):  # fmt: skip
         if not c.full_name or " " not in c.full_name.strip():
+            continue
+        email = (c.email or "").lower()
+        domain = c.email_domain or (email.split("@", 1)[1] if "@" in email else "")
+        if (not email or c.email_status in SKIP_STATUSES or not _corporate(domain)
+                or is_generic_email(email)):  # fmt: skip
+            email = ""
+        linkedin = c.linkedin_url if c.linkedin_url and "linkedin.com/in/" in c.linkedin_url else ""
+        if not email and not linkedin:
             continue
         level, area = classify_title(c.job_title)
         ckey = name_key(c.company_name)
         rows.append({
-            "key": person_key(c.country_code, ckey, c.full_name, c.linkedin_url),
+            "key": person_key(c.country_code, ckey, c.full_name, linkedin),
             "country": c.country_code, "full_name": c.full_name[:200],
             "first_name": (c.first_name or "")[:120], "last_name": (c.last_name or "")[:160],
             "title": (c.job_title or "")[:300], "level": level, "area": area,
-            "company": c.company_name[:300], "company_key": ckey, "domain": None,
-            "location": (c.city or "")[:200], "linkedin": c.linkedin_url[:300],
-            "email": None, "email_status": None, "source": "linkedin",
+            "company": c.company_name[:300], "company_key": ckey,
+            "domain": (domain or None) if email else None,
+            "location": (c.city or "")[:200], "linkedin": linkedin[:300] or None,
+            "email": email or None,
+            "email_status": ("confirmado" if c.email_status == "valido" else "publicado")
+            if email else None,
+            "source": "bases",
         })  # fmt: skip
     return rows
 

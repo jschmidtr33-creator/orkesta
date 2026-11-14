@@ -49,6 +49,17 @@ def enabled() -> bool:
     return bool(get_settings().serper_api_key)
 
 
+_DOWN_UNTIL = 0.0
+
+
+def available() -> bool:
+    """Configurado y sin un error definitivo reciente (sin créditos o clave inválida): así una
+    búsqueda no pierde tiempo con el buscador caído y usa directo lo propio y lo gratuito."""
+    import time
+
+    return enabled() and time.monotonic() >= _DOWN_UNTIL
+
+
 @dataclass
 class SerpStats:
     calls: int = 0
@@ -80,6 +91,10 @@ _ALERTED: set[str] = set()
 
 def _alert(fetcher: Fetcher, kind: str) -> None:
     """Avisa a la administración (una vez por proceso) que el buscador no funciona."""
+    global _DOWN_UNTIL
+    import time
+
+    _DOWN_UNTIL = time.monotonic() + 1800  # se vuelve a probar en 30 minutos
     if kind in _ALERTED:
         return
     _ALERTED.add(kind)
@@ -149,6 +164,8 @@ def call(
         return None
     fetcher._store(Page(cache_url, cache_url, 200, "application/json", text))
     if _ALERTED:
+        global _DOWN_UNTIL
+        _DOWN_UNTIL = 0.0
         _ALERTED.clear()
         try:
             with fetcher.factory.begin() as session:

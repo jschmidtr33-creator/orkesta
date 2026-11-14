@@ -121,6 +121,15 @@ def _offline_mx() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _search_up() -> None:
+    """Cada prueba empieza con el buscador disponible (un error de otra prueba no se arrastra)."""
+    from orkesta.research import serp
+
+    serp._DOWN_UNTIL = 0.0
+    serp._ALERTED.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
     """Adivinar dominios no consulta DNS reales en las pruebas."""
     from orkesta.research import domain_guess

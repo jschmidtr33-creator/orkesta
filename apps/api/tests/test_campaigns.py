@@ -928,13 +928,15 @@ def test_delivered_estimated_emails_teach_the_format(
     first = consolidate.run(session_factory)
     assert first["delivered"] == 0  # aún no pasan 3 días
     assert first["companies_filled"] >= 1  # Base SAS recupera su sitio web
-    # El perfil público de LinkedIn pasa al índice de Prospección, sin el correo del cliente.
+    # Las personas de la base (con correo corporativo o perfil) pasan al índice de Prospección
+    # de todo el ecosistema; los estimados y quienes no tienen correo ni perfil, no.
     from orkesta.research.models import PersonIndex
 
     assert first["profiles_indexed"] == 1
     with session_factory() as session:
         pedro = session.scalar(select(PersonIndex).where(PersonIndex.full_name == "Pedro Diaz"))
-        assert pedro is not None and pedro.email is None and pedro.country == "CO"
+        assert pedro is not None and pedro.country == "CO"
+        assert (pedro.email, pedro.email_status) == ("pdiaz@base.com.co", "publicado")
     with psycopg.connect(database[0], autocommit=True) as conn:
         conn.execute("UPDATE orkesta.campaign_messages SET sent_at = sent_at - interval '4 days'")
     result = consolidate.run(session_factory)
