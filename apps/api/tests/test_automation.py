@@ -187,7 +187,7 @@ def test_click_notification_arrives_only_once(
     })  # fmt: skip
     ids = _contacts(client)
     campaign = client.post("/api/campaigns", json={"name": "Una"}).json()
-    client.patch(f"/api/campaigns/{campaign['id']}", json={
+    client.patch(f"/api/campaigns/{campaign['id']}", json={"settings": {"first_plain": False},
         "steps": [{"subject": "Hola", "body": 'Mira <a href="https://lacteos.co/demo">esto</a>',
                    "delay_days": 0}],
         "audience": {"contact_ids": [ids[0]]},
