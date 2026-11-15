@@ -152,7 +152,7 @@ def ask(
     history: list[dict[str, Any]] | None = None, answering: str | None = None,
     role: str | None = None, practicing: str | None = None,
 ) -> dict[str, Any]:  # fmt: skip
-    from orkesta.concertino import coach, interview
+    from orkesta.concertino import coach, interview, strategy
 
     question = (question or "").strip()[:4000]
     history = (history or [])[-6:]
@@ -181,6 +181,10 @@ def ask(
         return coach.start(session, ctx, name)
     if question and mode is None and coach.wants_school(question):
         return coach.school(ctx, question)
+    if question and mode in (None, "estrategia") and strategy.wants_strategy(question):
+        return strategy.build(session, ctx, question)
+    if question and mode is None and strategy.wants_pains(question):
+        return strategy.pains(ctx, question)
     # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
     # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).
