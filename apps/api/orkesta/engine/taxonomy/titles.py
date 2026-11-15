@@ -19,6 +19,7 @@ LEVELS: dict[str, tuple[str, tuple[str, ...]]] = {
     "c_level": (
         "C-Level",
         (
+            "gm",
             "ceo",
             "cfo",
             "cio",
@@ -119,6 +120,23 @@ LEVELS: dict[str, tuple[str, tuple[str, ...]]] = {
     "especialista": (
         "Especialista / Analista",
         (
+            "data scientist",
+            "data analyst",
+            "dba",
+            "vendedor",
+            "vendedora",
+            "periodista",
+            "psicologo",
+            "psicologa",
+            "reclutador",
+            "reclutadora",
+            "tesorero",
+            "tesorera",
+            "investigador",
+            "investigadora",
+            "operador",
+            "operadora",
+            "profesional",
             "especialista",
             "specialist",
             "analista",
@@ -172,6 +190,27 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "seguridad": (
         "Ciberseguridad",
         (
+            "siem",
+            "firewall",
+            "hardening",
+            "ciber",
+            "ciberriesgo",
+            "ciberdefensa",
+            "pentest",
+            "pentester",
+            "pentesting",
+            "soc",
+            "red team",
+            "blue team",
+            "forense digital",
+            "forense",
+            "antifraude",
+            "fraude",
+            "seguridad de redes",
+            "seguridad digital",
+            "seguridad cloud",
+            "proteccion de datos",
+            "identidades y accesos",
             "ciso",
             "ciberseguridad",
             "cybersecurity",
@@ -187,6 +226,18 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "datos": (
         "Datos y analítica",
         (
+            "reporting",
+            "investigacion de mercados",
+            "business analytics",
+            "machine learning",
+            "modelamiento",
+            "estadistico",
+            "estadistica",
+            "inteligencia comercial",
+            "inteligencia artificial y datos",
+            "data engineering",
+            "ingenieria de datos",
+            "analitica avanzada",
             "datos",
             "data",
             "analytics",
@@ -203,6 +254,17 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "tecnologia": (
         "Tecnología / TI",
         (
+            "backend",
+            "frontend",
+            "fullstack",
+            "plataformas tecnologicas",
+            "plataforma tecnologica",
+            "programador",
+            "programadora",
+            "microinformatica",
+            "ciberfisica",
+            "devops",
+            "infraestructura tecnologica",
             "ti",
             "it",
             "tic",
@@ -242,6 +304,17 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "transformacion_digital": (
         "Transformación digital e innovación",
         (
+            "blockchain",
+            "r&d",
+            "innovacion abierta",
+            "digitalizacion",
+            "product owner",
+            "corporate venturing",
+            "emprendimiento corporativo",
+            "negocios digitales",
+            "i+d",
+            "desarrollo de productos",
+            "experiencia digital",
             "transformacion digital",
             "digital transformation",
             "innovacion",
@@ -258,6 +331,20 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "finanzas": (
         "Finanzas",
         (
+            "m&a",
+            "equity",
+            "fusiones y adquisiciones",
+            "fx",
+            "facturacion",
+            "actuaria",
+            "actuario",
+            "banca de inversion",
+            "inteligencia de riesgo",
+            "asset management",
+            "cuentas por cobrar",
+            "cuentas por pagar",
+            "contraloria",
+            "tesoreria",
             "cfo",
             "finanzas",
             "finance",
@@ -289,6 +376,8 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "compras": (
         "Compras y abastecimiento",
         (
+            "licitaciones",
+            "contratos y compras",
             "compras",
             "procurement",
             "purchasing",
@@ -304,6 +393,9 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "supply_chain": (
         "Logística y cadena de suministro",
         (
+            "importaciones",
+            "exportaciones",
+            "comercio exterior",
             "logistica",
             "logistics",
             "supply chain",
@@ -320,6 +412,9 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "comercial": (
         "Ventas y desarrollo de negocio",
         (
+            "territorio",
+            "agente de seguros",
+            "account executive",
             "ventas",
             "sales",
             "comercial",
@@ -348,6 +443,16 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "marketing": (
         "Marketing y comunicación",
         (
+            "comunidades",
+            "community manager",
+            "audiovisual",
+            "merchandising",
+            "trade marketing",
+            "branding",
+            "seo",
+            "sem",
+            "comunicaciones",
+            "asuntos corporativos",
             "cmo",
             "marketing",
             "mercadotecnia",
@@ -370,6 +475,16 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "rrhh": (
         "Recursos humanos",
         (
+            "remuneraciones",
+            "sst",
+            "seguridad y salud en el trabajo",
+            "psicologo organizacional",
+            "psicologa organizacional",
+            "clima organizacional",
+            "seleccion",
+            "reclutamiento",
+            "compensaciones",
+            "capacitacion",
             "recursos humanos",
             "rrhh",
             "rh",
@@ -393,6 +508,8 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "legal": (
         "Legal y cumplimiento",
         (
+            "secretaria general",
+            "contratos legales",
             "legal",
             "juridico",
             "juridica",
@@ -410,12 +527,22 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "operaciones": (
         "Operaciones y producción",
         (
+            "prevencion de riesgos",
+            "mineria",
+            "faena",
+            "instrumentacion",
+            "refineria",
+            "hse",
+            "facility management",
+            "eficiencia operacional",
+            "excelencia operacional",
+            "ingenieria de procesos",
+            "servicios generales",
             "coo",
             "operaciones",
             "operations",
             "produccion",
             "production",
-            "planta",
             "plant",
             "manufactura",
             "manufacturing",
@@ -433,6 +560,7 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "atencion_cliente": (
         "Atención y experiencia de cliente",
         (
+            "soporte al cliente",
             "servicio al cliente",
             "customer service",
             "atencion al cliente",
@@ -447,6 +575,10 @@ AREAS: dict[str, tuple[str, tuple[str, ...]]] = {
     "direccion": (
         "Dirección general",
         (
+            "strategic planning",
+            "planeacion estrategica",
+            "planificacion estrategica",
+            "gm",
             "ceo",
             "gerente general",
             "director general",
@@ -544,6 +676,13 @@ def classify_title(title: str | None) -> tuple[str | None, str | None]:
     return level, area
 
 
+_REST = re.compile(
+    r"\b(chief|officer|executive|ejecutiv[oa]|ceo|presidente|presidenta|president|de|del|la|el|y|"
+    r"and|of|the|general|gerente|director|directora|manager|managing|country|cxo|c|level|"
+    r"vice|vicepresidente|senior|sr|regional|corporativ[oa]|global|latam|para|en)\b|[^a-z ]"
+)
+
+
 @lru_cache(maxsize=50_000)
 def classify_rules(title: str | None) -> tuple[str | None, str | None]:
     """(nivel, área) solo con reglas fijas por palabras clave."""
@@ -561,8 +700,9 @@ def classify_rules(title: str | None) -> tuple[str | None, str | None]:
     area = best[3] if best else None
     if area is None:
         area = next((code for code, p in _FALLBACK_PATTERNS if p.search(text)), None)
-    # Un C-Level sin área propia (CEO, presidente, gerente general) dirige la empresa.
-    if level == "c_level" and area is None:
+    # Un C-Level sin área propia (CEO, presidente, gerente general) dirige la empresa. Si el
+    # cargo dice algo más («Chief Backend Officer») el área la decide el modelo.
+    if level == "c_level" and area is None and not _REST.sub(" ", text).split():
         area = "direccion"
     return level, area
 

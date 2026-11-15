@@ -36,7 +36,8 @@ def objection_rules(text: str) -> tuple[str | None, int]:
     folded = fold(text).lower()
     best, hits = None, 0
     for obj in pb.OBJECTIONS:
-        n = sum(1 for p in obj.patterns if re.search(p, folded))
+        patterns = (*obj.patterns, *pb.MORE_PATTERNS.get(obj.code, ()))
+        n = sum(1 for p in patterns if re.search(p, folded))
         if n > hits:
             best, hits = obj.code, n
     return best, hits
@@ -45,7 +46,8 @@ def objection_rules(text: str) -> tuple[str | None, int]:
 def topic_rules(text: str) -> dict[str, float]:
     folded = fold(text).lower()
     out: dict[str, float] = {}
-    for topic, pats in pb.TOPIC_RULES.items():
+    for topic in {**pb.TOPIC_RULES, **pb.MORE_TOPICS}:
+        pats = (*pb.TOPIC_RULES.get(topic, ()), *pb.MORE_TOPICS.get(topic, ()))
         # Un cargo suelto pesa menos: «reunión con el gerente» es de reunión, no de perfil.
         n = sum(0.5 if "ceo|" in p else 1.0 for p in pats if re.search(p, folded))
         if n:
