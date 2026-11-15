@@ -452,3 +452,43 @@ def test_new_objections_are_recognized(client: TestClient) -> None:
         r = client.post("/api/concertino/ask", json={"question": f"Me respondió: «{text}»"}).json()
         assert r["objection"] == code, (text, r.get("topic"), r.get("objection"), r.get("summary"))
         assert r["options"]
+
+
+def test_concertino_trains_the_seller_with_role_play_and_school(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+
+    def ask(q: str, practicing: str | None = None) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": q, "practicing": practicing})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    play = ask("Entréname")
+    assert play["topic"] == "entreno" and play["practice"]["code"]
+    code = play["practice"]["code"]
+    assert "gerencia comercial" in play["summary"] or "gerente" in play["summary"]
+    weak = ask("ok", practicing=code)
+    assert weak["score"]["total"] <= 4 and weak["practice"]["done"]
+    strong = ask(
+        "Tiene todo el sentido, gracias por decírmelo. ¿Qué es lo que más te pesa hoy? Muchos equipos "
+        "pierden horas buscando contactos cada mes; una empresa de software pasó de 4 a 12 reuniones "
+        "en 60 días. ¿Te parece si lo revisamos 20 minutos el jueves?",
+        practicing=code,
+    )
+    assert strong["score"]["total"] >= 9 and strong["score"]["count"] == 2
+    assert strong["options"][0]["name"] == "Así lo diría un vendedor top"
+    # Después de calificar, solo los botones siguen dentro del entrenamiento.
+    assert ask("Otra objeción", practicing=f"fin:{code}")["practice"]["code"] != code
+    assert ask("Repetir esta objeción", practicing=f"fin:{code}")["practice"]["code"] == code
+    assert "cerramos el entrenamiento" in ask("Salir del entrenamiento", practicing=code)["summary"]
+    # Escuela de ventas: menú y metodologías aplicadas al producto.
+    menu = ask("Escuela de ventas")
+    assert any("SPIN" in i for i in menu["sections"][0]["items"])
+    spin = ask("Enséñame SPIN")
+    applied = next(s for s in spin["sections"] if s["title"] == "Con tu producto")
+    assert any("buscando contactos" in i for i in applied["items"])
+    # El oficio sigue respondiendo lo suyo.
+    assert ask("que es meddicc")["lesson"]["code"] == "calificacion"

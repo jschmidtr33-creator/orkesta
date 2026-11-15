@@ -150,9 +150,9 @@ def ask(
     deal_id: uuid.UUID | None = None, recipient_id: uuid.UUID | None = None,
     campaign_id: uuid.UUID | None = None, trato: str = "auto",
     history: list[dict[str, Any]] | None = None, answering: str | None = None,
-    role: str | None = None,
+    role: str | None = None, practicing: str | None = None,
 ) -> dict[str, Any]:  # fmt: skip
-    from orkesta.concertino import interview
+    from orkesta.concertino import coach, interview
 
     question = (question or "").strip()[:4000]
     history = (history or [])[-6:]
@@ -172,6 +172,15 @@ def ask(
                    deal_id=deal_id, recipient_id=recipient_id, campaign_id=campaign_id,
                    trato=trato)  # fmt: skip
     name, turn = chat.user_name(user), len(history)
+    # Entrenamiento (juego de roles con objeciones) y escuela de ventas.
+    if practicing and question:
+        coached = coach.handle(session, ctx, practicing, question, name)
+        if coached is not None:
+            return coached
+    if question and mode is None and coach.wants_training(question):
+        return coach.start(session, ctx, name)
+    if question and mode is None and coach.wants_school(question):
+        return coach.school(ctx, question)
     # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
     # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).
@@ -512,7 +521,13 @@ def welcome(session: Session, tenant_id: uuid.UUID, user: User) -> dict[str, Any
     return {
         "user_name": name,
         "welcome": text,
-        "starters": [*interview.NEEDS[:3], "¿Qué vendo?", "Actualizar mi producto"],
+        "starters": [
+            *interview.NEEDS[:2],
+            "Entréname",
+            "Escuela de ventas",
+            "¿Qué vendo?",
+            "Actualizar mi producto",
+        ],
         "interview": None,
     }
 

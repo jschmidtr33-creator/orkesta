@@ -35,6 +35,8 @@ type Advice = {
   sources: string[];
   suggestions?: string[];
   interview?: Interview | null;
+  practice?: { code: string; label: string; line: string; done?: boolean } | null;
+  score?: { total: number; average: number; count: number; criteria: { code: string; name: string; points: number; max: number; tip: string }[] } | null;
   actions?: { kind: "campana"; label: string; name: string; steps: { subject: string; body: string; delay_days: number }[] }[];
 };
 type Info = {
@@ -117,14 +119,17 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
   // Pregunta del producto que Concertino está haciendo (la respuesta se guarda en su memoria).
   const [answering, setAnswering] = useState<string | null | undefined>(undefined);
   const pendingKind = answering === undefined ? info.data?.interview?.kind ?? null : answering;
+  // Objeción del entrenamiento en juego («fin:» si ya se calificó y solo cuentan los botones).
+  const [practicing, setPracticing] = useState<string | null>(null);
   const ask = useMutation({
-    mutationFn: (v: { question: string; mode?: string; answering?: string | null }) =>
+    mutationFn: (v: { question: string; mode?: string; answering?: string | null; practicing?: string | null }) =>
       api<Advice>("/api/concertino/ask", {
         method: "POST",
         json: {
           question: v.question,
           mode: v.mode,
           answering: v.answering ?? undefined,
+          practicing: v.practicing ?? undefined,
           trato,
           contact_id: initial.contact_id,
           deal_id: initial.deal_id,
@@ -143,10 +148,11 @@ function Panel({ initial, onClose }: { initial: AskContext; onClose: () => void 
     setTurns((t) => [...t, { id, question: label ?? question }]);
     setText("");
     ask.mutate(
-      { question, mode, answering: mode ? null : pendingKind },
+      { question, mode, answering: mode ? null : pendingKind, practicing: mode ? null : practicing },
       {
         onSuccess: (advice) => {
           setAnswering(advice.interview?.kind ?? null);
+          setPracticing(advice.practice ? (advice.practice.done ? `fin:${advice.practice.code}` : advice.practice.code) : null);
           setTurns((t) => t.map((x) => (x.id === id ? { ...x, advice } : x)));
         },
         onError: (e) => setTurns((t) => t.map((x) => (x.id === id ? { ...x, error: e.message } : x))),
@@ -327,6 +333,35 @@ function useTyping(text: string, active: boolean) {
   return { typed: text.slice(0, shown), done: shown >= text.length };
 }
 
+function ScoreCard({ score }: { score: NonNullable<Advice["score"]> }) {
+  const tone = score.total >= 8 ? "bg-emerald-500" : score.total >= 5 ? "bg-amber-500" : "bg-rose-500";
+  return (
+    <div className="mt-3 rounded-xl border border-ork-line bg-ork-card p-3">
+      <div className="flex items-baseline justify-between">
+        <p className="text-[13px] font-semibold text-ork-ink">Tu puntaje</p>
+        <p className="text-[22px] font-bold text-ork-ink">
+          {score.total}
+          <span className="text-[13px] font-medium text-ork-mist">/10</span>
+        </p>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {score.criteria.map((c) => (
+          <div key={c.code} className="flex items-center gap-2 text-[12px]">
+            <span className="w-[190px] shrink-0 text-ork-graphite">{c.name}</span>
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ork-ink/5">
+              <span className={`block h-full rounded-full ${c.points === c.max ? "bg-emerald-500" : c.points ? "bg-amber-500" : "bg-rose-400"}`} style={{ width: `${Math.max(6, (c.points / c.max) * 100)}%` }} />
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center gap-2 text-[11.5px] text-ork-mist">
+        <span className={`inline-block size-2 rounded-full ${tone}`} />
+        {score.count} {score.count === 1 ? "práctica" : "prácticas"} · promedio reciente {score.average}/10
+      </div>
+    </div>
+  );
+}
+
 function AdviceCard({ advice, objections, latest, onAsk, onDone }: { advice: Advice; objections: { code: string; label: string }[]; latest: boolean; onAsk: (q: string) => void; onDone: () => void }) {
   const [fixed, setFixed] = useState(false);
   const fix = useMutation({
@@ -347,6 +382,7 @@ function AdviceCard({ advice, objections, latest, onAsk, onDone }: { advice: Adv
         {typed}
       </p>
       {advice.interview && latest && <InterviewBar step={advice.interview} />}
+      {done && advice.score && <ScoreCard score={advice.score} />}
       {done && (
         <div className="mt-3 space-y-3 animate-[fadeIn_.25s_ease-out]">
           {advice.objection && advice.case_id && (

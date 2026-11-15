@@ -35,6 +35,8 @@ class AskIn(BaseModel):
     history: list[TurnIn] = Field(default_factory=list, max_length=20)
     # Pregunta de la ficha del producto que la persona está respondiendo en el chat.
     answering: str | None = Field(default=None, max_length=20)
+    # Objeción del entrenamiento en juego («fin:<código>» si ya se calificó).
+    practicing: str | None = Field(default=None, max_length=30)
 
 
 class FeedbackIn(BaseModel):
@@ -86,6 +88,7 @@ def ask(body: AskIn, principal: Member, db: Db) -> dict[str, Any]:
             mode=body.mode, contact_id=body.contact_id, deal_id=body.deal_id,
             recipient_id=body.recipient_id, campaign_id=body.campaign_id, trato=body.trato,
             history=[t.model_dump() for t in body.history], answering=body.answering,
+            practicing=body.practicing,
             role=principal.role,
         )  # fmt: skip
     except svc.ConcertinoError as exc:
