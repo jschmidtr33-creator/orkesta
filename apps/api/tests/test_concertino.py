@@ -492,3 +492,29 @@ def test_concertino_trains_the_seller_with_role_play_and_school(
     assert any("buscando contactos" in i for i in applied["items"])
     # El oficio sigue respondiendo lo suyo.
     assert ask("que es meddicc")["lesson"]["code"] == "calificacion"
+
+
+def test_concertino_builds_strategies_and_knows_pains(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+
+    def ask(q: str) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": q})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    plan = ask("Créame una estrategia para conseguir 12 reuniones con bancos")
+    titles = [s["title"] for s in plan["sections"]]
+    assert titles[:4] == ["1. A quién apuntar", "2. Qué decirle", "3. Cadencia por canal (3 semanas)",
+                          "4. Cuánta actividad necesitas"]  # fmt: skip
+    activity = " ".join(plan["sections"][3]["items"])
+    assert "12 reuniones" in activity and "400 personas" in activity  # 12 / (5 % × 60 %)
+    assert any("fintech" in i for i in plan["sections"][1]["items"])
+    pain = ask("¿Qué le duele a un gerente de compras de un banco?")
+    got = {s["title"] for s in pain["sections"]}
+    assert "Lo que preocupa en el sector financiero" in got
+    assert any(t.startswith("Lo que le duele a") for t in got)
+    assert ask("qué le duele")["suggestions"]
