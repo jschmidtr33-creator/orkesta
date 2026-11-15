@@ -156,7 +156,7 @@ def test_full_campaign_flow(
     assert bad.status_code == 200
     assert "nombr" in client.post(f"/api/campaigns/{campaign['id']}/launch").json()["detail"]
 
-    client.patch(f"/api/campaigns/{campaign['id']}", json={
+    client.patch(f"/api/campaigns/{campaign['id']}", json={"settings": {"first_plain": False},
         "steps": [
             {"subject": "{{nombre}}, idea para {{empresa}}", "delay_days": 0,
              "body": "Hola {{nombre}}, mira https://lacteos.co/demo y me cuentas."},
@@ -355,7 +355,7 @@ def test_rich_html_body_signature_and_images(
     })  # fmt: skip
     ids = _contacts(client)
     campaign = client.post("/api/campaigns", json={"name": "Rica"}).json()
-    client.patch(f"/api/campaigns/{campaign['id']}", json={
+    client.patch(f"/api/campaigns/{campaign['id']}", json={"settings": {"first_plain": False},
         "steps": [{"subject": "Hola {{nombre}}", "delay_days": 0,
                    "body": "<p>Hola <strong>{{nombre}}</strong>,</p><ul><li>Miami</li></ul>"
                            f'<p><img src="{url}"></p>'
@@ -587,8 +587,8 @@ def test_warmup_domain_cap_and_corporate_mode(
     )
     client.post(f"/api/campaigns/{campaign['id']}/launch")
     _flush(session_factory, 5)
-    # Sin tope por empresa: salen los 3 contactos de bancoandino.co.
-    assert len(google.sent) == 3
+    # Tope por empresa: hoy salen 2 de los 3 contactos de bancoandino.co.
+    assert len(google.sent) == 2
     msg = google.sent[0]["msg"]
     assert msg.get_content_type() == "text/plain"  # modo corporativo: solo texto, sin pixel
     assert "/t/o/" not in msg.as_string()
@@ -961,3 +961,27 @@ def test_delivered_estimated_emails_teach_the_format(
     assert data["sends"]["estimated"] == {"sent": 1, "delivered": 1, "bounced": 0, "blocked": 0,
                                           "replied": 0}  # fmt: skip
     assert data["last_run"]["delivered"] == 0 and data["platform"]["contacts"] == 3
+
+
+def test_spam_check_and_variations() -> None:
+    """Revisor de spam sin servicios externos y variaciones [[a|b]] estables por persona."""
+    from orkesta.campaigns import spamcheck, templating
+
+    bad = spamcheck.check_email(
+        "OFERTA GRATIS!!!",
+        "<p>Haz clic aquí: https://bit.ly/x y <img src='a.png'> 100% garantizado</p>",
+        first=True,
+    )
+    assert bad["level"] == "riesgo" and bad["score"] < 65
+    good = spamcheck.check_email(
+        "idea para {{empresa}}",
+        "Hola {{nombre}}, vi que en {{empresa}} están creciendo el equipo comercial. ¿Cómo están "
+        "consiguiendo hoy las reuniones nuevas? Ayudamos a equipos parecidos a triplicarlas sin "
+        "sumar personas. ¿Te sirve que lo conversemos 15 minutos esta semana?",
+        first=True,
+    )
+    assert good["level"] == "bien", good
+    report = spamcheck.check_steps([{"subject": "Hola", "body": "Texto"}])
+    assert report["tips"]  # sugiere variaciones
+    assert templating.spin("[[Hola|Buen día]] Ana", 0) == "Hola Ana"
+    assert templating.spin("[[Hola|Buen día]] Ana", 1) == "Buen día Ana"

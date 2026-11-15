@@ -104,6 +104,14 @@ type Settings = {
   track_clicks: boolean;
   corporate_mode?: boolean;
   per_domain_daily?: number;
+  first_plain?: boolean;
+  pause_rate?: number;
+};
+type SpamReport = {
+  score: number;
+  level: "bien" | "revisar" | "riesgo";
+  tips: string[];
+  emails: { step: number; variant: string; score: number; level: string; issues: { points: number; text: string; tip: string }[] }[];
 };
 type Audience = {
   list_id?: string | null;
@@ -139,6 +147,8 @@ type Mailbox = {
   signature: string;
   sent_today: number;
   warmup?: boolean;
+  smart_volume?: boolean;
+  volume_note?: string;
   effective_limit?: number;
   warmup_day?: number | null;
   provider?: string;
@@ -1195,6 +1205,7 @@ function StepsEditor({ c }: { c: Campaign }) {
           />
         )}
       </div>
+      {!dirty && steps.length > 0 && <SpamCheck campaignId={c.id} steps={c.steps ?? []} />}
       <CopyAssistant
         open={assistant}
         onOpenChange={setAssistant}
@@ -1205,6 +1216,69 @@ function StepsEditor({ c }: { c: Campaign }) {
         }}
       />
     </Card>
+  );
+}
+
+const SPAM_TONE = {
+  bien: { bar: "bg-emerald-500", text: "Muy bien: pasa los filtros", badge: "text-emerald-700 bg-emerald-50" },
+  revisar: { bar: "bg-amber-500", text: "Revisa estos puntos", badge: "text-amber-700 bg-amber-50" },
+  riesgo: { bar: "bg-rose-500", text: "Riesgo alto de ir a spam", badge: "text-rose-700 bg-rose-50" },
+} as const;
+
+export function SpamCheck({ campaignId, steps, compact = false }: { campaignId: string; steps: Step[]; compact?: boolean }) {
+  const report = useQuery({
+    queryKey: ["spam-check", campaignId, steps],
+    queryFn: () => api<SpamReport>(`/api/campaigns/${campaignId}/spam-check`),
+  });
+  const r = report.data;
+  if (!r) return null;
+  const tone = SPAM_TONE[r.level];
+  const issues = r.emails.filter((e) => e.issues.length > 0);
+  return (
+    <div className="mt-4 rounded-xl border border-ork-line bg-ork-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[14px] font-semibold text-ork-ink">Revisión anti-spam</p>
+          <p className="text-[12.5px] text-ork-mist">Lo que miran los filtros de Gmail, Outlook y los corporativos.</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[24px] font-bold leading-none text-ork-ink">
+            {r.score}
+            <span className="text-[13px] font-medium text-ork-mist">/100</span>
+          </p>
+          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${tone.badge}`}>{tone.text}</span>
+        </div>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ork-ink/5">
+        <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(4, r.score)}%` }} />
+      </div>
+      {!compact &&
+        issues.map((e) => (
+          <div key={`${e.step}${e.variant}`} className="mt-3">
+            <p className="text-[12.5px] font-semibold text-ork-graphite">
+              Correo {e.step}
+              {e.variant && ` · versión ${e.variant}`} · {e.score}/100
+            </p>
+            <ul className="mt-1 space-y-1.5">
+              {e.issues.map((i) => (
+                <li key={i.text} className="text-[12.5px] text-ork-graphite">
+                  <span className="font-medium text-ork-ink">{i.text}</span> <span className="text-ork-mist">{i.tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      {compact && issues.length > 0 && (
+        <p className="mt-2 text-[12.5px] text-ork-mist">
+          {issues.reduce((n, e) => n + e.issues.length, 0)} puntos por mejorar: revísalos en «Correos» antes de lanzar.
+        </p>
+      )}
+      {!compact && r.tips.map((t) => (
+        <p key={t} className="mt-3 rounded-lg bg-ork-blue/5 px-3 py-2 text-[12.5px] text-ork-graphite">
+          {t}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -1587,6 +1661,46 @@ function SendingCard({ c }: { c: Campaign }) {
           </span>
         </label>
         {!s.corporate_mode && (
+          <label className="flex items-start gap-2 rounded-xl border border-ork-line p-3 text-[13.5px] text-ork-graphite">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={s.first_plain ?? true}
+              onChange={(e) => set({ first_plain: e.target.checked })}
+            />
+            <span>
+              <strong className="text-ork-ink">Primer correo en texto plano</strong> (recomendado)
+              <span className="block text-[12.5px] text-ork-mist">
+                El primer contacto sale sin imágenes ni medición, como un correo escrito a mano. Los seguimientos usan lo que elijas abajo.
+              </span>
+            </span>
+          </label>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <SelectField
+            label="Máximo al día por empresa"
+            value={s.per_domain_daily ?? 3}
+            onChange={(e) => set({ per_domain_daily: Number(e.target.value) })}
+          >
+            {[1, 2, 3, 5, 10, 0].map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "Sin tope" : `${n} ${n === 1 ? "correo" : "correos"}`}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField
+            label="Pausar si rebota más de"
+            value={s.pause_rate ?? 15}
+            onChange={(e) => set({ pause_rate: Number(e.target.value) })}
+          >
+            {[10, 15, 20, 25, 30].map((n) => (
+              <option key={n} value={n}>
+                {n} %
+              </option>
+            ))}
+          </SelectField>
+        </div>
+        {!s.corporate_mode && (
           <>
             <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
               <input
@@ -1895,6 +2009,7 @@ function LaunchModal({
             common={preview.data?.common ?? 0}
           />
         )}
+        {(c.steps?.length ?? 0) > 0 && <SpamCheck campaignId={c.id} steps={c.steps ?? []} compact />}
         {(preview.data?.no_mail_domain ?? 0) > 0 && (
           <p className="text-[12.5px] text-ork-mist">
             {preview.data?.no_mail_domain} contactos quedan fuera: su empresa no
@@ -2451,6 +2566,7 @@ export function GmailCard() {
       daily_limit?: number;
       signature?: string;
       warmup?: boolean;
+      smart_volume?: boolean;
     }) => api(`/api/mailboxes/${id}`, { method: "PATCH", json }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["mailboxes"] }),
   });
@@ -2598,6 +2714,23 @@ export function GmailCard() {
                     El límite real empieza en 20 al día y sube solo cada día de
                     envío (20 → 30 → 45 → 65 → 90 → 125…) hasta tu límite
                     diario. Protege la reputación de tu correo.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-[13px] text-ork-graphite">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={m.smart_volume ?? false}
+                  onChange={(e) =>
+                    patch.mutate({ id: m.id, smart_volume: e.target.checked })
+                  }
+                />
+                <span>
+                  <strong className="text-ork-ink">Ajuste inteligente del volumen</strong> (opcional)
+                  <span className="block text-[12.5px] text-ork-mist">
+                    Con la última semana: si te responden bien sube el envío un 25 %; si rebota o te bloquean, lo baja solo para cuidar tu correo.
+                    {m.smart_volume && m.volume_note ? ` Hoy: ${m.volume_note}.` : ""}
                   </span>
                 </span>
               </label>

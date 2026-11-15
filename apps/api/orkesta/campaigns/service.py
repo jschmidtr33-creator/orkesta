@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import and_, delete, func, or_, select, text, update
+from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit
@@ -49,8 +49,11 @@ DEFAULT_SETTINGS = {
     "track_opens": True,
     "track_clicks": True,
     "corporate_mode": False,  # texto plano, sin medición: para bancos y corporativos
-    "per_domain_daily": 0,  # en desuso: ya no hay tope por empresa (solo a las que bloquearon)
+    "first_plain": True,  # el primer correo sale en texto plano, sin medición (pasa mejor)
+    "per_domain_daily": 3,  # correos al día a una misma empresa (0 = sin tope)
+    "pause_rate": 15,  # % de rebotes + bloqueos que pausa la campaña
 }
+PROBE_SHARE = 0.10  # correos estimados «de prueba» sobre el límite diario del buzón
 # Calentamiento del buzón: límite máximo por día de envío (día 1, día 2, …).
 WARMUP = (20, 30, 45, 65, 90, 125, 170, 230, 310, 420, 560, 750, 1000, 1350, 1800, 2000)
 
@@ -112,6 +115,8 @@ def mailbox_dict(m: Mailbox, sent_today: int = 0, session: Session | None = None
         "error": m.error,
         "daily_limit": m.daily_limit,
         "warmup": m.warmup,
+        "smart_volume": m.smart_volume,
+        "volume_note": volume_factor(session, m)[1] if session is not None else "",
         "signature": m.signature,
         "user_id": str(m.user_id) if m.user_id else None,
         "sent_today": sent_today,
@@ -320,6 +325,8 @@ def clean_settings(data: dict[str, Any]) -> dict[str, Any]:
         track_clicks=bool(merged["track_clicks"]) and not merged["corporate_mode"],
         corporate_mode=bool(merged["corporate_mode"]),
         per_domain_daily=max(0, min(500, int(merged["per_domain_daily"] or 0))),
+        first_plain=bool(merged["first_plain"]),
+        pause_rate=max(5, min(50, int(merged["pause_rate"] or 15))),
     )
     return merged
 
@@ -336,13 +343,39 @@ def send_days(session: Session, mailbox_id: uuid.UUID) -> int:
     )
 
 
+def volume_factor(session: Session, mailbox: Mailbox) -> tuple[float, str]:
+    """Ajuste inteligente (opcional): con la última semana del buzón, sube el volumen si le
+    responden bien y lo baja si rebota o lo bloquean. (factor, motivo)."""
+    if not mailbox.smart_volume:
+        return 1.0, ""
+    since = now() - timedelta(days=7)
+    who = func.count(func.distinct(Recipient.id))
+    sent, failed, positive = session.execute(
+        select(who, who.filter(Recipient.status.in_(("bounced", "blocked"))),
+               who.filter(Recipient.reply_category.in_(replies.POSITIVE)))
+        .select_from(Message).join(Recipient, Recipient.id == Message.recipient_id)
+        .where(Message.mailbox_id == mailbox.id, Message.sent_at >= since)
+    ).one()  # fmt: skip
+    if int(sent) < 30:
+        return 1.0, "Aún pocos envíos para ajustar"
+    fail, good = int(failed) / int(sent), int(positive) / int(sent)
+    if fail >= 0.10:
+        return 0.5, f"Bajamos a la mitad: {fail:.0%} de rebotes o bloqueos esta semana"
+    if fail >= 0.05:
+        return 0.75, f"Bajamos un 25 %: {fail:.0%} de rebotes o bloqueos esta semana"
+    if good >= 0.03 and fail < 0.03:
+        return 1.25, f"Subimos un 25 %: te responden bien ({good:.0%}) y casi no rebota"
+    return 1.0, "Volumen estable"
+
+
 def effective_limit(session: Session, mailbox: Mailbox) -> tuple[int, int | None]:
     """(límite de hoy, día de calentamiento o None si está desactivado)."""
+    factor, _ = volume_factor(session, mailbox)
     if not mailbox.warmup:
-        return mailbox.daily_limit, None
+        return max(1, min(mailbox.daily_limit, int(mailbox.daily_limit * min(factor, 1.0)))), None
     day = send_days(session, mailbox.id)
     cap = WARMUP[min(day, len(WARMUP) - 1)]
-    return min(mailbox.daily_limit, cap), day + 1
+    return max(1, min(mailbox.daily_limit, int(cap * factor))), day + 1
 
 
 def get_campaign(session: Session, tenant_id: uuid.UUID, campaign_id: uuid.UUID) -> Campaign:
@@ -898,14 +931,26 @@ def _domain_counts(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> dict[str
 
 
 def _full_domains(session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo) -> set[str]:
-    """Empresas que ya bloquearon un correo de este cliente y hoy ya recibieron el suyo: a ellas
-    se les escribe uno al día, en texto plano. Al resto no se le pone tope por empresa (lo
-    cuidan el calentamiento, el límite diario del buzón y la pausa por rebotes)."""
-    blocked = blocked_domains(session, campaign.tenant_id)
-    if not blocked:
-        return set()
+    """Empresas que hoy ya recibieron su máximo: las que bloquearon un correo de este cliente,
+    uno al día; las demás, el tope por empresa de la campaña (3 por defecto). Así nunca llega
+    una ráfaga de correos iguales a un mismo servidor."""
     counts = _domain_counts(session, mailbox, tz)
-    return {d for d, n in counts.items() if d in blocked and n >= 1}
+    if not counts:
+        return set()
+    blocked = blocked_domains(session, campaign.tenant_id)
+    cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
+    return {d for d, n in counts.items() if (d in blocked and n >= 1) or (cap and n >= cap)}
+
+
+def _probes_today(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> int:
+    """Primeros correos de hoy a direcciones estimadas (sin verificar) desde este buzón."""
+    return int(session.scalar(
+        select(func.count()).select_from(Message)
+        .join(Recipient, Recipient.id == Message.recipient_id)
+        .join(Contact, Contact.id == Recipient.contact_id)
+        .where(Message.mailbox_id == mailbox.id, Message.sent_at >= _day_start(tz),
+               Message.step == 0, Contact.email_status == "estimado")
+    ) or 0)  # fmt: skip
 
 
 PROBE_WAIT = timedelta(hours=48)  # tiempo para que llegue un rebote antes de dar por bueno
@@ -955,17 +1000,24 @@ def _next_recipient(
     )
     if full:
         query = query.where(func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full))
+    estimated = select(Contact.id).where(Contact.tenant_id == campaign.tenant_id,
+                                         Contact.email_status == "estimado")  # fmt: skip
     probing = probing_domains(session, campaign.tenant_id)
     if probing:
-        estimated = select(Contact.id).where(Contact.tenant_id == campaign.tenant_id,
-                                             Contact.email_status == "estimado")  # fmt: skip
         query = query.where(~and_(
             Recipient.step == 0, Recipient.contact_id.in_(estimated),
             func.lower(func.split_part(Recipient.email, "@", 2)).in_(probing),
         ))  # fmt: skip
+    # Escudo sin costo: los correos sin verificar son «de prueba» y no pasan del 10 % del día.
+    limit = effective_limit(session, mailbox)[0]
+    if _probes_today(session, mailbox, tz) >= max(3, int(limit * PROBE_SHARE)):
+        query = query.where(~and_(Recipient.step == 0, Recipient.contact_id.in_(estimated)))
+    # Primero los correos confiables; los estimados, después.
+    risky = and_(Recipient.step == 0, Recipient.contact_id.in_(estimated))
     return session.scalars(
-        query.order_by(Recipient.next_send_at).limit(1).with_for_update(skip_locked=True)
-    ).first()
+        query.order_by(case((risky, 1), else_=0), Recipient.next_send_at)
+        .limit(1).with_for_update(skip_locked=True)
+    ).first()  # fmt: skip
 
 
 def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
@@ -997,6 +1049,9 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
     sender = mailbox.display_name or (owner.full_name if owner else "") or mailbox.email
     country = COUNTRIES.get(contact.country_code or "", ("",))[0]
     values = templating.context(contact, sender, country)
+    # Variaciones [[a|b|c]]: cada persona recibe una versión distinta (estable por destinatario).
+    step_subject = templating.spin(step_subject, recipient.id.int)
+    step_body = templating.spin(step_body, recipient.id.int)
     body, _ = templating.render(templating.as_html(step_body), values, escape=True)
     signature, _ = templating.render(templating.as_html(mailbox.signature), values, escape=True)
     if recipient.step == 0 or not recipient.first_subject:
@@ -1010,9 +1065,10 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         thread_ref = recipient.thread_id
     domain = recipient.email.rsplit("@", 1)[-1].lower()
     # Modo corporativo de la campaña, o automático para empresas que ya bloquearon un correo.
-    plain = bool(campaign.settings.get("corporate_mode")) or domain in blocked_domains(
-        session, campaign.tenant_id
-    )
+    # El primer correo sale en texto plano (sin píxel ni enlaces medidos): pasa mejor los filtros.
+    first_plain = recipient.step == 0 and bool(campaign.settings.get("first_plain", True))
+    plain = (bool(campaign.settings.get("corporate_mode")) or first_plain
+             or domain in blocked_domains(session, campaign.tenant_id))  # fmt: skip
     token = secrets.token_urlsafe(24)
     built = templating.build(
         sender_email=mailbox.email,
@@ -1302,7 +1358,8 @@ def _guard(session: Session, campaign: Campaign, mailbox: Mailbox) -> None:
             func.count().filter(Recipient.status.in_(("bounced", "blocked"))),
         ).where(Recipient.campaign_id == campaign.id)
     ).one()
-    if contacted < AUTO_PAUSE_MIN or failed / contacted < AUTO_PAUSE_RATE:
+    rate = int(campaign.settings.get("pause_rate", round(AUTO_PAUSE_RATE * 100))) / 100
+    if contacted < AUTO_PAUSE_MIN or failed / contacted < rate:
         return
     campaign.status = "paused"
     campaign.settings = {**campaign.settings, "auto_paused_at": now().isoformat()}

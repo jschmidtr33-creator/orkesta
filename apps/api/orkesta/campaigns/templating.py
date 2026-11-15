@@ -52,6 +52,22 @@ def context(contact: Any, sender_name: str, country_name: str = "") -> dict[str,
     }
 
 
+_SPIN = re.compile(r"\[\[([^\[\]]*\|[^\[\]]*)\]\]")
+
+
+def spin(text: str, seed: int) -> str:
+    """Variaciones «[[Hola|Buen día|Qué tal]]»: elige una opción estable según ``seed``."""
+
+    def pick(match: re.Match[str]) -> str:
+        options = match.group(1).split("|")
+        nonlocal seed
+        choice = options[seed % len(options)]
+        seed //= len(options) or 1
+        return choice.strip() if choice.strip() else choice
+
+    return _SPIN.sub(pick, text or "")
+
+
 def render(text: str, values: dict[str, str], *, escape: bool = False) -> tuple[str, list[str]]:
     """Texto con variables reemplazadas y la lista de variables que quedaron vacías."""
     missing: list[str] = []

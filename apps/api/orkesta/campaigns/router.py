@@ -204,6 +204,7 @@ class MailboxPatch(BaseModel):
     signature: str | None = Field(default=None, max_length=50000)
     display_name: str | None = Field(default=None, max_length=160)
     warmup: bool | None = None
+    smart_volume: bool | None = None
 
 
 def _mailbox(db: Db, principal: Principal, mailbox_id: uuid.UUID) -> Mailbox:
@@ -263,6 +264,8 @@ def update_mailbox(
         mailbox.display_name = " ".join(body.display_name.split())
     if body.warmup is not None:
         mailbox.warmup = body.warmup
+    if body.smart_volume is not None:
+        mailbox.smart_volume = body.smart_volume
     db.flush()
     return svc.mailbox_dict(mailbox, 0, db)
 
@@ -537,6 +540,14 @@ def _action(
 @router.post("/api/campaigns/{campaign_id}/launch")
 def launch(campaign_id: uuid.UUID, request: Request, principal: Member, db: Db) -> dict[str, Any]:
     return _action(campaign_id, principal, db, request, "launch")
+
+
+@router.get("/api/campaigns/{campaign_id}/spam-check")
+def spam_check(campaign_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
+    """Revisor de spam de la secuencia: puntaje 0-100 y qué cambiar (sin servicios externos)."""
+    from orkesta.campaigns import spamcheck
+
+    return spamcheck.check_steps(_campaign(db, principal, campaign_id).steps or [])
 
 
 @router.post("/api/campaigns/{campaign_id}/retry-bounced", status_code=201)

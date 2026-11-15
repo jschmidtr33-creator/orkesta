@@ -69,6 +69,10 @@ class Mailbox(IdMixin, Base):
     warmup: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # Opcional: el límite se ajusta solo con la última semana (sube si responden, baja si rebota).
+    smart_volume: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     signature: Mapped[str] = mapped_column(Text, nullable=False, default="")
     next_send_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Google Calendar con el mismo permiso de Gmail (ver orkesta.calendar).
