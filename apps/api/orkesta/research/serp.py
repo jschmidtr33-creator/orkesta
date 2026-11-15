@@ -45,11 +45,14 @@ CACHE_TTL = timedelta(days=14)
 logger = logging.getLogger(__name__)
 
 
-def enabled() -> bool:
-    return bool(get_settings().serper_api_key)
-
-
 _DOWN_UNTIL = 0.0
+
+
+def enabled() -> bool:
+    """Hay algún buscador: Serper o el de respaldo (Brave)."""
+    from orkesta.research import brave
+
+    return bool(get_settings().serper_api_key) or bool(brave.key())
 
 
 def available() -> bool:
@@ -57,7 +60,10 @@ def available() -> bool:
     búsqueda no pierde tiempo con el buscador caído y usa directo lo propio y lo gratuito."""
     import time
 
-    return enabled() and time.monotonic() >= _DOWN_UNTIL
+    from orkesta.research import brave
+
+    serper_up = bool(get_settings().serper_api_key) and time.monotonic() >= _DOWN_UNTIL
+    return serper_up or brave.available()
 
 
 @dataclass
@@ -106,9 +112,16 @@ def _alert(fetcher: Fetcher, kind: str) -> None:
 def call(
     fetcher: Fetcher, endpoint: str, payload: dict[str, Any], stats: SerpStats
 ) -> dict[str, Any] | None:
+    global _DOWN_UNTIL
+    import time
+
+    from orkesta.research import brave
+
     key = get_settings().serper_api_key
-    if not key or stats.fatal:
-        return None
+    serper_down = not key or stats.fatal or time.monotonic() < _DOWN_UNTIL
+    if serper_down:
+        # Serper no está o se cayó: las búsquedas web siguen con el buscador de respaldo.
+        return brave.search(fetcher, payload, stats) if endpoint == "search" else None
     digest = hashlib.sha256(json.dumps([endpoint, payload], sort_keys=True).encode()).hexdigest()
     cache_url = f"serper://{endpoint}/{digest}"
     cached = fetcher._cached(cache_url, CACHE_TTL)
@@ -139,16 +152,15 @@ def call(
     lowered = text.lower()
     # Serper responde 400 «Not enough credits» cuando se acaba el saldo: es tan definitivo como
     # una clave inválida y hay que avisarlo, no seguir intentando.
-    if response.status_code in (400, 402) and "credit" in lowered:
-        stats.error("creditos")
-        stats.fatal = "creditos"
-        _alert(fetcher, "creditos")
-        return None
-    if response.status_code in (401, 403):
+    if (response.status_code in (400, 402) and "credit" in lowered) or response.status_code in (
+        401, 403,
+    ):  # fmt: skip
         kind = "creditos" if "credit" in lowered else "clave"
         stats.error(kind)
-        stats.fatal = kind
         _alert(fetcher, kind)
+        if endpoint == "search" and brave.available():
+            return brave.search(fetcher, payload, stats)
+        stats.fatal = kind
         return None
     if response.status_code == 429:
         stats.error("ritmo")
@@ -164,7 +176,6 @@ def call(
         return None
     fetcher._store(Page(cache_url, cache_url, 200, "application/json", text))
     if _ALERTED:
-        global _DOWN_UNTIL
         _DOWN_UNTIL = 0.0
         _ALERTED.clear()
         try:

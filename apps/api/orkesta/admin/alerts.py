@@ -17,8 +17,11 @@ TEXTS = {
     "clave": "La clave del buscador (SERPER_API_KEY) no es válida.",
     "verificador": "El verificador de correos (MillionVerifier) no respondió: revisa sus créditos "
     "o la clave en Integraciones.",
+    "respaldo": "El buscador de respaldo (Brave) rechazó la clave o se quedó sin cupo: revísalo "
+    "en Integraciones.",
 }
-SERVICE = {"creditos": "buscador", "clave": "buscador", "verificador": "verificador"}
+SERVICE = {"creditos": "buscador", "clave": "buscador", "verificador": "verificador",
+           "respaldo": "respaldo"}  # fmt: skip
 
 
 def record(factory: sessionmaker[Session], kind: str) -> None:

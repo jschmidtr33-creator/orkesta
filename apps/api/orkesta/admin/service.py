@@ -266,6 +266,7 @@ def overview(session: Session) -> dict[str, Any]:
 
     return {
         "service_alerts": alerts.current(session),
+        "backup": dict(_get(session, "respaldo", {})) or None,
         "tenants": len(tenants),
         "tenants_active": sum(1 for t in tenants if t.status == "active"),
         "tenants_new_30d": sum(1 for t in tenants if t.created_at >= since30),
