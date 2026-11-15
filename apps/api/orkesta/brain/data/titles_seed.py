@@ -763,8 +763,14 @@ NONE_TERMS: list[str] = [
 ]
 
 LEVEL_PREFIXES: dict[str, list[str]] = {
-    "c_level": ["Chief {} Officer", "VP Ejecutivo de {}"],
-    "vp": ["Vicepresidente de {}", "VP {}", "Vice President {}", "Vicepresidenta {}"],
+    "c_level": ["Chief {} Officer"],
+    "vp": [
+        "Vicepresidente de {}",
+        "VP {}",
+        "Vice President {}",
+        "Vicepresidenta {}",
+        "VP Ejecutivo de {}",
+    ],
     "director": [
         "Director de {}",
         "Directora de {}",
@@ -1017,11 +1023,12 @@ def examples() -> list[tuple[str, str, str]]:
                 out.append((template.format(phrase), level, area))
     for area, terms in AREA_TERMS.items():
         for term in terms:
-            out.append((term, NONE_LEVEL_OF.get(term, "especialista"), area))
+            # Una palabra suelta («SIEM») dice el área pero no el nivel.
+            out.append((term, NONE_LEVEL_OF.get(term, NONE), area))
             for level in rng.sample(list(LEVEL_PREFIXES), 2):
                 out.append((rng.choice(LEVEL_PREFIXES[level]).format(term), level, area))
     for term in NONE_TERMS:
-        out.append((term, "especialista", NONE))
+        out.append((term, NONE, NONE))
         out.append(
             (
                 f"{term} {rng.choice(['Senior', 'Adjunto', 'Principal', 'Asociado', 'de Planta'])}",

@@ -53,6 +53,8 @@ def decide_with(model: ml.Ensemble | None, text: str) -> Decision:
     rule, rule_conf = rules.classify(text)
     if rule in SAFE:
         return Decision(rule, rule_conf / 100, True, "reglas")
+    if rule_conf >= 95:
+        return Decision(rule, rule_conf / 100, True, "reglas")  # la regla es contundente
     if model is None:
         return Decision(rule, rule_conf / 100, True, "reglas")  # sin modelo: como siempre
     x = features(text)

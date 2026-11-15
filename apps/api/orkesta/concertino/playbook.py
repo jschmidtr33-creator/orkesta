@@ -716,3 +716,33 @@ _PAIR = re.compile(r"\[([^\[\]|]*)\|([^\[\]|]*)\]")
 def voice(text: str, formal: bool) -> str:
     """Elige tú o usted en los marcadores ``[tú|usted]``."""
     return _PAIR.sub(lambda m: m.group(2) if formal else m.group(1), text)
+
+
+# Más formas en que los vendedores cuentan cada objeción (se suman a las del mapa).
+MORE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "precio": (r"\bcar[i]?simo\b", r"\bmucha plata\b", r"\bmuy costos[oa]\b", r"\bse sale del presupuesto\b",
+               r"\bpidio (un )?descuento\b", r"\bno (tienen|hay) (plata|presupuesto)\b"),
+    "prioridad": (r"\blo deja(mos)? para (despues|luego|mas adelante)\b", r"\bno es (el|buen) momento\b",
+                  r"\bcierre (fiscal|de ano)\b", r"\botras prioridades\b", r"\bel (proximo|otro) ano\b"),
+    "persona": (r"\b(le )?escrib(a|e|ir) a (compras|otra area|su jefe)\b", r"\bno es (la persona|quien decide)\b",
+                r"\bme derivo\b", r"\beso lo (maneja|ve|lleva) otr[ao]\b"),
+    "competencia": (r"\bcotizacion mas barata\b", r"\bevaluando (\d+|dos|tres|varios|otros) proveedores\b",
+                    r"\b(otro|la competencia) le (dio|ofrecio)\b", r"\bcomparando con\b"),
+    "mala_experiencia": (r"\bquemad[oa]s\b", r"\bno sirve porque ya\b", r"\bles fue mal\b"),
+    "silencio": (r"\bno (se|sé) nada\b", r"\bdesde la (demo|reunion|propuesta)\b", r"\bno contesta\b",
+                 r"\bme (ignoro|dejo en visto)\b", r"\bno me ha vuelto a responder\b"),
+    "no_interes": (r"\bno rotundamente\b", r"\bno le (interesa|vio valor)\b", r"\bno lo necesitan\b",
+                   r"\bque no insista\b"),
+    "info": (r"\b(mande|envie|manda|envia)(r)? (la |el |una )?(informacion|presentacion|portafolio|cotizacion)\b",),
+    "comite": (r"\b(junta|comite|socio|gerente|finanzas) (lo )?(tiene que|debe) (aprobar|validar)\b",
+               r"\b(consultarlo|validarlo) con\b"),
+}  # fmt: skip
+
+MORE_TOPICS: dict[str, tuple[str, ...]] = {
+    "producto": (r"\bque vend(o|emos)\b", r"\bpropuesta de valor\b", r"\b(mi|nuestro) diferencial\b",
+                 r"\b(explicame|resumeme) (mi|nuestro) producto\b"),
+    "propuesta": (r"\bopciones de precio\b", r"\b(armo|arma|hago|presento) (una |la )?(propuesta|cotizacion)\b",
+                  r"\bque (incluyo|pongo) en la (propuesta|cotizacion)\b"),
+    "objecion": (r"\b(que le digo|como respondo|como rebato) si\b", r"\bya probaron\b",
+                 r"\b(me|le) pusieron una objecion\b"),
+}  # fmt: skip

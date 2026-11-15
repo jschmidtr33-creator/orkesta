@@ -199,6 +199,69 @@ _RULES: list[tuple[str, int, tuple[str, ...]]] = [
         ),
     ),
 ]
+# Frases frecuentes que faltaban (redactadas por ORKESTA a partir de respuestas típicas).
+_RULES += [
+    ("baja", 10, (
+        r"no me (vuelvan|vuelvas|sigan|sigas) (a )?(escribir|enviar|contactar)",
+        r"dejen? de (escribir|enviar|contactar)",
+        r"no me escriban mas",
+        r"no deseo recibir",
+        r"(borren|eliminen|saquen|retiren) (toda )?mi (correo|email|contacto|informacion|datos)",
+        r"\bunsubscribe\b",
+        r"\bremove me\b",
+        r"\bstop (emailing|sending)",
+    )),
+    ("reunion", 6, (
+        r"\b(does|would|can) (monday|tuesday|wednesday|thursday|friday)",
+        r"\b(monday|tuesday|wednesday|thursday|friday) at \d",
+        r"(organicemos|agendemos|programemos|coordinemos) (una|la) "
+        r"(reunion|llamada|demo|presentacion|videollamada)",
+        r"presentacion para (el|mi) (comite|equipo|gerente|jefe)",
+        r"\bhappy to (chat|talk|meet)\b",
+        r"\blet'?s (meet|talk|chat|schedule)\b",
+    )),
+    ("no_ahora", 6, (
+        r"\btodavia no\b",
+        r"\bpor ahora no\b",
+        r"\bguard(a|e) mi contacto\b",
+        r"\bmas adelante\b",
+        r"\bnot (right )?now\b",
+    )),
+    ("mas_info", 6, (
+        r"\bpor escrito\b",
+        r"\bque integraciones\b",
+        r"\b(alcance|ficha tecnica|brochure|portafolio)\b",
+        r"\b(send|share) (me )?(some|more)? ?(info|details|pricing|a one.pager)",
+    )),
+    ("reunion", 8, (
+        r"\b(nos )?(reunamos|reunieramos|reunirnos|veamos)\b",
+    )),
+    ("no_ahora", 9, (
+        r"\ba (mitad|finales|principios|inicios) de(l)? (ano|mes|semestre|trimestre)\b",
+        r"\bcongel(ando|amos|ado|ada)s? (las )?(compras|presupuesto|contrataciones)\b",
+        r"\bhoy no puedo comprometerme\b",
+    )),
+    ("fuera_oficina", 9, (
+        r"\bde permiso\b",
+        r"\bya no (labora|trabaja)\b",
+        r"\bno longer (works|with)\b",
+    )),
+    ("reunion", 6, (
+        r"\bsepar(emos|amos) \d+ minutos\b",
+        r"\b(cuadremos|separemos) (un )?espacio\b",
+    )),
+    ("otro", 7, (
+        r"^(ok|okay|vale|gracias|muchas gracias|thanks|thank you|recibido|listo|perfecto)\W*$",
+        r"\bde (donde|que empresa)\b",
+        r"\bwho (are you|is this)\b",
+        r"\bwho are you with\b",
+        r"\bya (te|les) (habia|habiamos) (contestado|respondido)\b",
+    )),
+    ("interesado", 4, (
+        r"\b(looking|evaluating) (into|at) (this|it|options)\b",
+        r"\bestamos (buscando|evaluando)\b",
+    )),
+]  # fmt: skip
 _COMPILED = [(cat, w, [re.compile(p) for p in pats]) for cat, w, pats in _RULES]
 
 # Texto citado del correo original («El lun, ... escribió:», «On Mon ... wrote:», «> ...»).
