@@ -932,6 +932,14 @@ def demos(
     ]
 
 
+def _brave_key() -> str:
+    from orkesta.core.db import get_session_factory
+    from orkesta.research.brave import configured_key
+
+    with get_session_factory()() as session:
+        return configured_key(session)
+
+
 def _verifier_key() -> str:
     from orkesta.core.db import get_session_factory
     from orkesta.validation.api_verifier import configured_key
@@ -975,6 +983,12 @@ def integrations(
             "name": "Verificador de correos (MillionVerifier)",
             "ok": bool(_verifier_key()),
             "detail": "Se conecta abajo, en «Verificador de correos»",
+        },
+        {
+            "key": "backup_search",
+            "name": "Buscador de respaldo (Brave)",
+            "ok": bool(_brave_key()),
+            "detail": "Se conecta abajo, en «Buscador de respaldo»",
         },
         {
             "key": "worker",
@@ -1021,6 +1035,32 @@ def verifier_save(
     alerts.clear(db, "verificador")
     svc.log(db, principal.user, "integrations.verifier", "", configured=bool(key))
     return {"configured": bool(key), "credits": left}
+
+
+@router.get("/backup-search")
+def backup_search_status(
+    principal: Annotated[Principal, Depends(require("integraciones"))], db: Db
+) -> dict[str, Any]:
+    """Buscador de respaldo (Brave): si está conectado. La clave nunca se devuelve."""
+    from orkesta.research import brave
+
+    return {"configured": bool(brave.configured_key(db))}
+
+
+@router.put("/backup-search")
+def backup_search_save(
+    body: VerifierIn, principal: Annotated[Principal, Depends(require("integraciones"))], db: Db
+) -> dict[str, Any]:
+    from orkesta.admin import alerts
+    from orkesta.research import brave
+
+    key = body.key.strip()
+    if key and not brave.test(key):
+        raise HTTPException(400, "Brave no aceptó esa clave. Cópiala de nuevo desde tu cuenta.")
+    brave.save_key(db, key)
+    alerts.clear(db, "respaldo")
+    svc.log(db, principal.user, "integrations.backup_search", "", configured=bool(key))
+    return {"configured": bool(key)}
 
 
 @router.get("/settings")

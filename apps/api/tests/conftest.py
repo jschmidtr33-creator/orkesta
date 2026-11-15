@@ -123,10 +123,12 @@ def _offline_mx() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def _search_up() -> None:
     """Cada prueba empieza con el buscador disponible (un error de otra prueba no se arrastra)."""
-    from orkesta.research import serp
+    from orkesta.research import brave, serp
 
     serp._DOWN_UNTIL = 0.0
     serp._ALERTED.clear()
+    brave.DOWN_UNTIL = 0.0
+    brave._KEY_CACHE = (0.0, "")
 
 
 @pytest.fixture(autouse=True)

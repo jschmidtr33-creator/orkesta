@@ -363,6 +363,7 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 
 type OverviewData = {
   service_alerts?: { service: string; text: string; at: string }[];
+  backup?: { at: string; ok: boolean; s3: boolean; size_mb: number; note: string } | null;
   tenants: number;
   tenants_active: number;
   tenants_new_30d: number;
@@ -387,6 +388,7 @@ function Overview() {
         </Card>
       ) : (
         <div className="flex flex-col gap-5">
+          <BackupStatus backup={d.backup ?? null} />
           {(d.service_alerts ?? []).map((a) => (
             <Alert key={a.service}>{a.text} <span className="text-[12px] opacity-70">({new Date(a.at).toLocaleString("es")})</span></Alert>
           ))}
@@ -1382,6 +1384,7 @@ function Integrations() {
     <>
       <Title title="Integraciones" description="Estado de las conexiones del servidor." />
       <VerifierCard />
+      <BackupSearchCard />
       <div className="grid gap-4 md:grid-cols-2">
         {(q.data ?? []).map((i) => (
           <Card key={i.key} className="flex items-start gap-3">
@@ -1394,6 +1397,58 @@ function Integrations() {
         ))}
       </div>
     </>
+  );
+}
+
+function BackupStatus({ backup }: { backup: OverviewData["backup"] }) {
+  if (!backup) {
+    return <Alert>Respaldos: todavía no hay registro de ninguna copia de la base. Conéctalos siguiendo los pasos de «Respaldos».</Alert>;
+  }
+  const hours = (Date.now() - new Date(backup.at).getTime()) / 36e5;
+  const fresh = hours < 30;
+  const good = backup.ok && backup.s3 && fresh;
+  return (
+    <Alert tone={good ? "blue" : undefined}>
+      Respaldos: última copia {new Date(backup.at).toLocaleString("es")} ({backup.size_mb} MB) · {backup.note}
+      {!fresh && " · Hace más de un día que no se hace una copia."}
+    </Alert>
+  );
+}
+
+function BackupSearchCard() {
+  const client = useQueryClient();
+  const q = useQuery({ queryKey: ["admin-backup-search"], queryFn: () => api<{ configured: boolean }>("/api/admin/backup-search") });
+  const [key, setKey] = useState("");
+  const save = useMutation({
+    mutationFn: (value: string) => api<{ configured: boolean }>("/api/admin/backup-search", { method: "PUT", json: { key: value } }),
+    onSuccess: () => {
+      setKey("");
+      client.invalidateQueries({ queryKey: ["admin-backup-search"] });
+      client.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+  return (
+    <Card className="mb-4 flex flex-col gap-3">
+      <div>
+        <p className="text-[14.5px] font-semibold text-ork-ink">Buscador de respaldo (Brave Search)</p>
+        <p className="text-[13px] text-ork-mist">
+          Si Serper se queda sin créditos o falla, las búsquedas de perfiles, empresas y sitios web siguen con Brave, que tiene índice propio. La clave se guarda cifrada y nunca se muestra.
+        </p>
+      </div>
+      {q.data?.configured ? (
+        <Alert tone="blue">Conectado: ORKESTA ya no se queda sin buscador.</Alert>
+      ) : (
+        <p className="text-[13px] text-ork-graphite">Sin conectar: crea tu cuenta en brave.com/search/api, elige el plan «Search», copia tu clave (API keys) y pégala aquí.</p>
+      )}
+      {save.error && <Alert>{(save.error as Error).message}</Alert>}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
+        <div className="min-w-[240px] flex-1">
+          <TextField label={q.data?.configured ? "Cambiar clave" : "Clave de API"} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} />
+        </div>
+        <Button type="submit" loading={save.isPending} disabled={!key.trim()}>Guardar</Button>
+        {q.data?.configured && <Button type="button" variant="secondary" onClick={() => save.mutate("")}>Desconectar</Button>}
+      </form>
+    </Card>
   );
 }
 

@@ -669,3 +669,52 @@ def test_all_countries_brings_people_from_every_country(
         by_country[p["data"]["country"]] = by_country.get(p["data"]["country"], 0) + 1
     assert by_country.get("MX") == 5 and by_country.get("CO") == 5
     assert by_country.get("AR", 0) >= 60
+
+
+def test_backup_search_engine_takes_over_when_serper_runs_out(
+    session_factory: sessionmaker[Session], with_serper: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Sin créditos en Serper, las búsquedas web siguen con Brave (misma forma de resultados)."""
+    from orkesta.research import brave, serp
+    from orkesta.research.fetch import Fetcher
+
+    monkeypatch.setattr(brave, "key", lambda: "clave-de-prueba")
+    asked: list[str] = []
+
+    def route(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.host)
+        if request.url.host == "google.serper.dev":
+            return httpx.Response(400, json={"message": "Not enough credits", "statusCode": 400})
+        if request.url.host == "api.search.brave.com":
+            assert request.headers["X-Subscription-Token"] == "clave-de-prueba"
+            return httpx.Response(
+                200,
+                json={
+                    "web": {
+                        "results": [
+                            {
+                                "title": "María Paz - CFO - <strong>Banco Andino</strong> | LinkedIn",
+                                "url": "https://co.linkedin.com/in/maria-paz",
+                                "description": "Bogotá · Banco Andino",
+                            }
+                        ]
+                    }
+                },
+            )
+        return _internet(request)
+
+    fetch.TRANSPORT = httpx.MockTransport(route)
+    stats = serp.SerpStats()
+    with Fetcher(session_factory) as fetcher:
+        data = serp.call(
+            fetcher, "search", {"q": "site:linkedin.com/in banco andino", "num": 10}, stats
+        )
+        assert data is not None and data["organic"][0]["title"].startswith(
+            "María Paz - CFO - Banco Andino"
+        )
+        assert data["organic"][0]["link"] == "https://co.linkedin.com/in/maria-paz"
+        # Mientras Serper está caído ya no se le pregunta: va directo al respaldo.
+        serp.call(fetcher, "search", {"q": "otra consulta", "num": 10}, stats)
+    assert asked.count("google.serper.dev") == 1 and asked.count("api.search.brave.com") == 2
+    assert not stats.fatal
