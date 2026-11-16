@@ -134,11 +134,19 @@ function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token:
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const unlock = useMutation({
-    mutationFn: () => api<{ token: string }>("/api/admin/unlock", { method: "POST", json: { email, password, code: code.trim() || undefined } }),
+    mutationFn: (resend?: boolean) =>
+      api<{ token?: string; code_sent?: boolean; to?: string }>("/api/admin/unlock", { method: "POST", json: { email, password, code: resend ? undefined : code.trim() || undefined } }),
     onSuccess: (r) => {
+      if (r.code_sent || !r.token) {
+        setSentTo(r.to ?? "tu correo");
+        setCode("");
+        return;
+      }
       setPassword("");
       setCode("");
+      setSentTo(null);
       onUnlock(r.token);
     },
   });
@@ -153,7 +161,7 @@ function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token:
         className="relative w-full max-w-[400px] rounded-3xl border border-white/10 bg-white/[0.04] p-7 text-white shadow-2xl backdrop-blur"
         onSubmit={(e) => {
           e.preventDefault();
-          unlock.mutate();
+          unlock.mutate(false);
         }}
       >
         <div className="flex items-center gap-2.5">
@@ -193,22 +201,34 @@ function LockScreen({ expired, onUnlock }: { expired: boolean; onUnlock: (token:
               className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal text-white"
             />
           </label>
+          {sentTo && (
+            <p className="rounded-xl bg-[#2563EB]/15 px-3 py-2 text-[13px] text-[#BFDBFE]">
+              Te enviamos un código de 6 números a <strong>{sentTo}</strong>. Vence en 10 minutos.
+            </p>
+          )}
           <label className="flex flex-col gap-1.5 text-[13px] font-semibold text-white/80">
             <span>
-              Código de verificación <span className="font-normal text-white/45">(si activaste la doble verificación)</span>
+              {sentTo ? "Código que te enviamos por correo" : <>Código de verificación <span className="font-normal text-white/45">(te lo pedimos después de la contraseña)</span></>}
             </span>
             <input
-              inputMode="text"
+              inputMode="numeric"
               autoComplete="one-time-code"
+              autoFocus={Boolean(sentTo)}
+              key={sentTo ?? "sin-codigo"}
               value={code}
               onChange={(e) => setCode(e.target.value)}
               className="ork-focus h-11 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-[14px] font-normal tracking-[0.2em] text-white placeholder:tracking-normal placeholder:text-white/35"
               placeholder="123456"
             />
           </label>
+          {sentTo && (
+            <button type="button" className="-mt-1 self-start text-[12.5px] font-semibold text-[#A5B4FC] hover:text-white" onClick={() => unlock.mutate(true)}>
+              ¿No te llegó? Enviar otro código
+            </button>
+          )}
           {unlock.error && <p role="alert" className="rounded-xl bg-[#EF4444]/15 px-3 py-2 text-[13px] text-[#FCA5A5]">{unlock.error.message}</p>}
           <Button type="submit" size="lg" loading={unlock.isPending} icon={<ShieldCheck className="size-4" aria-hidden />}>
-            Entrar al panel
+            {sentTo ? "Entrar al panel" : "Continuar"}
           </Button>
         </div>
         <p className="mt-4 text-[12px] text-white/45">El acceso dura 30 minutos y se cierra al salir o recargar el panel.</p>

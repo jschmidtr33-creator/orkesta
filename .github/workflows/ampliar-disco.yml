@@ -1,0 +1,26 @@
+name: ampliar-disco
+
+# Después de ampliar el volumen en la consola de AWS (EC2 → Volúmenes → Modificar), extiende la
+# partición y el sistema de archivos para usar el espacio nuevo. Sin reinicio ni corte.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ampliar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extender el disco
+        env:
+          HOST: ${{ secrets.AWS_HOST }}
+          KEY: ${{ secrets.AWS_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          SSH="ssh -i key.pem -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR ubuntu@$HOST"
+          $SSH 'df -h / | tail -1 | awk "{print \"Antes: total=\"\$2\" usado=\"\$3\" libre=\"\$4\" uso=\"\$5}"'
+          $SSH 'ROOT=$(findmnt -n -o SOURCE /); DISK=/dev/$(lsblk -no pkname "$ROOT"); PART=$(echo "$ROOT" | grep -o "[0-9]*$"); sudo growpart "$DISK" "$PART" >/dev/null 2>&1 || echo "La partición ya ocupa todo el volumen (¿ya ampliaste el volumen en AWS?)"; sudo resize2fs "$ROOT" >/dev/null 2>&1 || sudo xfs_growfs / >/dev/null 2>&1 || true'
+          $SSH 'df -h / | tail -1 | awk "{print \"Después: total=\"\$2\" usado=\"\$3\" libre=\"\$4\" uso=\"\$5}"'
+          $SSH "cd /opt/orkesta && sudo docker compose exec -T db psql -U postgres -d orkesta -At -c \"SELECT CASE WHEN value ? 'system_mail' AND value->'system_mail' IS NOT NULL AND value->'system_mail' <> 'null'::jsonb THEN 'Correo del sistema: configurado' ELSE 'Correo del sistema: SIN configurar' END FROM orkesta.platform_settings WHERE key='app'\" </dev/null" || true
+          rm -f key.pem

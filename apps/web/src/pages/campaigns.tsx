@@ -1710,6 +1710,11 @@ function SendingCard({ c }: { c: Campaign }) {
               />{" "}
               Medir aperturas
             </label>
+            {s.track_opens && (
+              <p className="-mt-1 ml-6 text-[12px] text-ork-mist">
+                Agrega un píxel invisible a cada correo: los filtros lo detectan y puede subir los rebotes y el spam.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-[13.5px] text-ork-graphite">
               <input
                 type="checkbox"
