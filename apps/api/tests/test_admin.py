@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import register
@@ -156,3 +157,32 @@ def test_plan_limits_are_enforced(client: TestClient, database: tuple[str, str])
     assert ok.status_code in (200, 201), ok.text
     full = client.post("/api/team/invitations", json={"email": "b@banco.co", "role": "vendedor"})
     assert full.status_code == 402 and "2 personas" in full.json()["detail"]
+
+
+def test_panel_asks_for_an_email_code(
+    client: TestClient, database: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Con correo del sistema, entrar al panel pide un código de 6 números enviado al correo."""
+    from orkesta.admin import panel_codes
+    from orkesta.core import system_mail
+
+    sent: list[str] = []
+    monkeypatch.setattr(system_mail, "config", lambda session: {"mailbox_id": "x"})
+    monkeypatch.setattr(system_mail, "send", lambda session, *, to, subject, text, html=None:
+                        sent.append(subject.split()[0]) or True)  # fmt: skip
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    first = client.post(
+        "/api/admin/unlock", json={"email": "jenn@orkesta.co", "password": PASSWORD}
+    )
+    assert first.status_code == 200 and first.json() == {"code_sent": True, "to": "je••@orkesta.co"}
+    bad = client.post("/api/admin/unlock",
+                      json={"email": "jenn@orkesta.co", "password": PASSWORD, "code": "000000"})  # fmt: skip
+    assert bad.status_code == 401 or sent[0] == "000000"
+    ok = client.post("/api/admin/unlock",
+                     json={"email": "jenn@orkesta.co", "password": PASSWORD, "code": sent[0]})  # fmt: skip
+    assert ok.status_code == 200 and ok.json()["token"]
+    again = client.post("/api/admin/unlock",
+                        json={"email": "jenn@orkesta.co", "password": PASSWORD, "code": sent[0]})  # fmt: skip
+    assert again.status_code == 401  # el código sirve una sola vez
+    assert panel_codes.masked("a@b.co") == "a•@b.co"

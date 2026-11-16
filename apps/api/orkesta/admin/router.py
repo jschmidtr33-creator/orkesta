@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Reque
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 
+from orkesta.admin import panel_codes
 from orkesta.admin import service as svc
 from orkesta.admin.models import AdminAudit
 from orkesta.core.config import get_settings
@@ -103,6 +104,17 @@ def unlock(body: UnlockIn, request: Request, principal: CurrentPrincipal, db: Db
             db.add(LoginAttempt(email=user.email, ip=client_ip(request), succeeded=False))
             db.commit()
             raise HTTPException(401, "El código de verificación no es correcto.")
+    elif panel_codes.available(db):
+        # Segundo paso por correo: un código de 6 números que vence en 10 minutos.
+        if not body.code:
+            if not panel_codes.send(db, user):
+                raise HTTPException(503, "No pudimos enviarte el código. Intenta de nuevo.")
+            db.commit()
+            return {"code_sent": True, "to": panel_codes.masked(user.email)}
+        if not panel_codes.check(db, user, body.code):
+            db.add(LoginAttempt(email=user.email, ip=client_ip(request), succeeded=False))
+            db.commit()
+            raise HTTPException(401, "El código no es correcto o ya venció. Pide uno nuevo.")
     return {"token": issue_admin_token(user.id), "expires_in": ADMIN_UNLOCK_MINUTES * 60}
 
 
