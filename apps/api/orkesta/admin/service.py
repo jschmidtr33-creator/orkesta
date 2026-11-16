@@ -54,14 +54,73 @@ DEFAULT_APP: dict[str, Any] = {
     "maintenance_message": "Estamos mejorando ORKESTA. Volvemos en unos minutos.",
     "announcement": {"active": False, "text": "", "tone": "blue"},
     "limits": {
-        "inicial": {"contacts": 5000, "emails_per_day": 80, "users": 3},
-        "pro": {"contacts": 50000, "emails_per_day": 300, "users": 15},
-        "empresa": {"contacts": 500000, "emails_per_day": 2000, "users": 100},
-        "cortesia": {"contacts": 50000, "emails_per_day": 300, "users": 15},
+        "inicial": {
+            "contacts": 5000,
+            "emails_per_day": 80,
+            "users": 3,
+            "verifications_per_user": 300,
+            "price_month": 39,
+            "price_year": 29,
+        },
+        "pro": {
+            "contacts": 50000,
+            "emails_per_day": 300,
+            "users": 15,
+            "verifications_per_user": 1000,
+            "price_month": 69,
+            "price_year": 55,
+        },
+        "empresa": {
+            "contacts": 500000,
+            "emails_per_day": 2000,
+            "users": 100,
+            "verifications_per_user": 2500,
+            "price_month": 99,
+            "price_year": 79,
+        },
+        "cortesia": {
+            "contacts": 50000,
+            "emails_per_day": 300,
+            "users": 15,
+            "verifications_per_user": 300,
+            "price_month": 0,
+            "price_year": 0,
+        },
         # Demo: todas las funciones, con límites de un equipo real que prueba.
-        "demo": {"contacts": 50000, "emails_per_day": 300, "users": 15},
+        "demo": {
+            "contacts": 50000,
+            "emails_per_day": 300,
+            "users": 15,
+            "verifications_per_user": 100,
+            "price_month": 0,
+            "price_year": 0,
+        },
     },
+    # Paquete extra de verificaciones (se vende por empresa y vale para el mes).
+    "package": {"verifications": 1000, "price": 9},
 }
+
+
+LIMIT_KEYS = (
+    "contacts",
+    "emails_per_day",
+    "users",
+    "verifications_per_user",
+    "price_month",
+    "price_year",
+)
+
+
+def public_pricing(session: Session) -> dict[str, Any]:
+    """Precios y límites para la página pública (sin datos de ninguna empresa)."""
+    data = app_settings(session)
+    shown = ("inicial", "pro", "empresa")
+    return {
+        "currency": "USD",
+        "plans": [{"code": p, "name": PLANS[p], **data["limits"][p]} for p in shown],
+        "demo": {"days": DEMO_DAYS, **data["limits"]["demo"]},
+        "package": data["package"],
+    }
 
 
 class AdminError(ValueError):
@@ -119,9 +178,12 @@ def save_matrix(session: Session, roles: dict[str, list[str]]) -> dict[str, list
 def app_settings(session: Session) -> dict[str, Any]:
     data: dict[str, Any] = dict(_get(session, "app", DEFAULT_APP))
     data["announcement"] = {**DEFAULT_APP["announcement"], **(data.get("announcement") or {})}
-    limits: dict[str, Any] = dict(DEFAULT_APP["limits"])
-    limits.update(data.get("limits") or {})
+    limits: dict[str, Any] = {}
+    for plan, base in DEFAULT_APP["limits"].items():
+        # Los valores guardados mandan; las columnas nuevas toman su valor por defecto.
+        limits[plan] = {**base, **((data.get("limits") or {}).get(plan) or {})}
     data["limits"] = limits
+    data["package"] = {**DEFAULT_APP["package"], **(data.get("package") or {})}
     return data
 
 
@@ -145,10 +207,11 @@ def save_app_settings(session: Session, raw: dict[str, Any]) -> dict[str, Any]:
         limits = {}
         for plan in PLANS:
             src = (raw["limits"] or {}).get(plan) or data["limits"].get(plan) or {}
-            limits[plan] = {
-                k: max(0, int(src.get(k, 0) or 0)) for k in ("contacts", "emails_per_day", "users")
-            }
+            limits[plan] = {k: max(0, int(src.get(k, 0) or 0)) for k in LIMIT_KEYS}
         data["limits"] = limits
+    if "package" in raw:
+        pkg = dict(raw["package"] or {})
+        data["package"] = {k: max(0, int(pkg.get(k, 0) or 0)) for k in ("verifications", "price")}
     _put(session, "app", data)
     return data
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any
 
 import httpx
@@ -69,10 +70,16 @@ def balance(key: str) -> int | None:
 class ApiProber:
     """Mismo contrato que el verificador por SMTP (``probe(mx, direcciones)``)."""
 
-    def __init__(self, key: str, timeout: int = 20):
+    def __init__(self, key: str, timeout: int = 20, limit: int | None = None):
         self.key, self.timeout = key, timeout
+        self.limit, self.used = limit, 0  # cupo de verificaciones del plan (None = sin tope)
+        self._lock = threading.Lock()
 
     def _one(self, client: httpx.Client, email: str) -> tuple[int, str, str]:
+        with self._lock:
+            if self.limit is not None and self.used >= self.limit:
+                raise SmtpUnavailable("cupo de verificaciones del plan agotado")
+            self.used += 1
         try:
             r = client.get(f"{BASE}/", params={"api": self.key, "email": email,
                                                "timeout": self.timeout})  # fmt: skip

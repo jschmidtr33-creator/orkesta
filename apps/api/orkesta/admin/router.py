@@ -355,6 +355,35 @@ def _access_message(tenant: Tenant, link: str, role: str) -> str:
     )
 
 
+def _verifications_left(db: Db, tenant_id: uuid.UUID) -> int | None:
+    from orkesta.admin.limits import verifications_left
+
+    return verifications_left(db, tenant_id)
+
+
+class PackageIn(BaseModel):
+    packages: int = Field(default=1, ge=1, le=100)
+
+
+@router.post("/tenants/{tenant_id}/verifications")
+def add_verification_package(
+    tenant_id: uuid.UUID,
+    body: PackageIn,
+    principal: Annotated[Principal, Depends(require("gestionar_empresas"))],
+    db: Db,
+) -> dict[str, Any]:
+    """Suma paquetes extra de verificaciones a la empresa (valen para el mes en curso)."""
+    from orkesta.admin.limits import add_verifications, verifications_left
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(404, "Esa empresa no existe.")
+    size = int(svc.app_settings(db)["package"]["verifications"] or 0)
+    total = add_verifications(db, tenant_id, size * body.packages)
+    svc.log(db, principal.user, "tenant.verifications", tenant.name, added=size * body.packages)
+    return {"extra_this_month": total, "left": verifications_left(db, tenant_id)}
+
+
 @router.get("/tenants/{tenant_id}")
 def tenant_detail(
     tenant_id: uuid.UUID,
@@ -425,6 +454,7 @@ def tenant_detail(
         "created_at": tenant.created_at.isoformat(),
         "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
         "trial_expired": tenant.trial_expired, "usage": usage,
+        "verifications_left": _verifications_left(db, tenant.id),
         "last_login_at": last_login.isoformat() if last_login else None,
         "members": [{
             "user_id": str(u.id), "name": u.full_name or "", "email": u.email, "role": m.role,
@@ -1078,8 +1108,8 @@ def get_app_settings(
 def put_app_settings(
     body: dict[str, Any], principal: Annotated[Principal, Depends(require("configuracion"))], db: Db
 ) -> dict[str, Any]:
-    if "limits" in body and "planes" not in svc.permissions_for(db, principal.user):
-        body = {k: v for k, v in body.items() if k != "limits"}
+    if "planes" not in svc.permissions_for(db, principal.user):
+        body = {k: v for k, v in body.items() if k not in ("limits", "package")}
     data = svc.save_app_settings(db, body)
     svc.log(db, principal.user, "settings.updated", "", keys=sorted(body))
     return {"settings": data}
