@@ -109,12 +109,13 @@ def test_each_person_sees_their_work_and_managers_see_their_team(
     assert renamed.status_code in (403, 404)
     assert {x["name"] for x in luis.get("/api/lists").json()} == {"Mis decisores"}
 
-    # Un contacto que ya trabaja Luis no se duplica para Sara (ni se le muestra).
-    taken = sara.post("/api/contacts", json={
-        "first_name": "Sofía", "last_name": "sofia", "email": "sofia@retaildemo.cl",
-        "company": "Retail Demo", "country": "Chile",
-    })  # fmt: skip
-    assert taken.status_code == 409 and "otra persona" in taken.json()["detail"]
+    # Un contacto que ya trabaja Luis también lo puede trabajar Sara: cada uno tiene su ficha.
+    sofia = {"first_name": "Sofía", "last_name": "sofia", "email": "sofia@retaildemo.cl",
+             "company": "Retail Demo", "country": "Chile"}  # fmt: skip
+    assert sara.post("/api/contacts", json=sofia).status_code == 201
+    assert sara.post("/api/contacts", json=sofia).status_code == 409  # la suya, una sola vez
+    assert sara.get("/api/contacts").json()["total"] == 1
+    assert luis.get("/api/contacts").json()["total"] == 1
     # Dos personas pueden tener listas con el mismo nombre.
     assert sara.post("/api/lists", json={"name": "Mis decisores"}).status_code == 201
 
@@ -271,3 +272,25 @@ def test_each_person_sees_and_edits_only_their_own_mailbox(  # type: ignore[no-u
     assert denied.status_code == 404
     ok = luis.patch(f"/api/mailboxes/{his[0]['id']}", json={"signature": "<p>Luis</p>"})
     assert ok.status_code == 200
+
+
+def test_teammates_can_import_the_same_contacts(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Nunca se bloquea a nadie porque otra persona del equipo ya trabaja el contacto."""
+    from tests.test_data import BASE, _import
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    first = _import(client, session_factory, BASE)
+    assert first["totals"]["nuevos"] == 3
+    second = _import(luis, session_factory, BASE, new_list="Mis compras")
+    assert second["totals"]["nuevos"] == 3 and "de_otros" not in second["totals"]
+    lists = luis.get("/api/lists").json()
+    assert lists[0]["name"] == "Mis compras" and lists[0]["contacts"] == 3
+    # Volver a importar no le duplica a Luis sus propias fichas.
+    again = _import(luis, session_factory, BASE)
+    assert again["totals"]["nuevos"] == 0 and again["totals"]["actualizados"] == 3
+    assert luis.get("/api/contacts").json()["total"] == 3
+    assert client.get("/api/contacts").json()["total"] == 3

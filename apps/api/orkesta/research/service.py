@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.automation.events import emit_many
-from orkesta.core.db import can_edit, set_context, unscoped
+from orkesta.core.db import set_context
 from orkesta.core.jobs import enqueue
 from orkesta.data.models import Contact, DataPoint
 from orkesta.data.service import (
@@ -429,7 +429,7 @@ def save_people(
     from orkesta.admin.limits import contact_capacity
 
     room = contact_capacity(session, tenant_id)
-    created = merged = over_limit = taken = 0
+    created = merged = over_limit = 0
     contact_ids: list[uuid.UUID] = []
     new_contacts: list[Contact] = []
     for item in rows:
@@ -456,19 +456,16 @@ def save_people(
         keys = {dedup_key(None, full_name, ckey)}
         if email:
             keys.add(dedup_key(email, full_name, ckey))
-        with unscoped(session):  # el contacto puede ser de otra persona del equipo
-            owner = session.execute(
-                select(Contact.id, Contact.owner_user_id).where(
-                    Contact.tenant_id == tenant_id, Contact.dedup_key.in_(keys)
-                )
-            ).first()
-        contact = session.get(Contact, owner.id) if owner else None
-        if owner is not None and contact is None:
-            taken += 1  # ya lo trabaja otra persona: no se duplica ni se toca
-            continue
-        if contact is not None and not can_edit(session, contact.owner_user_id, user_id):
-            taken += 1
-            continue
+        # Solo cuenta la ficha propia: si otra persona del equipo ya tiene el contacto, quien
+        # guarda recibe la suya y puede trabajarlo igual.
+        found = session.scalar(
+            select(Contact.id).where(
+                Contact.tenant_id == tenant_id,
+                Contact.owner_user_id == user_id,
+                Contact.dedup_key.in_(keys),
+            )
+        )
+        contact = session.get(Contact, found) if found else None
         values = {
             "first_name": data.get("first_name") or "",
             "last_name": data.get("last_name") or "",
@@ -532,7 +529,6 @@ def save_people(
         "merged": merged,
         "added_to_list": added,
         "over_limit": over_limit,
-        "taken": taken,
         "list": {"id": str(target.id), "name": target.name} if target else None,
         "at": now().isoformat(),
     }

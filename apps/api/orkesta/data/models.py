@@ -73,7 +73,14 @@ class Company(IdMixin, Base):
 class Contact(IdMixin, Base):
     __tablename__ = "contacts"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "dedup_key"),
+        # Sin repetidos por persona: dos personas del equipo pueden tener el mismo contacto.
+        UniqueConstraint(
+            "tenant_id",
+            "owner_user_id",
+            "dedup_key",
+            name="uq_contacts_owner_dedup",
+            postgresql_nulls_not_distinct=True,
+        ),
         CheckConstraint(_in("status", CONTACT_STATUSES), name="status"),
         CheckConstraint(_in("source", SOURCE_TYPES), name="source"),
         CheckConstraint("email IS NULL OR email = lower(email)", name="email_lowercase"),

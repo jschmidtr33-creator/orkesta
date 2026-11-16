@@ -1063,7 +1063,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   });
   const save = useMutation({
     mutationFn: (ids: string[]) =>
-      api<{ created: number; merged: number; over_limit: number; taken?: number; list: { name: string } | null }>(`/api/research/runs/${run.id}/save`, {
+      api<{ created: number; merged: number; over_limit: number; list: { name: string } | null }>(`/api/research/runs/${run.id}/save`, {
         method: "POST",
         json: { ids, list_id: listId && listId !== "nueva" ? listId : null, new_list: listId === "nueva" ? newList : "" },
       }),
@@ -1072,7 +1072,6 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
       if (r.merged) parts.push(`${r.merged} ya existían y se completaron`);
       if (r.list) parts.push(`en la lista «${r.list.name}»`);
       if (r.over_limit) parts.push(`${r.over_limit} sin guardar: llegaste al límite de contactos de tu plan`);
-      if (r.taken) parts.push(`${r.taken} ya los trabaja otra persona de tu equipo`);
       setMessage({ tone: r.over_limit ? "bad" : "ok", text: parts.join(" · ") + "." });
       setSelected(new Set());
       setNewList("");
