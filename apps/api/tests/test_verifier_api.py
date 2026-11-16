@@ -48,3 +48,52 @@ def test_admin_connects_the_verifier_key(
     status = client.get("/api/admin/verifier").json()
     assert status["configured"] and "buena" not in str(status)
     assert client.put("/api/admin/verifier", json={"key": ""}).json()["configured"] is False
+
+
+def test_plan_quota_stops_paid_checks() -> None:
+    """El cupo de verificaciones del plan se respeta: al agotarse no se gasta ni un crédito más."""
+
+    class Answer:
+        def json(self) -> dict:
+            return {"result": "ok"}
+
+    class Client:
+        calls = 0
+
+        def get(self, *a: Any, **k: Any) -> Answer:
+            Client.calls += 1
+            return Answer()
+
+    prober = api_verifier.ApiProber("k", limit=1)
+    prober._one(Client(), "ana@lacteos.co")  # type: ignore[arg-type]
+    with pytest.raises(api_verifier.SmtpUnavailable):
+        prober._one(Client(), "luis@lacteos.co")  # type: ignore[arg-type]
+    assert Client.calls == 1 and prober.used == 1
+
+
+def test_pricing_is_public_and_packages_add_quota(
+    client: TestClient, database: tuple[str, str]
+) -> None:
+    """Precios públicos desde el panel; un paquete extra suma verificaciones al mes."""
+    register(client, "cliente@banco.co", company="Banco Andino")
+    client.cookies.clear()
+    pricing = client.get("/api/public/pricing").json()
+    assert [p["code"] for p in pricing["plans"]] == ["inicial", "pro", "empresa"]
+    assert pricing["plans"][1]["price_month"] == 69 and pricing["package"]["price"] == 9
+    register(client, "jenn@orkesta.co", company="ORKESTA")
+    _role(database, "jenn@orkesta.co", "owner")
+    _unlock(client, "jenn@orkesta.co")
+    settings = client.get("/api/admin/settings").json()["settings"]
+    limits = settings["limits"]
+    limits["pro"]["price_month"] = 75
+    limits["inicial"]["verifications_per_user"] = 200
+    saved = client.put("/api/admin/settings", json={"limits": limits,
+                                                    "package": {"verifications": 500, "price": 7}})  # fmt: skip
+    assert saved.status_code == 200
+    assert client.get("/api/public/pricing").json()["plans"][1]["price_month"] == 75
+    bank = next(t for t in client.get("/api/admin/tenants").json()["items"]
+                if t["name"] == "Banco Andino")  # fmt: skip
+    client.patch(f"/api/admin/tenants/{bank['id']}", json={"plan": "inicial"})
+    assert client.get(f"/api/admin/tenants/{bank['id']}").json()["verifications_left"] == 200
+    added = client.post(f"/api/admin/tenants/{bank['id']}/verifications", json={"packages": 2})
+    assert added.json() == {"extra_this_month": 1000, "left": 1200}

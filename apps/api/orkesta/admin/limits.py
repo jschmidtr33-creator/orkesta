@@ -122,3 +122,47 @@ def check_users(session: Session, tenant_id: uuid.UUID, *, pending_email: str = 
             f"{_upgrade(plan)} de {limits['users']} personas en el equipo."
             " Pide a ORKESTA ampliar tu plan."
         )
+
+
+def verifications_left(session: Session, tenant_id: uuid.UUID) -> int | None:
+    """Verificaciones pagas que le quedan a la empresa este mes (``None`` = sin tope): las
+    del plan por usuario activo, más los paquetes extra que compró este mes."""
+    from orkesta.validation.models import ValidationRun
+
+    found = plan_limits(session, tenant_id)
+    if found is None or not found[1].get("verifications_per_user"):
+        return None
+    extra = extra_verifications(session, tenant_id)
+    start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    with unscoped(session):
+        users = max(1, int(session.scalar(
+            select(func.count()).select_from(Membership).where(Membership.tenant_id == tenant_id)
+        ) or 0))  # fmt: skip
+        used = session.scalar(
+            select(func.coalesce(func.sum(ValidationRun.totals["paid_checks"].as_integer()), 0))
+            .where(ValidationRun.tenant_id == tenant_id, ValidationRun.created_at >= start)
+        )  # fmt: skip
+    return max(0, found[1]["verifications_per_user"] * users + extra - int(used or 0))
+
+
+def _month() -> str:
+    return datetime.now(UTC).strftime("%Y-%m")
+
+
+def extra_verifications(session: Session, tenant_id: uuid.UUID) -> int:
+    """Verificaciones de paquetes extra que la empresa compró este mes."""
+    from orkesta.admin.service import _get
+
+    return int((_get(session, "paquetes", {}).get(str(tenant_id)) or {}).get(_month(), 0))
+
+
+def add_verifications(session: Session, tenant_id: uuid.UUID, quantity: int) -> int:
+    """Suma un paquete extra a la empresa (este mes). Devuelve el total extra del mes."""
+    from orkesta.admin.service import _get, _put
+
+    data = dict(_get(session, "paquetes", {}))
+    mine = dict(data.get(str(tenant_id)) or {})
+    mine[_month()] = int(mine.get(_month(), 0)) + max(0, int(quantity))
+    data[str(tenant_id)] = mine
+    _put(session, "paquetes", data)
+    return int(mine[_month()])

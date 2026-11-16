@@ -1014,6 +1014,7 @@ type CompanyDetail = {
   trial_expired: boolean;
   last_login_at: string | null;
   usage: { contacts: number; emails_sent: number; deals: number; proposals: number; research_runs: number };
+  verifications_left?: number | null;
   members: { user_id: string; name: string; email: string; role: string; status: string; last_login_at: string | null; joined_at: string }[];
   invitations: { id: string; email: string; role: string; created_at: string; expires_at: string; expired: boolean }[];
   activity: { day: string; emails: number; activities: number; people: number }[];
@@ -1043,6 +1044,10 @@ function CompanyCard({ id, me, onClose }: { id: string; me: Me; onClose: () => v
   const revoke = useMutation({ mutationFn: (inv: string) => api(`/api/admin/tenants/${id}/invitations/${inv}`, { method: "DELETE" }), onSuccess: refresh });
   const role = useMutation({
     mutationFn: ({ user, value }: { user: string; value: string }) => api(`/api/admin/tenants/${id}/members/${user}`, { method: "PATCH", json: { role: value } }),
+    onSuccess: refresh,
+  });
+  const pack = useMutation({
+    mutationFn: () => api(`/api/admin/tenants/${id}/verifications`, { method: "POST", json: { packages: 1 } }),
     onSuccess: refresh,
   });
   const removeMember = useMutation({ mutationFn: (user: string) => api(`/api/admin/tenants/${id}/members/${user}`, { method: "DELETE" }), onSuccess: refresh });
@@ -1077,6 +1082,9 @@ function CompanyCard({ id, me, onClose }: { id: string; me: Me; onClose: () => v
             <Stat label="Correos enviados" value={n(d.usage.emails_sent)} />
             <Stat label="Oportunidades / propuestas" value={`${n(d.usage.deals)} / ${n(d.usage.proposals)}`} />
           </div>
+          {d.verifications_left != null && (
+            <p className="-mt-2 text-[12.5px] text-ork-mist">Verificaciones de correo disponibles este mes: <strong className="text-ork-ink">{n(d.verifications_left)}</strong></p>
+          )}
 
           <Card>
             <CardHeader title="Actividad diaria (14 días)" description="Barras: correos enviados + acciones en el CRM. Puntos: personas que ingresaron ese día." />
@@ -1216,6 +1224,10 @@ function CompanyCard({ id, me, onClose }: { id: string; me: Me; onClose: () => v
                     </option>
                   ))}
                 </select>
+                <Button size="sm" variant="secondary" loading={pack.isPending}
+                  onClick={() => window.confirm(`¿Sumar un paquete extra de verificaciones a «${d.name}» este mes?`) && pack.mutate()}>
+                  + Paquete de verificaciones
+                </Button>
                 {d.plan === "demo" && (
                   <Button size="sm" variant="secondary" onClick={() => patch.mutate({ extend_days: 7 })}>
                     +7 días de demo
@@ -2076,8 +2088,18 @@ type AppSettings = {
   maintenance: boolean;
   maintenance_message: string;
   announcement: { active: boolean; text: string; tone: "blue" | "ok" | "warn" | "bad" };
-  limits: Record<string, { contacts: number; emails_per_day: number; users: number }>;
+  limits: Record<string, PlanLimits>;
+  package: { verifications: number; price: number };
 };
+type PlanLimits = { contacts: number; emails_per_day: number; users: number; verifications_per_user: number; price_month: number; price_year: number };
+const LIMIT_COLUMNS: { key: keyof PlanLimits; label: string; width: string }[] = [
+  { key: "price_month", label: "Precio mensual (USD por usuario)", width: "w-24" },
+  { key: "price_year", label: "Precio anual (USD por usuario al mes)", width: "w-24" },
+  { key: "contacts", label: "Contactos", width: "w-28" },
+  { key: "emails_per_day", label: "Correos por día y buzón", width: "w-24" },
+  { key: "users", label: "Usuarios", width: "w-20" },
+  { key: "verifications_per_user", label: "Verificaciones al mes por usuario", width: "w-24" },
+];
 
 // --- IA propia · Cerebro ---------------------------------------------------------------------
 
@@ -2589,20 +2611,20 @@ function SettingsPage() {
         <Card className="lg:col-span-2">
           <CardHeader title="Planes y límites" description={q.data.can_edit_plans ? "Límites de referencia por plan." : "Tu rol puede ver, pero no cambiar los límites."} />
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-[13.5px]">
+            <table className="w-full min-w-[760px] text-left text-[13.5px]">
               <thead className="text-[12px] text-ork-mist">
                 <tr>
-                  <th className="pb-2 font-semibold">Plan</th>
-                  <th className="pb-2 font-semibold">Contactos</th>
-                  <th className="pb-2 font-semibold">Correos por día y buzón</th>
-                  <th className="pb-2 font-semibold">Usuarios</th>
+                  <th className="pb-2 align-bottom font-semibold">Plan</th>
+                  {LIMIT_COLUMNS.map((c) => (
+                    <th key={c.key} className="pb-2 pr-3 align-bottom font-semibold">{c.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(q.data.plans).map(([plan, label]) => (
                   <tr key={plan}>
                     <td className="py-1.5 pr-3 font-semibold text-ork-ink">{label}</td>
-                    {(["contacts", "emails_per_day", "users"] as const).map((k) => (
+                    {LIMIT_COLUMNS.map(({ key: k, width }) => (
                       <td key={k} className="py-1.5 pr-3">
                         <input
                           type="number"
@@ -2610,7 +2632,7 @@ function SettingsPage() {
                           disabled={!q.data.can_edit_plans}
                           value={draft.limits[plan]?.[k] ?? 0}
                           onChange={(e) => setDraft({ ...draft, limits: { ...draft.limits, [plan]: { ...draft.limits[plan], [k]: Number(e.target.value) } } })}
-                          className="ork-focus h-9 w-36 rounded-lg border border-ork-line px-2"
+                          className={`ork-focus h-9 ${width} rounded-lg border border-ork-line px-2`}
                         />
                       </td>
                     ))}
@@ -2619,6 +2641,27 @@ function SettingsPage() {
               </tbody>
             </table>
           </div>
+          <div className="mt-4 flex flex-wrap items-end gap-3 rounded-xl bg-ork-ink/[0.03] p-3">
+            <div>
+              <p className="text-[13.5px] font-semibold text-ork-ink">Paquete extra de verificaciones</p>
+              <p className="text-[12px] text-ork-mist">Se suma a una empresa desde su ficha y vale para el mes en curso.</p>
+            </div>
+            <label className="text-[12px] text-ork-mist">
+              Verificaciones
+              <input type="number" min={0} disabled={!q.data.can_edit_plans} value={draft.package?.verifications ?? 1000}
+                onChange={(e) => setDraft({ ...draft, package: { ...draft.package, verifications: Number(e.target.value) } })}
+                className="ork-focus mt-1 block h-9 w-28 rounded-lg border border-ork-line px-2 text-[13.5px] text-ork-ink" />
+            </label>
+            <label className="text-[12px] text-ork-mist">
+              Precio (USD)
+              <input type="number" min={0} disabled={!q.data.can_edit_plans} value={draft.package?.price ?? 9}
+                onChange={(e) => setDraft({ ...draft, package: { ...draft.package, price: Number(e.target.value) } })}
+                className="ork-focus mt-1 block h-9 w-24 rounded-lg border border-ork-line px-2 text-[13.5px] text-ork-ink" />
+            </label>
+          </div>
+          <p className="mt-3 text-[12px] text-ork-mist">
+            Los precios de Inicial, Pro y Empresa, la demo y el paquete se muestran solos en la página pública (orkestaapp.com/#precios). Un valor en 0 significa sin límite.
+          </p>
         </Card>
       </div>
     </>

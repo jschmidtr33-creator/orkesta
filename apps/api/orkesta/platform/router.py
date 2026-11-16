@@ -183,6 +183,14 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": os.environ.get("RENDER_GIT_COMMIT", "dev")[:12]}
 
 
+@router.get("/public/pricing")
+def public_pricing(db: Db) -> dict[str, Any]:
+    """Precios y paquetes para la página pública (los define la administración)."""
+    from orkesta.admin.service import public_pricing as pricing
+
+    return pricing(db)
+
+
 @router.get("/auth/config")
 def auth_config(db: Db) -> dict[str, Any]:
     from orkesta.admin.service import app_settings

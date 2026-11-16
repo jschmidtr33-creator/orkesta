@@ -416,6 +416,11 @@ def execute(progress: Progress, scope: dict[str, Any]) -> None:
     progress.add("skipped", skipped)
     progress.note(f"Validando {progress.total} contactos en {len(by_domain)} dominios…")
     checker = _checker()
+    if _paid(checker):
+        from orkesta.admin.limits import verifications_left
+
+        with progress.factory() as session:
+            checker.prober.limit = verifications_left(session, progress.tenant_id)
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = {
             pool.submit(_domain_work, checker, progress, domain, verify, find, find_missing): domain
@@ -433,7 +438,13 @@ def execute(progress: Progress, scope: dict[str, Any]) -> None:
     if _paid(checker):
         from orkesta.admin import alerts
 
-        if not checker.health.available():
+        prober = checker.prober
+        progress.add("paid_checks", int(getattr(prober, "used", 0)))
+        if getattr(prober, "limit", None) is not None and prober.used >= prober.limit:
+            progress.add("plan_quota_reached", 1)
+            progress.note("Usaste las verificaciones de tu plan de este mes: los demás quedaron "
+                          "«Sin confirmar». Puedes comprar un paquete extra.")  # fmt: skip
+        elif not checker.health.available():
             progress.add("smtp_blocked", 1)
             alerts.record(progress.factory, "verificador")
         else:
