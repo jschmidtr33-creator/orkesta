@@ -41,3 +41,23 @@ def test_due_task_reminder_notifies_and_emails_once(
     assert client.get("/api/notifications").json()["unread"] == 0
     register(client, "otro@otra.co", company="Otra")
     assert client.get("/api/notifications").json()["items"] == []
+
+
+def test_two_due_tasks_with_the_same_text_send_one_reminder(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],  # noqa: F811
+) -> None:  # fmt: skip
+    """Dos tareas vencidas iguales (de contactos distintos con el mismo nombre) dan un solo
+    correo, y el recordatorio queda marcado: no se reenvía en cada vuelta."""
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    for company in ("Alpura", "Alpura MX"):
+        contact = client.post("/api/contacts", json={"first_name": "Carlos", "last_name": "Blanco",
+                                                     "company": company}).json()  # fmt: skip
+        client.post("/api/crm/activities", json={"type": "task", "body": "Responder a Carlos (Alpura)",
+                                                 "contact_id": contact["id"], "due_at": past})  # fmt: skip
+    before = len(google.sent)
+    for _ in range(4):
+        due_task_reminders(session_factory)
+    assert len(google.sent) - before == 1
+    assert client.get("/api/notifications").json()["unread"] == 1

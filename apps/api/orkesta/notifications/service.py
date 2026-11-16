@@ -178,6 +178,8 @@ def due_task_reminders(factory: sessionmaker[Session]) -> int:
                     f"Hola {user.full_name or ''}:\n\nTu tarea «{task.body}» venció"
                     f"{' (' + contact.full_name + ')' if contact else ''}."
                 )
+                if n is None:
+                    continue  # el mismo aviso ya salió hace poco: ni campana ni correo otra vez
                 if _send_email(
                     session, tenant_id, user, f"Recordatorio: {task.body[:120]}", text, link
                 ):
