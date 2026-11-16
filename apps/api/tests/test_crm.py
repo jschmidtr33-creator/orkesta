@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
 from tests.conftest import register
 
@@ -111,3 +112,35 @@ def test_sellers_only_edit_their_deals_and_tenants_are_isolated(client: TestClie
     register(client, "otro@otra.co", company="Otra")
     assert client.get("/api/crm/deals").json()["deals"] == []
     assert client.get(f"/api/crm/deals/{deal['id']}").status_code == 404
+
+
+def test_same_open_task_and_notice_are_not_repeated(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Una misma cosa no llena de tareas ni de avisos: se crea una sola vez."""
+    import uuid
+
+    from sqlalchemy import func, select
+
+    from orkesta.core.db import set_context
+    from orkesta.crm.models import Activity
+    from orkesta.crm.service import log
+    from orkesta.notifications.models import Notification
+    from orkesta.notifications.service import notify
+
+    me = register(client, "ana@lacteos.co")
+    tenant_id = (
+        uuid.UUID(me["workspace"]["id"])
+        if me.get("workspace")
+        else uuid.UUID(me["workspaces"][0]["id"])
+    )
+    user_id = uuid.UUID(me["user"]["id"])
+    with session_factory.begin() as session:
+        set_context(session, tenant_id=tenant_id, user_id=user_id)
+        for _ in range(3):
+            log(session, tenant_id=tenant_id, kind="task", body="Responder a Carlos (Alpura)",
+                user_id=user_id)  # fmt: skip
+            notify(session, tenant_id=tenant_id, user_id=user_id, kind="reply",
+                   title="Carlos respondió")  # fmt: skip
+        assert session.scalar(select(func.count()).select_from(Activity)) == 1
+        assert session.scalar(select(func.count()).select_from(Notification)) == 1

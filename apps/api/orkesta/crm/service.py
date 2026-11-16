@@ -203,6 +203,22 @@ def log(
     due_at: datetime | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Activity:
+    if kind == "task":
+        # Una misma tarea pendiente no se repite: si ya está abierta, se devuelve esa.
+        who = (
+            Activity.contact_id.is_(None)
+            if contact_id is None
+            else Activity.contact_id == contact_id
+        )
+        same = session.scalar(
+            select(Activity).where(
+                Activity.tenant_id == tenant_id, Activity.type == "task",
+                Activity.done_at.is_(None), Activity.body == body[:5000],
+                who,
+            ).limit(1)
+        )  # fmt: skip
+        if same is not None:
+            return same
     activity = Activity(
         tenant_id=tenant_id, type=kind, body=body[:5000], user_id=user_id,
         contact_id=contact_id, deal_id=deal_id, due_at=due_at, meta=meta or {},
