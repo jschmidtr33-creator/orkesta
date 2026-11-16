@@ -44,7 +44,13 @@ def emit(
         select(Rule).where(Rule.tenant_id == tenant_id, Rule.trigger == trigger, Rule.enabled)
     ).all()
     queued = 0
+    seen: set[str] = set()
     for rule in rules:
+        # Dos reglas idénticas (la misma receta activada dos veces) cuentan como una.
+        signature = repr((rule.trigger, rule.conditions, rule.actions))
+        if signature in seen:
+            continue
+        seen.add(signature)
         if _matches(rule, ctx):
             job = enqueue(
                 session,

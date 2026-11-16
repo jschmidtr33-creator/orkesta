@@ -42,6 +42,21 @@ def notify(
 
     if user_id is None:
         return None
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    # El mismo aviso sin leer de las últimas 24 horas no se repite (ni en el celular).
+    repeated = session.scalar(
+        select(Notification.id).where(
+            Notification.tenant_id == tenant_id, Notification.user_id == user_id,
+            Notification.kind == kind, Notification.title == title[:200],
+            Notification.read_at.is_(None),
+            Notification.created_at >= datetime.now(UTC) - timedelta(hours=24),
+        ).limit(1)
+    )  # fmt: skip
+    if repeated is not None:
+        return None
     row = Notification(
         tenant_id=tenant_id,
         user_id=user_id,
