@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from orkesta.campaigns import autopilot as _autopilot  # noqa: F401  (registra el trabajo)
 from orkesta.campaigns import gmail, templating
 from orkesta.campaigns import service as svc
 from orkesta.campaigns.models import Campaign, EmailAsset, Mailbox, Recipient, Suppression
@@ -163,6 +164,7 @@ class SmtpIn(BaseModel):
 
 
 smtp_limiter = RateLimiter(10, 600)
+autopilot_limiter = RateLimiter(10, 3600)
 
 
 @router.post("/api/mailboxes/smtp", status_code=201)
@@ -392,6 +394,37 @@ def campaigns(principal: Member, db: Db) -> dict[str, Any]:
         "variables": templating.VARIABLES,
         "gmail_enabled": gmail.enabled(),
     }
+
+
+class AutoIn(BaseModel):
+    text: str = Field(min_length=3, max_length=400)
+    mailbox_id: uuid.UUID | None = None
+
+
+@router.post("/api/campaigns/auto/preview")
+def auto_preview(body: AutoIn, principal: Member, db: Db) -> dict[str, Any]:
+    """Lo que ORKESTA entendió de la frase (sin buscar ni gastar nada)."""
+    from orkesta.campaigns import autopilot
+
+    plan = autopilot.parse(body.text)
+    return {"chips": plan["chips"], "target": plan["target"], "goal": plan["goal"],
+            "missing": plan["missing"]}  # fmt: skip
+
+
+@router.post("/api/campaigns/auto", status_code=201)
+def auto_create(body: AutoIn, request: Request, principal: Member, db: Db) -> dict[str, Any]:
+    """Campaña automatizada: busca, completa, valida, arma la lista y escribe la secuencia."""
+    from orkesta.campaigns import autopilot
+
+    autopilot_limiter.check(f"autopilot:{principal.user.id}")
+    try:
+        campaign = autopilot.start(db, tenant_id=principal.tenant_id, user=principal.user,
+                                   text=body.text, mailbox_id=body.mailbox_id)  # fmt: skip
+    except svc.CampaignError as exc:
+        raise _fail(exc) from exc
+    audit(db, tenant_id=principal.tenant_id, actor_id=principal.user.id, action="campaign.auto",
+          entity_type="campaign", entity_id=campaign.id, ip=client_ip(request))  # fmt: skip
+    return svc.campaign_dict(db, campaign)
 
 
 @router.post("/api/campaigns", status_code=201)

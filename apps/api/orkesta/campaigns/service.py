@@ -561,6 +561,8 @@ def campaign_dict(session: Session, c: Campaign, *, full: bool = True) -> dict[s
             "replies": reply_breakdown(session, c),
         },
     }
+    auto = (c.settings or {}).get("auto")
+    data["auto_state"] = auto.get("state") if isinstance(auto, dict) else None
     if full:
         data.update(steps=c.steps, settings=c.settings, audience=c.audience)
         data["learning"] = learning(session, c)
@@ -737,7 +739,10 @@ def update_campaign(session: Session, campaign: Campaign, data: dict[str, Any]) 
             raise CampaignError("No puedes quitar pasos de una campaña ya lanzada.", 409)
         campaign.steps = clean_steps(list(data["steps"]))
     if "settings" in data:
+        auto = (campaign.settings or {}).get("auto")
         campaign.settings = clean_settings(dict(data["settings"]))
+        if auto:  # el estado de la campaña automatizada no se edita desde el formulario
+            campaign.settings = {**campaign.settings, "auto": auto}
     if "audience" in data:
         if campaign.status != "draft":
             raise CampaignError("La audiencia se define antes de lanzar.", 409)

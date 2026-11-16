@@ -15,6 +15,9 @@ import {
   Send,
   Trash2,
   TriangleAlert,
+  Wand2,
+  Check,
+  Loader2,
 } from "lucide-react";
 import {
   useCallback,
@@ -104,8 +107,18 @@ type Settings = {
   track_clicks: boolean;
   corporate_mode?: boolean;
   per_domain_daily?: number;
+  auto?: AutoInfo;
   first_plain?: boolean;
   pause_rate?: number;
+};
+type AutoInfo = {
+  brief: string;
+  state: "preparing" | "ready" | "failed";
+  error?: string;
+  plan?: { chips: string[]; target: number; goal: number | null };
+  steps: { key: string; title: string; detail: string; state: "wait" | "run" | "done" | "failed" }[];
+  counts?: { contacts: number; companies: number; total: number; excluded: number };
+  spam?: { score: number; level: string };
 };
 type SpamReport = {
   score: number;
@@ -130,6 +143,7 @@ type Campaign = {
   waiting?: string | null;
   created_at: string;
   steps_count: number;
+  auto_state?: "preparing" | "ready" | "failed" | null;
   stats: Stats;
   learning?: { confirmed: number; reproposed: number; domains_learned: number };
   ab?: AbResult[];
@@ -304,12 +318,19 @@ export function CampaignsPage() {
         title="Campañas"
         description="Secuencias de correos desde tu propio correo, con seguimiento de aperturas y clics. Cuando alguien responde, su secuencia se detiene sola."
         action={
-          <Button
-            icon={<Plus className="size-4" aria-hidden />}
-            onClick={() => setCreating(true)}
-          >
-            Nueva campaña
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/campanas/automatizada">
+              <Button variant="secondary" icon={<Wand2 className="size-4" aria-hidden />}>
+                Campaña automatizada
+              </Button>
+            </Link>
+            <Button
+              icon={<Plus className="size-4" aria-hidden />}
+              onClick={() => setCreating(true)}
+            >
+              Nueva campaña
+            </Button>
+          </div>
         }
       />
       {noMailbox && (
@@ -415,11 +436,15 @@ export function CampaignsPage() {
                       {c.name}
                     </Link>
                     <p className="text-[12px] text-ork-mist">
+                      {c.auto_state ? "Automatizada · " : ""}
                       {c.steps_count} correos ·{" "}
                       {c.mailbox?.email ?? "sin buzón"}
                     </p>
                   </td>
                   <td className="py-3">
+                    {c.auto_state === "preparing" ? (
+                      <Badge tone="violet">Preparándose</Badge>
+                    ) : null}
                     <Badge tone={STATUS[c.status].tone}>
                       {STATUS[c.status].label}
                     </Badge>
@@ -603,7 +628,7 @@ export function CampaignDetail() {
   const q = useQuery({
     queryKey: key,
     queryFn: () => api<Campaign>(`/api/campaigns/${id}`),
-    refetchInterval: 30000,
+    refetchInterval: (query) => (query.state.data?.settings?.auto?.state === "preparing" ? 3000 : 30000),
   });
   const action = useMutation({
     mutationFn: (verb: "launch" | "pause" | "resume") =>
@@ -622,6 +647,18 @@ export function CampaignDetail() {
   if (!c)
     return <Alert>{q.error?.message ?? "No encontramos la campaña."}</Alert>;
   const draft = c.status === "draft";
+  const auto = c.settings?.auto;
+  if (auto?.state === "preparing") {
+    return (
+      <div>
+        <Link to="/campanas" className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ork-mist hover:text-ork-ink">
+          <ArrowLeft className="size-4" aria-hidden /> Campañas
+        </Link>
+        <PageHeader title={c.name} description="Campaña automatizada: ORKESTA la está preparando." />
+        <AutoProgress auto={auto} />
+      </div>
+    );
+  }
   return (
     <div>
       <Link
@@ -733,6 +770,7 @@ export function CampaignDetail() {
           </Alert>
         </div>
       )}
+      {draft && auto && <AutoReview auto={auto} onLaunch={() => setConfirm(true)} />}
       {!draft && <CampaignStats c={c} />}
       {!draft && (c.ab?.length ?? 0) > 0 && <AbResults results={c.ab!} />}
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -1215,6 +1253,76 @@ function StepsEditor({ c }: { c: Campaign }) {
           setEditorKey((k) => k + 1); // el editor toma el texto nuevo
         }}
       />
+    </Card>
+  );
+}
+
+function AutoProgress({ auto }: { auto: AutoInfo }) {
+  const done = auto.steps.filter((s) => s.state === "done").length;
+  const current = auto.steps.findIndex((s) => s.state !== "done");
+  return (
+    <Card className="mx-auto max-w-3xl p-7">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[20px] font-bold text-ork-ink">Preparando tu campaña</h2>
+        <Badge tone="blue">Paso {Math.min(auto.steps.length, (current < 0 ? auto.steps.length : current) + 1)} de {auto.steps.length}</Badge>
+      </div>
+      <p className="mt-1 text-[13.5px] text-ork-mist">«{auto.brief}» · Puedes cerrar esta página: te avisamos cuando esté lista para revisar.</p>
+      {auto.plan?.chips?.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {auto.plan.chips.map((chip) => (
+            <span key={chip} className="rounded-full border border-ork-line px-3 py-1 text-[12.5px] text-ork-ink">{chip}</span>
+          ))}
+          <span className="rounded-full border border-ork-violet/30 bg-ork-violet/10 px-3 py-1 text-[12.5px] font-semibold text-ork-violet">Hasta {auto.plan.target} contactos</span>
+        </div>
+      ) : null}
+      <ol className="mt-5 flex flex-col gap-1">
+        {auto.steps.map((s, i) => {
+          const state = s.state === "wait" && i === current ? "run" : s.state;
+          return (
+            <li key={s.key} className="flex items-start gap-3 rounded-xl px-2 py-2.5">
+              <span className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full ${state === "done" ? "bg-ok text-white" : state === "run" ? "bg-ork-blue/10 text-ork-blue" : state === "failed" ? "bg-bad/10 text-bad" : "bg-ork-ink/5 text-ork-mist"}`}>
+                {state === "done" ? <Check className="size-4" aria-hidden /> : state === "run" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <span className="size-1.5 rounded-full bg-current" />}
+              </span>
+              <div>
+                <p className={`text-[14.5px] font-semibold ${state === "wait" ? "text-ork-mist" : "text-ork-ink"}`}>{s.title}</p>
+                {s.detail && <p className="text-[13px] text-ork-mist">{s.detail}</p>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-ork-ink/5">
+        <div className="h-full rounded-full bg-ork-blue transition-all" style={{ width: `${Math.max(6, (done / auto.steps.length) * 100)}%` }} />
+      </div>
+    </Card>
+  );
+}
+
+function AutoReview({ auto, onLaunch }: { auto: AutoInfo; onLaunch: () => void }) {
+  if (auto.state === "failed") {
+    return (
+      <div className="mb-4">
+        <Alert>{auto.error ?? "La preparación no terminó."} Puedes completar la campaña a mano abajo.</Alert>
+      </div>
+    );
+  }
+  const n = auto.counts;
+  return (
+    <Card className="mb-5 flex flex-wrap items-center justify-between gap-5 border-ork-violet/30 bg-ork-violet/[0.04]">
+      <div className="flex items-start gap-3">
+        <Wand2 className="mt-0.5 size-5 text-ork-violet" aria-hidden />
+        <div>
+          <p className="text-[15px] font-semibold text-ork-ink">Lista para aprobar</p>
+          <p className="text-[13px] text-ork-mist">
+            {n ? `${n.contacts.toLocaleString("es")} contactos con correo confiable en ${n.companies.toLocaleString("es")} empresas` : "Audiencia lista"}
+            {n && n.excluded > 0 ? ` · ${n.excluded} quedaron fuera por correo dudoso` : ""}
+            {auto.spam ? ` · anti-spam ${auto.spam.score}/100` : ""}. Revisa los correos y los ajustes abajo; nada se envía hasta que lo apruebes.
+          </p>
+        </div>
+      </div>
+      <Button icon={<Rocket className="size-4" aria-hidden />} onClick={onLaunch}>
+        Aprobar y lanzar
+      </Button>
     </Card>
   );
 }
