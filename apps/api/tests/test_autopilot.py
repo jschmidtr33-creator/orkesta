@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from orkesta.campaigns import autopilot
@@ -75,3 +76,46 @@ def test_autopilot_prepares_a_draft_campaign(
     # Editar los ajustes no borra el estado de la campaña automatizada.
     client.patch(f"/api/campaigns/{cid}", json={"settings": camp["settings"]})
     assert client.get(f"/api/campaigns/{cid}").json()["settings"]["auto"]["state"] == "ready"
+
+
+def test_new_list_members_join_the_running_campaign(
+    client: TestClient, session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Campaña automatizada en marcha: lo que se suma a su lista entra solo a la secuencia."""
+    from orkesta.campaigns.models import Campaign, Recipient
+
+    test_autopilot_prepares_a_draft_campaign(client, session_factory, monkeypatch)
+    cid = client.get("/api/campaigns").json()["items"][0]["id"]
+    list_id = client.get(f"/api/campaigns/{cid}").json()["audience"]["list_id"]
+    me = client.get("/api/auth/me").json()
+    tenant_id = uuid.UUID(
+        me["workspace"]["id"] if me.get("workspace") else me["workspaces"][0]["id"]
+    )
+    with session_factory.begin() as session:
+        set_context(session, tenant_id=tenant_id)
+        running = session.get(Campaign, uuid.UUID(cid))
+        running.status = "active"  # type: ignore[union-attr]
+        autopilot._LAST_SYNC.clear()
+        assert autopilot.sync_list(session, running) == 5  # type: ignore[arg-type]  # como al lanzar
+    nuevo = client.post("/api/contacts", json={"first_name": "Nueva", "last_name": "Persona",
+                                               "company": "Cadena 9", "email": "nueva@cadena9.co"}).json()  # fmt: skip
+    sin = client.post("/api/contacts", json={"first_name": "Sin", "last_name": "Correo",
+                                             "company": "Cadena 8"}).json()  # fmt: skip
+    r = client.post(f"/api/lists/{list_id}/members", json={"ids": [nuevo["id"], sin["id"]]})
+    assert r.status_code == 200, r.text
+    autopilot._LAST_SYNC.clear()
+    with session_factory.begin() as session:
+        set_context(session, tenant_id=tenant_id)
+        from sqlalchemy import update
+
+        from orkesta.enrichment.models import EnrichmentRun
+
+        session.execute(update(EnrichmentRun).values(status="completed"))  # la falsa quedó en cola
+        campaign = session.get(Campaign, uuid.UUID(cid))
+        assert autopilot.sync_list(session, campaign) == 1  # type: ignore[arg-type]
+        emails = set(
+            session.scalars(select(Recipient.email).where(Recipient.campaign_id == campaign.id))
+        )  # type: ignore[union-attr]
+        assert "nueva@cadena9.co" in emails and len(emails) == 6
+        assert campaign.settings["auto"]["enrich_asked"] == [sin["id"]]  # type: ignore[union-attr]
+        assert autopilot.sync_list(session, campaign) == 0  # type: ignore[arg-type]  # no repite
