@@ -1436,6 +1436,14 @@ def tick(factory: sessionmaker[Session]) -> int:
             ).all()
             busy: set[uuid.UUID] = set()
             for campaign in campaigns:
+                if (campaign.settings or {}).get("auto"):
+                    from orkesta.campaigns.autopilot import sync_list
+
+                    try:
+                        with session.begin_nested():
+                            sync_list(session, campaign)  # contactos nuevos de su lista
+                    except Exception:
+                        logger.exception("autopilot_sync_failed")
                 mailbox = session.get(Mailbox, campaign.mailbox_id) if campaign.mailbox_id else None
                 if mailbox is None or mailbox.status != "active":
                     continue

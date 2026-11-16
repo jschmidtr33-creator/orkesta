@@ -119,6 +119,7 @@ type AutoInfo = {
   steps: { key: string; title: string; detail: string; state: "wait" | "run" | "done" | "failed" }[];
   counts?: { contacts: number; companies: number; total: number; excluded: number };
   spam?: { score: number; level: string };
+  added_later?: number;
 };
 type SpamReport = {
   score: number;
@@ -771,6 +772,14 @@ export function CampaignDetail() {
         </div>
       )}
       {draft && auto && <AutoReview auto={auto} onLaunch={() => setConfirm(true)} />}
+      {!draft && auto && c.audience?.list_id && (
+        <div className="mb-4">
+          <Alert tone="blue">
+            Esta campaña sigue su lista: los contactos que sumes a esa lista entran solos a la secuencia (los que llegan sin correo se buscan y validan primero).
+            {auto.added_later ? ` Ya entraron ${auto.added_later.toLocaleString("es")} después del lanzamiento.` : ""}
+          </Alert>
+        </div>
+      )}
       {!draft && <CampaignStats c={c} />}
       {!draft && (c.ab?.length ?? 0) > 0 && <AbResults results={c.ab!} />}
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">

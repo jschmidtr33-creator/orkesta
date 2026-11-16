@@ -528,3 +528,82 @@ def run_stage(
             return  # etapa repetida (reintento de la cola): ya se hizo
         user_id = uuid.UUID(auto["created_by"])
     _STAGES[stage](factory, tenant_id, campaign_id, user_id)
+
+
+# --- Lista viva: los contactos que se suman a la lista entran a la campaña ------------------
+
+SYNC_EVERY = 300  # segundos entre revisiones de la lista de cada campaña
+_LAST_SYNC: dict[uuid.UUID, float] = {}
+
+
+def sync_list(session: Session, campaign: Campaign) -> int:
+    """Campaña automatizada en marcha: los contactos nuevos de su lista entran a la secuencia
+    (con las mismas reglas de la audiencia: solo correos confiables por defecto). A los que
+    llegan sin correo se les busca y valida primero. Devuelve cuántos entraron."""
+    import time
+
+    from orkesta.campaigns.models import Recipient
+    from orkesta.campaigns.service import MAX_RECIPIENTS, _audience_query, _eligible
+    from orkesta.data.models import Contact
+    from orkesta.notifications.service import notify
+
+    auto = dict(campaign.settings.get("auto") or {})
+    list_id = (campaign.audience or {}).get("list_id")
+    if not auto or not list_id or campaign.status not in ("active", "paused"):
+        return 0
+    stamp = time.monotonic()
+    if stamp - _LAST_SYNC.get(campaign.id, -SYNC_EVERY) < SYNC_EVERY:
+        return 0
+    _LAST_SYNC[campaign.id] = stamp
+    already = select(Recipient.contact_id).where(Recipient.campaign_id == campaign.id)
+    total = session.scalar(select(func.count()).select_from(Recipient).where(
+        Recipient.campaign_id == campaign.id)) or 0  # fmt: skip
+    new = session.scalars(
+        _audience_query(campaign.tenant_id, campaign.audience)
+        .where(Contact.id.notin_(already)).limit(max(0, MAX_RECIPIENTS - total))
+    ).all()  # fmt: skip
+    if not new:
+        return 0
+    keep, _counts = _eligible(session, campaign.tenant_id, campaign.audience, new)
+    start = datetime.now(UTC)
+    for c in keep:
+        session.add(Recipient(tenant_id=campaign.tenant_id, campaign_id=campaign.id,
+                              contact_id=c.id, email=c.email, next_send_at=start))  # fmt: skip
+    # Los que llegaron sin correo: se buscan y validan una vez (después entran solos).
+    asked = set(auto.get("enrich_asked") or [])
+    missing = [c.id for c in new if not c.email and str(c.id) not in asked][:500]
+    if (
+        missing
+        and auto.get("created_by")
+        and _enrich_later(session, campaign, missing, uuid.UUID(auto["created_by"]))
+    ):
+        auto["enrich_asked"] = [*list(asked), *(str(i) for i in missing)][-5000:]
+    if keep:
+        auto["added_later"] = int(auto.get("added_later") or 0) + len(keep)
+        notify(session, tenant_id=campaign.tenant_id, user_id=campaign.created_by, kind="campana",
+               title=f"{len(keep)} contactos nuevos de la lista entraron a «{campaign.name[:80]}»",
+               link=f"/campanas/{campaign.id}")  # fmt: skip
+    campaign.settings = {**campaign.settings, "auto": auto}
+    return len(keep)
+
+
+def _enrich_later(
+    session: Session, campaign: Campaign, ids: list[uuid.UUID], user_id: uuid.UUID
+) -> bool:
+    from orkesta.enrichment.agent import ENRICH_JOB
+    from orkesta.enrichment.models import EnrichmentRun
+
+    busy = session.scalar(select(func.count()).select_from(EnrichmentRun).where(
+        EnrichmentRun.tenant_id == campaign.tenant_id,
+        EnrichmentRun.status.in_(("queued", "running"))))  # fmt: skip
+    if busy:
+        return False  # se intenta en la próxima revisión
+    run = EnrichmentRun(tenant_id=campaign.tenant_id, created_by=user_id,
+                        scope={"profiles": True, "ids": [str(i) for i in ids]},
+                        summary=f"Nuevos de la lista de «{campaign.name[:80]}»",
+                        progress={"done": 0, "total": 0, "log": []})  # fmt: skip
+    session.add(run)
+    session.flush()
+    enqueue(session, tenant_id=campaign.tenant_id, kind=ENRICH_JOB,
+            payload={"run_id": str(run.id)}, max_attempts=1)  # fmt: skip
+    return True
