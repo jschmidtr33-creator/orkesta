@@ -41,6 +41,7 @@ import { LinkedInImportModal } from "../components/LinkedInImport";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
+import { EMAIL_STATUS } from "./validation";
 import { useSession } from "../lib/session";
 import { EventModal } from "./calendar";
 import { formatWhen } from "./dashboard";
@@ -162,6 +163,12 @@ function useDebounced<T>(value: T, ms = 300): T {
 }
 
 export function ContactsPage() {
+  const [dupOpen, setDupOpen] = useState(false);
+  const dups = useDuplicates();
+  const dupIds = useMemo(
+    () => new Set((dups.data?.groups ?? []).flatMap((g) => g.members.filter((m) => !m.keep).map((m) => m.id))),
+    [dups.data],
+  );
   const [params, setParams] = useSearchParams();
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
@@ -241,6 +248,7 @@ export function ContactsPage() {
               items={[
                 { title: "Enriquecer", hint: "Completa sitio web, cargo y correo de los que les falta", onSelect: () => setEnrichOpen(true) },
                 { title: "Validar correos", hint: "Confirma que cada correo existe antes de escribirle", onSelect: () => setValidateOpen(true) },
+                { title: "Buscar duplicados", hint: "Encuentra la misma persona guardada más de una vez", onSelect: () => setDupOpen(true) },
               ]}
             />
             <ActionMenu
@@ -258,6 +266,15 @@ export function ContactsPage() {
           </div>
         }
       />
+      {(dups.data?.count ?? 0) > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/[0.06] px-4 py-3">
+          <p className="text-[13.5px] text-ork-ink">
+            <strong>{dups.data!.count.toLocaleString("es")}</strong> {dups.data!.count === 1 ? "contacto parece duplicado" : "contactos parecen duplicados"}: la misma persona guardada más de una vez.
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => setDupOpen(true)}>Revisar duplicados</Button>
+        </div>
+      )}
+      <DuplicatesModal open={dupOpen} onOpenChange={setDupOpen} data={dups.data} />
       <Card className="p-0">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-ork-line px-4 pt-3">
           {TABS.map((tab) => {
@@ -476,6 +493,11 @@ export function ContactsPage() {
                         <div className="min-w-0">
                           <p className="flex items-center gap-1.5 truncate font-semibold text-ork-ink">
                             {c.full_name}
+                            {dupIds.has(c.id) && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); setDupOpen(true); }}>
+                                <Badge tone="warn">Duplicado</Badge>
+                              </button>
+                            )}
                             {c.linkedin_url && (
                               <a
                                 href={c.linkedin_url}
@@ -756,6 +778,80 @@ type Removed = { deleted: number; skipped: number; list?: string };
 
 /** Confirmación al eliminar: quitar solo de una lista (sigue en Contactos) o eliminar de
  * Contactos (y de todas sus listas). */
+type DupMember = { id: string; full_name: string; job_title: string | null; company: string | null; email: string | null; email_status: string | null; created_at: string; keep: boolean };
+type Duplicates = { count: number; groups: { reason: string; members: DupMember[] }[] };
+
+function useDuplicates() {
+  return useQuery({ queryKey: ["contact-duplicates"], queryFn: () => api<Duplicates>("/api/contacts/duplicates"), staleTime: 60_000 });
+}
+
+function DuplicatesModal({ open, onOpenChange, data }: { open: boolean; onOpenChange: (v: boolean) => void; data?: Duplicates }) {
+  const client = useQueryClient();
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (open) setPicked(new Set((data?.groups ?? []).flatMap((g) => g.members.filter((m) => !m.keep).map((m) => m.id))));
+    setConfirming(false);
+  }, [open, data]);
+  const remove = useMutation({
+    mutationFn: () => api<{ deleted: number }>("/api/contacts/delete", { method: "POST", json: { ids: [...picked] } }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["contact-duplicates"] });
+      client.invalidateQueries({ queryKey: ["contacts"] });
+      onOpenChange(false);
+    },
+  });
+  const toggle = (id: string) => setPicked((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const groups = data?.groups ?? [];
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} wide title="Contactos duplicados"
+      description="Agrupamos a la misma persona por correo, perfil de LinkedIn o nombre en la misma empresa. Marcamos para borrar las copias y dejamos el registro más completo; cambia lo que quieras.">
+      {groups.length === 0 ? (
+        <p className="text-[14px] text-ork-mist">No encontramos duplicados en tus contactos.</p>
+      ) : (
+        <div className="flex max-h-[55vh] flex-col gap-3 overflow-y-auto pr-1">
+          {groups.map((g) => (
+            <div key={g.members[0].id} className="rounded-xl border border-ork-line p-3">
+              <p className="mb-2 text-[12px] font-semibold text-ork-mist">{g.reason}</p>
+              {g.members.map((m) => (
+                <label key={m.id} className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-1.5 hover:bg-ork-ink/[0.03]">
+                  <input type="checkbox" className="mt-1" checked={picked.has(m.id)} onChange={() => toggle(m.id)} aria-label={`Borrar ${m.full_name}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 text-[14px] font-semibold text-ork-ink">
+                      {m.full_name}
+                      {m.keep ? <Badge tone="ok">Conservar (más completo)</Badge> : picked.has(m.id) ? <Badge tone="bad">Se borra</Badge> : null}
+                    </p>
+                    <p className="truncate text-[12.5px] text-ork-mist">
+                      {[m.job_title, m.company, m.email ? `${m.email}${m.email_status ? ` · ${(EMAIL_STATUS as Record<string, { label: string }>)[m.email_status]?.label ?? m.email_status}` : ""}` : "sin correo"].filter(Boolean).join(" · ")}
+                      {" · agregado el "}{new Date(m.created_at).toLocaleDateString("es")}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {remove.error && <div className="mt-3"><Alert>{remove.error.message}</Alert></div>}
+      {groups.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[12.5px] text-ork-mist">Se borran de tus contactos; la base de ORKESTA conserva los datos.</p>
+          {confirming ? (
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setConfirming(false)}>Cancelar</Button>
+              <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>Sí, borrar {picked.size}</Button>
+            </div>
+          ) : (
+            <Button variant="danger" disabled={picked.size === 0} onClick={() => setConfirming(true)} icon={<Trash2 className="size-4" aria-hidden />}>
+              Borrar {picked.size} {picked.size === 1 ? "duplicado" : "duplicados"}
+            </Button>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function DeleteContactsModal({
   ids,
   defaultList,

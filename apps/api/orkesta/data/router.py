@@ -232,6 +232,12 @@ def export(principal: Member, db: Db, filters: Filters, request: Request) -> Res
     )
 
 
+@router.get("/contacts/duplicates")
+def contact_duplicates(principal: Member, db: Db) -> dict[str, Any]:
+    """Posibles duplicados (mismo correo, mismo LinkedIn o mismo nombre en la misma empresa)."""
+    return svc.find_duplicates(db, principal.tenant_id)
+
+
 @router.get("/contacts/{contact_id}")
 def get_contact(contact_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     try:

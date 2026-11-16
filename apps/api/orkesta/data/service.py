@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -1119,3 +1120,84 @@ def recent_imports(
             .limit(limit)
         )
     )
+
+
+# --- Duplicados -------------------------------------------------------------------------------
+
+_LI_SLUG = re.compile(r"linkedin\.com/in/([^/?#]+)", re.I)
+
+
+def find_duplicates(session: Session, tenant_id: uuid.UUID, *, limit: int = 300) -> dict[str, Any]:
+    """Grupos de contactos que parecen la misma persona: mismo correo, mismo perfil de LinkedIn
+    o mismo nombre en la misma empresa. En cada grupo sugiere conservar el más completo."""
+    rows = session.execute(
+        select(Contact.id, Contact.full_name, Contact.email, Contact.email_status,
+               Contact.job_title, Contact.company_name, Contact.email_domain,
+               Contact.linkedin_url, Contact.phone,
+               Contact.created_at, Company.match_key)
+        .outerjoin(Company, Company.id == Contact.company_id)
+        .where(Contact.tenant_id == tenant_id)
+    ).all()  # fmt: skip
+    parent: dict[uuid.UUID, uuid.UUID] = {}
+
+    def find(x: uuid.UUID) -> uuid.UUID:
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    reasons: dict[uuid.UUID, set[str]] = {}
+    seen: dict[str, uuid.UUID] = {}
+    for r in rows:
+        keys = []
+        if r.email:
+            keys.append((f"e:{r.email.strip().lower()}", "Mismo correo"))
+        slug = _LI_SLUG.search(r.linkedin_url or "")
+        if slug:
+            keys.append((f"l:{slug.group(1).lower().rstrip('/')}", "Mismo perfil de LinkedIn"))
+        name = fold(r.full_name or "").lower().strip()
+        company = (
+            r.match_key
+            or (r.email_domain or "").lower()
+            or fold(r.company_name or "").lower().strip()
+        )
+        if len(name.split()) >= 2 and company:
+            keys.append((f"n:{name}|{company}", "Mismo nombre y empresa"))
+        for key, why in keys:
+            other = seen.get(key)
+            if other is None:
+                seen[key] = r.id
+                continue
+            parent[find(r.id)] = find(other)
+            reasons.setdefault(r.id, set()).add(why)
+            reasons.setdefault(other, set()).add(why)
+    if not reasons:
+        return {"groups": [], "count": 0}
+    by_id = {r.id: r for r in rows}
+    groups: dict[uuid.UUID, list[Any]] = {}
+    for cid in reasons:
+        groups.setdefault(find(cid), []).append(by_id[cid])
+    status_rank = {"valido": 5, "catch_all": 3, "sin_validar": 3, "desconocido": 3, "estimado": 2}
+
+    def completeness(r: Any) -> tuple[int, float]:
+        score = status_rank.get(r.email_status or "", 0) if r.email else 0
+        score += sum(1 for v in (r.job_title, r.phone, r.linkedin_url, r.company_name) if v)
+        return score, -r.created_at.timestamp()
+
+    out: list[dict[str, Any]] = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        keep = max(members, key=completeness)
+        reason = " · ".join(sorted({w for m in members for w in reasons.get(m.id, ())}))
+        out.append({
+            "reason": reason,
+            "members": [{
+                "id": str(m.id), "full_name": m.full_name, "job_title": m.job_title,
+                "company": m.company_name, "email": m.email, "email_status": m.email_status,
+                "created_at": m.created_at.isoformat(), "keep": m.id == keep.id,
+            } for m in sorted(members, key=lambda m: m.id != keep.id)],
+        })  # fmt: skip
+    out.sort(key=lambda g: str(g["members"][0]["full_name"]).lower())
+    extra = sum(len(g["members"]) - 1 for g in out)
+    return {"groups": out[:limit], "count": extra}
