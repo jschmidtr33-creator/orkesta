@@ -1301,7 +1301,10 @@ def handle_reply(
             link=f"/app/crm?oportunidad={recipient.deal_id}" if recipient.deal_id
             else f"/app/campanas/{campaign.id}",
         )  # fmt: skip
-        if _emit(session, campaign, recipient, "campaign.replied"):
+        # «Ahora no» y las bajas no piden contestar hoy: llevan su propia tarea (o ninguna).
+        if category not in ("no_ahora", "baja") and _emit(
+            session, campaign, recipient, "campaign.replied"
+        ):
             return  # una automatización decide qué hacer (en vez de la tarea fija)
     task = {
         "reunion": (timedelta(hours=1), f"Agendar la reunión con {name}: pidió reunirse"),
