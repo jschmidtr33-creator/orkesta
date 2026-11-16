@@ -18,7 +18,7 @@ if ! docker compose exec -T db pg_dump -U postgres -d orkesta --no-owner </dev/n
   echo "$(date -u +%FT%TZ) respaldo FALLÓ"
   exit 1
 fi
-bucket=$(grep ^BACKUP_BUCKET= .env | cut -d= -f2- || true)
+bucket=$(grep ^BACKUP_BUCKET= .env | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)
 if [ -n "${bucket}" ]; then
   if aws s3 cp "$file" "s3://${bucket}/$(basename "$file")" --sse AES256 --only-show-errors; then
     status true true "Copia local y en S3"

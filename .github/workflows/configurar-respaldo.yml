@@ -28,12 +28,10 @@ jobs:
           SSH="ssh -i key.pem -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR ubuntu@$HOST"
           scp -q -i key.pem -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR deploy/aws/backup.sh ubuntu@$HOST:/tmp/
           $SSH "sudo install -m 755 /tmp/backup.sh /opt/orkesta/ && rm -f /tmp/backup.sh"
-          $SSH "cd /opt/orkesta && (grep -q '^BACKUP_BUCKET=' .env && sudo sed -i 's/^BACKUP_BUCKET=.*/BACKUP_BUCKET=$BUCKET/' .env || echo 'BACKUP_BUCKET=$BUCKET' | sudo tee -a .env >/dev/null)"
+          $SSH "cd /opt/orkesta && sudo sed -i '/^BACKUP_BUCKET=/d' .env && echo 'BACKUP_BUCKET=$BUCKET' | sudo tee -a .env >/dev/null"
           $SSH "which aws >/dev/null || (sudo snap install aws-cli --classic >/dev/null 2>&1 || sudo apt-get install -y awscli >/dev/null 2>&1)"
           if $SSH "sudo /opt/orkesta/backup.sh >/dev/null 2>&1"; then echo "Copia de la base: OK"; else echo "Copia de la base: FALLÓ"; fi
           $SSH "sudo docker compose -f /opt/orkesta/docker-compose.yml exec -T db psql -U postgres -d orkesta -At -c \"SELECT value->>'note' FROM orkesta.platform_settings WHERE key='respaldo'\" </dev/null" || true
-          # Diagnóstico sin datos sensibles: ¿el servidor tiene rol? ¿qué responde S3?
+          # Diagnóstico sin datos sensibles: ¿el servidor tiene rol?
           $SSH 'T=$(curl -s -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 60" http://169.254.169.254/latest/api/token); R=$(curl -s -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/iam/security-credentials/); echo "Rol del servidor: ${R:-NINGUNO}"' || true
-          $SSH "which aws >/dev/null && echo 'AWS CLI: instalado' || echo 'AWS CLI: NO instalado'" || true
-          $SSH "echo prueba > /tmp/prueba.txt && aws s3 cp /tmp/prueba.txt s3://$BUCKET/prueba.txt --only-show-errors 2>&1 | sed -E 's/[0-9]{12}/XXXXXXXXXXXX/g; s/arn:aws:[^ ]*/arn:…/g' | head -3; rm -f /tmp/prueba.txt" || true
           rm -f key.pem
