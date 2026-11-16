@@ -135,6 +135,40 @@ jobs:
             SELECT task, version, active, n_train, n_test, round((metrics->>'accuracy')::numeric,2), round((baseline->>'accuracy')::numeric,2), left(notes,60), left(created_at::text,16)
             FROM (SELECT *, row_number() OVER (PARTITION BY task ORDER BY version DESC) rn FROM orkesta.brain_models) t WHERE rn <= 2 ORDER BY task, version DESC;
             SELECT task, count(*) FROM orkesta.brain_feedback GROUP BY 1;" </dev/null
+          echo "==> Auditoría (solo cifras)"
+          docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "
+            SELECT 'empresas' k, count(*) FROM orkesta.tenants
+            UNION ALL SELECT 'usuarios', count(*) FROM orkesta.users
+            UNION ALL SELECT 'usuarios con MFA', count(*) FILTER (WHERE mfa_enabled) FROM orkesta.users
+            UNION ALL SELECT 'contactos', count(*) FROM orkesta.contacts
+            UNION ALL SELECT 'contactos con correo', count(*) FROM orkesta.contacts WHERE email IS NOT NULL
+            UNION ALL SELECT 'campañas', count(*) FROM orkesta.campaigns
+            UNION ALL SELECT 'buzones', count(*) FROM orkesta.mailboxes
+            UNION ALL SELECT 'correos enviados 30d', count(*) FROM orkesta.campaign_messages WHERE sent_at > now() - interval '30 days'
+            UNION ALL SELECT 'destinatarios contactados', count(*) FROM orkesta.campaign_recipients WHERE sent_count > 0
+            UNION ALL SELECT 'rebotados', count(*) FROM orkesta.campaign_recipients WHERE status='bounced'
+            UNION ALL SELECT 'bloqueados', count(*) FROM orkesta.campaign_recipients WHERE status='blocked'
+            UNION ALL SELECT 'respondieron', count(*) FROM orkesta.campaign_recipients WHERE reply_category IS NOT NULL
+            UNION ALL SELECT 'respuestas positivas', count(*) FROM orkesta.campaign_recipients WHERE reply_category IN ('reunion','interesado','mas_info','referido')
+            UNION ALL SELECT 'oportunidades', count(*) FROM orkesta.deals
+            UNION ALL SELECT 'propuestas', count(*) FROM orkesta.proposals
+            UNION ALL SELECT 'consultas a Concertino', count(*) FROM orkesta.advice_cases
+            UNION ALL SELECT 'tamaño base MB', pg_database_size('orkesta')/1048576;" </dev/null 2>&1 | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/<correo>/g'
+          echo "==> Disco"; df -h / | tail -1 | awk '{print "usado="$3" libre="$4" uso="$5}'
+          echo "==> Tiempos de respuesta (ms, 5 intentos)"
+          docker compose exec -T app python -c "
+          import time, urllib.request
+          for path in ('/api/health', '/app/', '/'):
+              ms = []
+              for _ in range(5):
+                  t = time.perf_counter()
+                  try:
+                      urllib.request.urlopen('http://localhost:8000' + path, timeout=10).read()
+                  except Exception as exc:
+                      print(path, 'error', type(exc).__name__); break
+                  ms.append(round((time.perf_counter() - t) * 1000))
+              print(path, ms)
+          " </dev/null 2>&1 | tail -5
           echo "==> Errores recientes de la app"
           docker compose logs --since 3h app 2>&1 | grep -E -B2 -A25 'Traceback|ERROR|Exception' | tail -150
           echo "==> Últimas peticiones con error"
