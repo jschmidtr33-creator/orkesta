@@ -460,12 +460,13 @@ def check_people(body: ExtListIn, principal: Extension, db: Db) -> dict[str, Any
         keys.append(svc.dedup_key(values["email"], values["full_name"], values["company_key"])
                     if values["full_name"] else "-")  # fmt: skip
         urls.append(_profile_url(p.linkedin_url))
-    with unscoped(db):
+    mine = (Contact.tenant_id == principal.tenant_id) & (Contact.owner_user_id == principal.user.id)
+    with unscoped(db):  # «ya lo tienes» es por persona: otra del equipo no cuenta
         found_keys = set(db.scalars(select(Contact.dedup_key).where(
-            Contact.tenant_id == principal.tenant_id, Contact.dedup_key.in_(keys))))  # fmt: skip
+            mine, Contact.dedup_key.in_(keys))))  # fmt: skip
         wanted = [u for u in urls if u]
         found_urls = set(db.scalars(select(Contact.linkedin_url).where(
-            Contact.tenant_id == principal.tenant_id, Contact.linkedin_url.in_(wanted)))
+            mine, Contact.linkedin_url.in_(wanted)))
         ) if wanted else set()  # fmt: skip
     _remember(db, body.people)
     return {
@@ -500,6 +501,7 @@ def save_people(body: ExtListIn, request: Request, principal: Extension,
                     key = svc.dedup_key(values["email"], values["full_name"], values["company_key"])
                     found = db.scalar(select(Contact.id).where(
                         Contact.tenant_id == principal.tenant_id,
+                        Contact.owner_user_id == principal.user.id,
                         Contact.dedup_key == key))  # fmt: skip
                     if found is not None:
                         already.append(found)

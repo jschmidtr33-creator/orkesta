@@ -237,7 +237,6 @@ class Totals:
     nuevos: int = 0
     actualizados: int = 0
     sobre_limite: int = 0
-    de_otros: int = 0
     empresas: set[str] = field(default_factory=set)
 
     def as_dict(self) -> dict[str, int]:
@@ -248,7 +247,6 @@ class Totals:
             "nuevos": self.nuevos,
             "actualizados": self.actualizados,
             "sobre_limite": self.sobre_limite,
-            "de_otros": self.de_otros,
             "empresas": len(self.empresas),
         }
 
@@ -436,7 +434,11 @@ def _check_contact_limit(session: Session, tenant_id: uuid.UUID, adding: int = 1
 
 
 def _fit_to_plan(
-    session: Session, tenant_id: uuid.UUID, items: Sequence[ProspectRecord], totals: Totals
+    session: Session,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    items: Sequence[ProspectRecord],
+    totals: Totals,
 ) -> list[ProspectRecord]:
     """Deja pasar las actualizaciones y solo los contactos nuevos que caben en el plan."""
     from orkesta.admin.limits import contact_capacity
@@ -445,11 +447,13 @@ def _fit_to_plan(
     if room is None or room >= len(items):
         return list(items)  # caben todos: no hace falta revisar cuáles ya existen
     keys = [dedup_key(i.email, i.full_name, i.company_key) for i in items]
-    with unscoped(session):
+    with unscoped(session):  # solo se miran las fichas de quien importa
         existing = set(
             session.scalars(
                 select(Contact.dedup_key).where(
-                    Contact.tenant_id == tenant_id, Contact.dedup_key.in_(keys)
+                    Contact.tenant_id == tenant_id,
+                    Contact.owner_user_id.is_not_distinct_from(user_id),
+                    Contact.dedup_key.in_(keys),
                 )
             )
         )
@@ -477,7 +481,7 @@ def _upsert_chunk(
     list_id: uuid.UUID | None,
     totals: Totals,
 ) -> None:
-    items = _fit_to_plan(session, tenant_id, items, totals)
+    items = _fit_to_plan(session, tenant_id, user_id, items, totals)
     if not items:
         return
     company_ids = _upsert_companies(session, _company_rows(tenant_id, items))
@@ -522,11 +526,9 @@ def _upsert_chunk(
         return func.coalesce(func.nullif(column, ""), new)
 
     upsert: Any = insert_contacts.on_conflict_do_update(
-        constraint="uq_contacts_tenant_id_dedup_key",
+        constraint="uq_contacts_owner_dedup",
         set_={
             "company_id": func.coalesce(table.c.company_id, ex.company_id),
-            # Un contacto antiguo sin dueño pasa a quien lo vuelve a importar.
-            "owner_user_id": func.coalesce(table.c.owner_user_id, ex.owner_user_id),
             "first_name": fill(table.c.first_name, ex.first_name),
             "last_name": fill(table.c.last_name, ex.last_name),
             "job_title": fill(table.c.job_title, ex.job_title),
@@ -542,12 +544,8 @@ def _upsert_chunk(
             "industry_code": func.coalesce(table.c.industry_code, ex.industry_code),
             "updated_at": func.now(),
         },
-        # Un contacto que ya trabaja otra persona del equipo no se toca ni se suma a esta lista.
-        where=or_(
-            table.c.owner_user_id.is_(None),
-            ex.owner_user_id.is_(None),
-            table.c.owner_user_id == ex.owner_user_id,
-        ),
+        # Solo choca con la ficha de la misma persona: si otra del equipo ya tiene el contacto,
+        # quien importa recibe la suya propia.
     ).returning(table.c.id, table.c.dedup_key, literal_column("(xmax = 0)").label("inserted"))
     result = session.connection().execute(upsert, rows).all()
     ids = {row.dedup_key: row.id for row in result}
@@ -556,7 +554,6 @@ def _upsert_chunk(
               source="importacion", user_id=user_id)  # fmt: skip
     totals.nuevos += inserted
     totals.actualizados += len(result) - inserted
-    totals.de_otros += len(rows) - len(result)
     # Procedencia: cada valor presente en el archivo queda registrado con su fuente.
     points = []
     for row, item in zip(rows, items, strict=True):
@@ -849,15 +846,15 @@ def create_contact(
 ) -> Contact:
     values = _clean_input(data)
     key = dedup_key(values["email"], values["full_name"], values["company_key"])
-    with unscoped(session):  # puede pertenecer a otra persona del equipo
-        existing = session.execute(
-            select(Contact.id, Contact.owner_user_id).where(
-                Contact.tenant_id == tenant_id, Contact.dedup_key == key
+    with unscoped(session):  # solo cuenta la ficha propia: otra del equipo no impide tenerlo
+        existing = session.scalar(
+            select(Contact.id).where(
+                Contact.tenant_id == tenant_id,
+                Contact.owner_user_id == user.id,
+                Contact.dedup_key == key,
             )
-        ).first()
+        )
     if existing is not None:
-        if existing.owner_user_id not in (None, user.id) and not session.get(Contact, existing.id):
-            raise DataError("Ese contacto ya lo trabaja otra persona de tu equipo.", 409)
         raise DataError("Ese contacto ya existe en tu base.", 409)
     _check_contact_limit(session, tenant_id)
     contact = Contact(
