@@ -22,6 +22,7 @@ import {
   ResetPasswordPage,
   WelcomePage,
 } from "./pages/auth";
+import { AutoCampaignPage } from "./pages/autoCampaign";
 import { DashboardPage } from "./pages/dashboard";
 
 /** Cada pantalla se descarga solo cuando se abre: la app inicial pesa mucho menos. */
@@ -120,6 +121,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/contactos/importar" element={<ImportPage />} />
               <Route path="/contactos/listas" element={<ListsPage />} />
               <Route path="/campanas" element={<CampaignsPage />} />
+              <Route path="/campanas/automatizada" element={<AutoCampaignPage />} />
               <Route path="/campanas/:id" element={<CampaignDetail />} />
               <Route path="/automatizacion" element={<AutomationPage />} />
               <Route path="/crm" element={<CrmPage />} />
