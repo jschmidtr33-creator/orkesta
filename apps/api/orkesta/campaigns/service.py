@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import secrets
 import threading
 import time
@@ -481,7 +482,9 @@ def _eligible(
             counts["no_mail_domain"] += 1
         elif c.email_status == "estimado" and not include_estimated:
             counts["excluded_estimated"] += 1
-        elif q == "comun" and trusted_only:
+        elif trusted_only and (q == "comun" or c.email_status != "valido"):
+            # «Solo los de mayor confianza»: únicamente correos verificados (o que ya
+            # respondieron). Un correo sin verificar, aunque venga de una base, no se envía.
             counts["excluded_common"] += 1
         else:
             counts["eligible"] += 1
@@ -1164,7 +1167,10 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             Recipient.thread_id.is_not(None),
             Recipient.status.in_(("active", "completed"))
             # Rebotes anteriores a la distinción «no existe» / «bloqueado»: se revisan una vez.
-            | ((Recipient.status == "bounced") & Recipient.error.is_(None)),
+            | ((Recipient.status == "bounced") & Recipient.error.is_(None))
+            # Bloqueos sin el texto del aviso (antes de reconocer más avisos de «no existe»):
+            # se revisan una vez; los que eran direcciones inexistentes pasan a rebote.
+            | ((Recipient.status == "blocked") & (Recipient.error == BLOCKED_NOTE)),
             (Recipient.checked_at.is_(None)) | (Recipient.checked_at < now() - CHECK_EVERY),
         )
         .order_by(Recipient.checked_at.nulls_first())
@@ -1186,6 +1192,9 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             else:
                 recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
             continue
+        if recipient.status == "blocked" and outcome != "bounced":
+            recipient.error = _blocked_note(texts if outcome == "blocked" else [])
+            continue  # bloqueo antiguo que sigue siendo bloqueo: solo se guarda el aviso
         category, text, sure = "", "", True
         if outcome == "replied":
             category, text, sure = _read_replies(session, texts)
@@ -1205,7 +1214,7 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
             # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
             # castiga el formato ni se marca inválida; solo se detiene la secuencia.
             recipient.status, recipient.next_send_at = "blocked", None
-            recipient.error = BLOCKED_NOTE
+            recipient.error = _blocked_note(texts)
             found += 1
         elif outcome == "bounced":
             recipient.status, recipient.next_send_at = "bounced", None
@@ -1324,6 +1333,13 @@ def handle_reply(
 
 BLOCKED_NOTE = "Bloqueado por el filtro de seguridad del destinatario (la dirección puede existir)"
 NOT_FOUND_NOTE = "Dirección inexistente"
+_EMAIL = re.compile(r"[\w.%+-]+@[\w.-]+\.[a-z]{2,}", re.I)
+
+
+def _blocked_note(texts: list[str]) -> str:
+    """Nota del bloqueo con un extracto del aviso del servidor (sin direcciones de correo)."""
+    extract = _EMAIL.sub("<correo>", " ".join((texts or [""])[0].split()))[:150]
+    return f"{BLOCKED_NOTE} · {extract}"[:300] if extract else f"{BLOCKED_NOTE} · sin detalle"
 
 
 def _undo_bounce(session: Session, campaign: Campaign, recipient: Recipient) -> None:
@@ -1358,7 +1374,7 @@ AUTO_PAUSE_RATE = 0.15  # rebotes + bloqueos sobre contactados
 
 def _guard(session: Session, campaign: Campaign, mailbox: Mailbox) -> None:
     """Protege la reputación del buzón: pausa la campaña si rebota o la bloquean demasiado."""
-    if campaign.status != "active" or campaign.settings.get("auto_paused_at"):
+    if campaign.status != "active":
         return
     contacted, failed = session.execute(
         select(
@@ -1366,12 +1382,18 @@ def _guard(session: Session, campaign: Campaign, mailbox: Mailbox) -> None:
             func.count().filter(Recipient.status.in_(("bounced", "blocked"))),
         ).where(Recipient.campaign_id == campaign.id)
     ).one()
+    # Tras una pausa automática y su reanudación la protección sigue: se mide lo enviado desde
+    # esa pausa (antes, una campaña reanudada ya no se volvía a pausar nunca).
+    base = campaign.settings.get("guard_base") or {}
+    new_contacted = contacted - int(base.get("contacted", 0))
+    new_failed = failed - int(base.get("failed", 0))
     rate = int(campaign.settings.get("pause_rate", round(AUTO_PAUSE_RATE * 100))) / 100
-    if contacted < AUTO_PAUSE_MIN or failed / contacted < rate:
+    if new_contacted < AUTO_PAUSE_MIN or new_failed / new_contacted < rate:
         return
     campaign.status = "paused"
-    campaign.settings = {**campaign.settings, "auto_paused_at": now().isoformat()}
-    share = round(100 * failed / contacted)
+    campaign.settings = {**campaign.settings, "auto_paused_at": now().isoformat(),
+                         "guard_base": {"contacted": contacted, "failed": failed}}  # fmt: skip
+    share = round(100 * new_failed / new_contacted)
     notify(
         session, tenant_id=campaign.tenant_id, user_id=mailbox.user_id or campaign.created_by,
         kind="reply", title=f"Pausamos «{campaign.name}»: {share} % de rebotes",

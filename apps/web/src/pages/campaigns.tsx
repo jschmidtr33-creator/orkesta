@@ -2024,7 +2024,7 @@ function AudienceCard({ c }: { c: Campaign }) {
                 ? ` · ${p.no_mail_domain} de empresas que no reciben correo`
                 : ""}
               {p.excluded_common
-                ? ` · ${p.excluded_common} de formato común`
+                ? ` · ${p.excluded_common} sin verificar`
                 : ""}
             </p>
             {p.too_many && (

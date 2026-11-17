@@ -55,7 +55,19 @@ def test_autopilot_prepares_a_draft_campaign(
 
     monkeypatch.setattr(research, "run_research", fake_research)
     monkeypatch.setattr(enrichment, "run_enrichment", lambda f, t, p: None)
-    monkeypatch.setattr(validation, "run_validation", lambda f, t, p: None)
+
+    def fake_validation(factory: Any, tenant_id: uuid.UUID, payload: dict) -> None:
+        from sqlalchemy import update
+
+        from orkesta.data.models import Contact
+
+        with factory.begin() as session:  # el verificador confirma los correos
+            set_context(session, tenant_id=tenant_id)
+            session.execute(update(Contact).where(Contact.tenant_id == tenant_id,
+                                                  Contact.email.is_not(None))
+                            .values(email_status="valido"))  # fmt: skip
+
+    monkeypatch.setattr(validation, "run_validation", fake_validation)
     preview = client.post("/api/campaigns/auto/preview",
                           json={"text": "Gerentes de compras de supermercados en Colombia, 5 contactos"})  # fmt: skip
     assert preview.json()["target"] == 10  # mínimo 10
@@ -109,13 +121,24 @@ def test_new_list_members_join_the_running_campaign(
         from sqlalchemy import update
 
         from orkesta.enrichment.models import EnrichmentRun
+        from orkesta.validation.models import ValidationRun
 
         session.execute(update(EnrichmentRun).values(status="completed"))  # la falsa quedó en cola
+        session.execute(update(ValidationRun).values(status="completed"))
         campaign = session.get(Campaign, uuid.UUID(cid))
+        # El correo nuevo llega sin verificar: primero se verifica, no entra todavía.
+        assert autopilot.sync_list(session, campaign) == 0  # type: ignore[arg-type]
+        assert campaign.settings["auto"]["verify_asked"] == [nuevo["id"]]  # type: ignore[union-attr]
+        from orkesta.data.models import Contact
+
+        session.execute(update(Contact).where(Contact.id == uuid.UUID(nuevo["id"]))
+                        .values(email_status="valido"))  # fmt: skip
+        autopilot._LAST_SYNC.clear()
         assert autopilot.sync_list(session, campaign) == 1  # type: ignore[arg-type]
         emails = set(
             session.scalars(select(Recipient.email).where(Recipient.campaign_id == campaign.id))
         )  # type: ignore[union-attr]
         assert "nueva@cadena9.co" in emails and len(emails) == 6
         assert campaign.settings["auto"]["enrich_asked"] == [sin["id"]]  # type: ignore[union-attr]
+        autopilot._LAST_SYNC.clear()
         assert autopilot.sync_list(session, campaign) == 0  # type: ignore[arg-type]  # no repite

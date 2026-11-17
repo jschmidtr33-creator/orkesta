@@ -140,7 +140,7 @@ def thread_check(
         raise GmailError("El permiso del buzón de Microsoft venció; reconéctalo.", auth=True)
     if response.status_code != 200:
         return "", []
-    outcome, replies = "", []
+    outcome, replies, bounce = "", [], ""
     for message in response.json().get("value", []):
         sender = message.get("from", {}).get("emailAddress", {})
         address = str(sender.get("address", "")).lower()
@@ -150,11 +150,13 @@ def thread_check(
         subject = str(message.get("subject", "")).lower()
         preview = str(message.get("bodyPreview", ""))
         if any(b in name for b in BOUNCE_SENDERS) or any(b in subject for b in BOUNCE_SUBJECTS):
-            kind = classify_bounce(f"{subject} {preview}")
+            bounce_text = f"{subject} {preview}"
+            kind = classify_bounce(bounce_text)
             if kind == "bounced" or (kind == "blocked" and outcome != "bounced"):
-                outcome = kind
+                outcome, bounce = kind, bounce_text
             continue
         if any(a in subject for a in AUTO_REPLY):
             continue
         replies.append(preview)
-    return ("replied" if replies else outcome), replies
+    # Sin respuestas, el texto del aviso de no entrega acompaña al resultado.
+    return ("replied" if replies else outcome), (replies or ([bounce] if bounce else []))

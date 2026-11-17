@@ -523,6 +523,15 @@ def test_campaign_auto_pauses_with_high_failure_rate(
         assert c is not None
         svc._guard(s, c, Mailbox(user_id=None, email="a@b.co"))
         assert c.status == "paused" and c.settings["auto_paused_at"]
+        assert c.settings["guard_base"] == {"contacted": 25, "failed": 6}
+        # Reanudada, sigue protegida: no se vuelve a pausar por lo ya medido...
+        c.status = "active"
+        svc._guard(s, c, Mailbox(user_id=None, email="a@b.co"))
+        assert c.status == "active"
+        # ...pero sí si lo nuevo vuelve a rebotar demasiado.
+        c.settings = {**c.settings, "guard_base": {"contacted": 5, "failed": 0}}
+        svc._guard(s, c, Mailbox(user_id=None, email="a@b.co"))
+        assert c.status == "paused"
 
 
 def test_delete_draft_and_sent_campaigns(
@@ -614,7 +623,29 @@ def test_prelaunch_quality(client: TestClient, database: tuple[str, str]) -> Non
     trusted = client.post(
         "/api/campaigns/audience", json={"audience": {"quality": "confiables"}}
     ).json()
+    # «Solo los de mayor confianza»: únicamente correos verificados.
+    assert trusted["eligible"] == 0 and trusted["excluded_common"] == 3
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.contacts SET email_status = 'valido' WHERE id = ANY(%s)",
+                     ([ids[1], ids[2]],))  # fmt: skip
+    trusted = client.post(
+        "/api/campaigns/audience", json={"audience": {"quality": "confiables"}}
+    ).json()
     assert trusted["eligible"] == 2 and trusted["excluded_common"] == 1
+
+
+def test_bounce_notices_from_other_servers() -> None:
+    """Avisos de Microsoft 365 y otros servidores que dicen «no existe» con otras palabras."""
+    from orkesta.campaigns.gmail import classify_bounce
+    from orkesta.campaigns.service import _blocked_note
+
+    assert classify_bounce("Undeliverable: Hola. Your message to x couldn't be delivered. "
+                           "x wasn't found at banco.co.") == "bounced"  # fmt: skip
+    assert classify_bounce("Message blocked 550 5.4.1 Recipient address rejected: "
+                           "Access denied") == "bounced"  # fmt: skip
+    assert classify_bounce("Mensaje bloqueado: spam detectado por la política") == "blocked"
+    note = _blocked_note(["Mensaje bloqueado para ana@banco.co por la política"])
+    assert "<correo>" in note and "ana@" not in note
 
 
 def test_remote_prober(monkeypatch: pytest.MonkeyPatch) -> None:

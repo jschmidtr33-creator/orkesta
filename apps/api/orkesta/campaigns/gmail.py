@@ -227,6 +227,15 @@ NOT_FOUND = (
     "no such user", "mailbox unavailable", "mailbox not found", "invalid recipient",
     "5.1.1", "550-5.1.1", "endereço não encontrado", "dirección no encontrada",
     "recipient address rejected: user", "account that you tried to reach does not exist",
+    # Microsoft 365 / Exchange y otros servidores: el buzón no existe aunque el aviso diga
+    # «bloqueado» o «no se pudo entregar».
+    "wasn't found at", "was not found at", "recipientnotfound", "5.1.10", "5.4.1",
+    "recipient address rejected: access denied", "no se encontró", "no se encontro",
+    "no se ha encontrado", "mailbox does not exist", "no mailbox here", "user not found",
+    "unrouteable address", "no such recipient", "invalid address", "5.2.1",
+    "account has been disabled", "account is disabled",
+    "mailbox disabled", "mailbox is disabled", "inactive user", "usuario desconocido",
+    "no existe el usuario", "cuenta deshabilitada", "dirección no válida",
 )  # fmt: skip
 DELAYED = ("retrasado", "delayed", "delivery incomplete", "entrega incompleta", "will retry",
            "se volverá a intentar", "temporarily")  # fmt: skip
@@ -260,7 +269,7 @@ def thread_check(access_token: str, thread_id: str, mailbox_email: str) -> tuple
         raise GmailError("El permiso del buzón venció; reconéctalo.", auth=True)
     if response.status_code != 200:
         return "", []
-    outcome, replies = "", []
+    outcome, replies, bounce = "", [], ""
     for message in response.json().get("messages", []):
         headers = {str(h.get("name", "")).lower(): str(h.get("value", ""))
                    for h in message.get("payload", {}).get("headers", [])}  # fmt: skip
@@ -270,11 +279,13 @@ def thread_check(access_token: str, thread_id: str, mailbox_email: str) -> tuple
             continue
         subject = headers.get("subject", "").lower()
         if any(b in name for b in BOUNCE_SENDERS) or any(b in subject for b in BOUNCE_SUBJECTS):
-            kind = classify_bounce(f"{subject} {message.get('snippet', '')}")
+            bounce_text = f"{subject} {message.get('snippet', '')}"
+            kind = classify_bounce(bounce_text)
             if kind == "bounced" or (kind == "blocked" and outcome != "bounced"):
-                outcome = kind
+                outcome, bounce = kind, bounce_text
             continue
         if headers.get("auto-submitted", "no").lower() not in ("", "no"):
             continue  # respuestas automáticas (fuera de oficina) no detienen la secuencia
         replies.append(str(message.get("snippet", "")))
-    return ("replied" if replies else outcome), replies
+    # Sin respuestas, el texto del aviso de no entrega acompaña al resultado.
+    return ("replied" if replies else outcome), (replies or ([bounce] if bounce else []))
