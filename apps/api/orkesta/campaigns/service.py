@@ -1050,6 +1050,13 @@ def send_next(session: Session, campaign: Campaign, mailbox: Mailbox) -> bool:
         recipient.status = "skipped" if contact is None or suppressed else "completed"
         recipient.next_send_at = None
         return True
+    if recipient.step > 0 and recipient.thread_id:
+        # Antes de cada seguimiento se mira el hilo en ese momento: si el correo anterior rebotó,
+        # lo bloquearon o ya respondieron, no se envía nada más a esa persona.
+        if review_thread(session, campaign, mailbox, recipient) is None:
+            return False
+        if recipient.status != "active":
+            return True
     step = campaign.steps[recipient.step]
     variant = pick_variant(step, recipient.id)
     step_subject, step_body = step_content(step, variant)
@@ -1178,55 +1185,67 @@ def check_replies(session: Session, campaign: Campaign, mailbox: Mailbox, limit:
     ).all()
     found = 0
     for recipient in due:
-        recipient.checked_at = now()
-        try:
-            outcome, texts = inspect_thread(session, mailbox, recipient.thread_id or "")
-        except gmail.GmailError as exc:
-            if exc.auth:
-                mailbox.status, mailbox.error = "error", str(exc)[:300]
-                return found
-            continue
-        if recipient.status == "bounced":  # rebote antiguo: reclasificar
-            if outcome == "blocked":
-                _undo_bounce(session, campaign, recipient)
-            else:
-                recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
-            continue
-        if recipient.status == "blocked" and outcome != "bounced":
-            recipient.error = _blocked_note(texts if outcome == "blocked" else [])
-            continue  # bloqueo antiguo que sigue siendo bloqueo: solo se guarda el aviso
-        category, text, sure = "", "", True
-        if outcome == "replied":
-            category, text, sure = _read_replies(session, texts)
-            if category == "fuera_oficina":
-                # Fuera de oficina sin el encabezado automático: la secuencia sigue.
-                recipient.error = f"Fuera de oficina: {text[:200]}" if text else None
-                continue
-        if outcome in ("replied", "bounced"):
-            _learn(session, recipient, outcome)
-        if outcome == "replied" and recipient.status != "replied":
-            recipient.status, recipient.replied_at, recipient.next_send_at = "replied", now(), None
-            recipient.error = None
-            handle_reply(session, campaign, recipient, category, text, mailbox.user_id,
-                         review=not sure)  # fmt: skip
-            found += 1
-        elif outcome == "blocked":
-            # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
-            # castiga el formato ni se marca inválida; solo se detiene la secuencia.
-            recipient.status, recipient.next_send_at = "blocked", None
-            recipient.error = _blocked_note(texts)
-            found += 1
-        elif outcome == "bounced":
-            recipient.status, recipient.next_send_at = "bounced", None
-            recipient.error = NOT_FOUND_NOTE
-            suppress(session, campaign.tenant_id, recipient.email, "bounced")
-            contact = session.get(Contact, recipient.contact_id)
-            if contact is not None and contact.email == recipient.email:
-                contact.email_status = "invalido"
-                contact.email_check_reason = "Rebotó en una campaña"
-            _emit(session, campaign, recipient, "campaign.bounced")
-            found += 1
+        result = review_thread(session, campaign, mailbox, recipient)
+        if result is None:
+            return found  # el buzón perdió el permiso
+        found += result
     return found
+
+
+def review_thread(
+    session: Session, campaign: Campaign, mailbox: Mailbox, recipient: Recipient
+) -> int | None:
+    """Revisa el hilo de un destinatario: respuesta, rebote o bloqueo detienen la secuencia.
+    ``1`` si encontró algo nuevo, ``0`` si no, ``None`` si el buzón perdió el permiso."""
+    recipient.checked_at = now()
+    try:
+        outcome, texts = inspect_thread(session, mailbox, recipient.thread_id or "")
+    except gmail.GmailError as exc:
+        if exc.auth:
+            mailbox.status, mailbox.error = "error", str(exc)[:300]
+            return None
+        return 0
+    if recipient.status == "bounced":  # rebote antiguo: reclasificar
+        if outcome == "blocked":
+            _undo_bounce(session, campaign, recipient)
+        else:
+            recipient.error = NOT_FOUND_NOTE if outcome == "bounced" else "Revisado"
+        return 0
+    if recipient.status == "blocked" and outcome != "bounced":
+        recipient.error = _blocked_note(texts if outcome == "blocked" else [])
+        return 0  # bloqueo antiguo que sigue siendo bloqueo: solo se guarda el aviso
+    category, text, sure = "", "", True
+    if outcome == "replied":
+        category, text, sure = _read_replies(session, texts)
+        if category == "fuera_oficina":
+            # Fuera de oficina sin el encabezado automático: la secuencia sigue.
+            recipient.error = f"Fuera de oficina: {text[:200]}" if text else None
+            return 0
+    if outcome in ("replied", "bounced"):
+        _learn(session, recipient, outcome)
+    if outcome == "replied" and recipient.status != "replied":
+        recipient.status, recipient.replied_at, recipient.next_send_at = "replied", now(), None
+        recipient.error = None
+        handle_reply(session, campaign, recipient, category, text, mailbox.user_id,
+                     review=not sure)  # fmt: skip
+        return 1
+    if outcome == "blocked":
+        # El filtro de la empresa rechazó el mensaje: la dirección puede existir. No se
+        # castiga el formato ni se marca inválida; solo se detiene la secuencia.
+        recipient.status, recipient.next_send_at = "blocked", None
+        recipient.error = _blocked_note(texts)
+        return 1
+    if outcome == "bounced":
+        recipient.status, recipient.next_send_at = "bounced", None
+        recipient.error = NOT_FOUND_NOTE
+        suppress(session, campaign.tenant_id, recipient.email, "bounced")
+        contact = session.get(Contact, recipient.contact_id)
+        if contact is not None and contact.email == recipient.email:
+            contact.email_status = "invalido"
+            contact.email_check_reason = "Rebotó en una campaña"
+        _emit(session, campaign, recipient, "campaign.bounced")
+        return 1
+    return 0
 
 
 def _read_replies(session: Session, texts: list[str]) -> tuple[str, str, bool]:
