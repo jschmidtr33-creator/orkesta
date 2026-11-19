@@ -1202,11 +1202,9 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
     run.log(f"{len(with_domain)} empresas con sitio web identificado.", step="correos")
     counts = assign_emails(run, fetcher, filters, with_domain)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
-    for company in companies:
-        company.people_found = sum(1 for p in shown if p.company.key == company.key)
-        run.save_company(company, filters.country)
+    total = save_people_companies(run, filters)
     return {
-        "companies": len(companies),
+        "companies": total,
         "people": len(shown),
         "with_email": sum(1 for p in shown if p.safe),
         "estimated_emails": 0,  # ya no se muestran correos estimados
@@ -1381,6 +1379,22 @@ def _index_hit(run: Run, filters: Filters, hit: dict[str, Any]) -> None:
 INDEX_ENOUGH = 50
 
 
+def save_people_companies(run: Run, filters: Filters) -> int:
+    """Cada empresa de la gente encontrada queda en «Empresas encontradas», con su conteo."""
+    shown = [p for people in run.people.values() for p in people if filters.wants(p)]
+    counts: dict[str, int] = {}
+    for p in shown:
+        counts[p.company.key] = counts.get(p.company.key, 0) + 1
+    saved = 0
+    for key, company in list(run.companies.items()):
+        if key not in counts and not company.people_found and key not in run.seen:
+            continue
+        company.people_found = counts.get(key, 0)
+        run.save_company(company, filters.country)
+        saved += 1
+    return saved
+
+
 def _summary(run: Run, filters: Filters, companies: int, estimated: int) -> dict[str, int]:
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     return {
@@ -1405,7 +1419,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         # Índice primero: si ya cubre lo pedido, no se gasta ni una consulta al buscador.
         run.log("El índice propio de ORKESTA cubrió la búsqueda completa.", step="correos")
         estimated = infer_emails(run, filters)
-        return _summary(run, filters, len(run.companies), estimated)
+        return _summary(run, filters, save_people_companies(run, filters), estimated)
     if serp.available() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
@@ -1443,10 +1457,11 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         complete_results(run, filters, fetcher, companies)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     for company in companies:
-        company.people_found = sum(1 for p in shown if p.company.key == company.key)
-        run.save_company(company, filters.country)
+        run.companies.setdefault(company.key, company)
+    # Incluye también las empresas de la gente que llegó del índice propio.
+    total = save_people_companies(run, filters)
     return {
-        "companies": len(companies),
+        "companies": total,
         "people": len(shown),
         "with_email": sum(1 for p in shown if p.safe),
         "estimated_emails": 0,  # ya no se muestran correos estimados

@@ -635,6 +635,10 @@ def test_own_index_covers_the_search_without_the_paid_search_engine(
     assert {p["data"]["full_name"] for p in run["people"]} >= {"Laura Gómez", "Pedro Ruiz"}
     assert run["totals"].get("source_indice") == 3
     assert not run["totals"].get("serp_calls") and with_serper == []
+    # La empresa de la gente encontrada aparece en «Empresas encontradas».
+    companies = {c["data"]["name"]: c["data"] for c in run["companies"]}
+    assert "Andes Logística" in companies and run["totals"]["companies"] == 1
+    assert companies["Andes Logística"]["domain"] == "andeslogistica.co"
 
 
 def test_all_countries_brings_people_from_every_country(
