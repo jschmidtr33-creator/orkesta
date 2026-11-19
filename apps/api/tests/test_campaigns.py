@@ -1051,5 +1051,10 @@ def test_no_follow_up_after_a_bounce_or_block(
                      "next_send_at = now() - interval '1 minute'")  # fmt: skip
     _flush(session_factory, 3)
     assert len(google.sent) == 2  # ningún seguimiento
+    # (Si se revisa primero el bloqueo, la empresa queda en pausa por hoy y el otro espera a la
+    # revisión periódica: tampoco recibe nada.)
+    _rewind(database)
+    _flush(session_factory, 3)
+    assert len(google.sent) == 2
     detail = client.get(f"/api/campaigns/{campaign['id']}").json()
     assert detail["stats"]["bounced"] == 1 and detail["stats"]["blocked"] == 1
