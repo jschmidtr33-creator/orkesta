@@ -1029,6 +1029,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey | "">("");
   const [fit, setFit] = useState<string[]>([]);
+  const [withEmail, setWithEmail] = useState(false);
   const [page, setPage] = useState(1);
   const size = 25; // 25 por página, sin tope total de resultados
   const [listId, setListId] = useState("");
@@ -1045,13 +1046,15 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
     const words = fold(query).split(/\s+/).filter(Boolean);
     let out = run.people.filter((p) => {
       if (fit.length && !fit.includes(fitLevel(p.score))) return false;
+      if (withEmail && !p.data.email) return false;
       if (!words.length) return true;
       const hay = fold([p.data.full_name, p.data.title, p.data.company, p.data.location, p.data.email].join(" "));
       return words.every((w) => hay.includes(w));
     });
     if (sort) out = [...out].sort((a, b) => String(a.data[sort] ?? "").localeCompare(String(b.data[sort] ?? ""), "es"));
     return out;
-  }, [run.people, query, sort, fit]);
+  }, [run.people, query, sort, fit, withEmail]);
+  const emailCount = useMemo(() => run.people.filter((p) => p.data.email).length, [run.people]);
   const fitCounts = useMemo(() => {
     const c: Record<string, number> = { alto: 0, medio: 0, bajo: 0 };
     run.people.forEach((p) => (c[fitLevel(p.score)] += 1));
@@ -1061,6 +1064,7 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
   const current = Math.min(page, pages);
   const visible = rows.slice((current - 1) * size, current * size);
   const allChecked = visible.length > 0 && visible.every((p) => selected.has(p.id));
+  const allRowsChecked = rows.length > 0 && rows.every((p) => selected.has(p.id));
 
   const remove = useMutation({
     mutationFn: () => api<{ removed: number }>(`/api/research/runs/${run.id}/remove`, { method: "POST", json: { ids: [...selected] } }),
@@ -1071,11 +1075,28 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
     },
   });
   const save = useMutation({
-    mutationFn: (ids: string[]) =>
-      api<{ created: number; merged: number; over_limit: number; list: { name: string } | null }>(`/api/research/runs/${run.id}/save`, {
-        method: "POST",
-        json: { ids, list_id: listId && listId !== "nueva" ? listId : null, new_list: listId === "nueva" ? newList : "" },
-      }),
+    // De a 1000 por envío (límite del servidor): así se puede guardar todo lo filtrado de una vez.
+    mutationFn: async (ids: string[]) => {
+      type Saved = { created: number; merged: number; over_limit: number; list: { id?: string; name: string } | null };
+      const total: Saved = { created: 0, merged: 0, over_limit: 0, list: null };
+      let target = listId && listId !== "nueva" ? listId : null;
+      let fresh = listId === "nueva" ? newList : "";
+      for (let i = 0; i < ids.length; i += 1000) {
+        const r = await api<Saved>(`/api/research/runs/${run.id}/save`, {
+          method: "POST",
+          json: { ids: ids.slice(i, i + 1000), list_id: target, new_list: fresh },
+        });
+        total.created += r.created;
+        total.merged += r.merged;
+        total.over_limit += r.over_limit;
+        total.list = r.list ?? total.list;
+        if (r.list?.id) {
+          target = r.list.id; // la lista nueva se crea una sola vez
+          fresh = "";
+        }
+      }
+      return total;
+    },
     onSuccess: (r) => {
       const parts = [`${r.created} guardadas en Contactos`];
       if (r.merged) parts.push(`${r.merged} ya existían y se completaron`);
@@ -1132,6 +1153,19 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
           />
           Seleccionar todo
         </label>
+        {rows.length > visible.length && (
+          <button
+            type="button"
+            className="ork-focus h-8 rounded-xl px-2 text-[12.5px] font-semibold text-ork-blue hover:underline"
+            onClick={() => {
+              const next = new Set(selected);
+              rows.forEach((p) => (allRowsChecked ? next.delete(p.id) : next.add(p.id)));
+              setSelected(next);
+            }}
+          >
+            {allRowsChecked ? "Quitar la selección" : `Seleccionar los ${rows.length} resultados`}
+          </button>
+        )}
         <select
           aria-label="Lista donde guardar"
           value={listId}
@@ -1194,6 +1228,20 @@ function PeopleTable({ run, onChanged }: { run: RunDetail; onChanged: () => void
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            aria-pressed={withEmail}
+            onClick={() => {
+              setWithEmail(!withEmail);
+              setPage(1);
+            }}
+            className={cx(
+              "ork-focus inline-flex h-8 items-center gap-1.5 rounded-xl border px-2.5 text-[12.5px] font-semibold",
+              withEmail ? "border-ork-blue bg-ork-blue text-white" : "border-ork-line bg-ork-card text-ork-graphite hover:border-ork-blue/50",
+            )}
+          >
+            <Mail className="size-3.5" aria-hidden /> Con correo ({emailCount})
+          </button>
           <select aria-label="Ordenar" value={sort} onChange={(e) => setSort(e.target.value as SortKey | "")} className="ork-focus h-8 rounded-xl border border-ork-line bg-ork-card px-2 text-[13px]">
             <option value="">Más relevantes</option>
             <option value="full_name">Nombre</option>
