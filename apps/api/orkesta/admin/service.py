@@ -45,43 +45,60 @@ DEFAULT_MATRIX = {
     ],
     "lectura": ["ver_resumen", "ver_empresas", "ver_usuarios", "ver_demos"],
 }
-PLANS = {"inicial": "Inicial", "pro": "Pro", "empresa": "Empresa", "cortesia": "Cortesía",
-         "demo": "Demo (2 semanas)"}  # fmt: skip
+PLANS = {"personal": "Personal", "inicial": "Inicial", "pro": "Pro", "empresa": "Enterprise",
+         "cortesia": "Cortesía", "demo": "Demo (2 semanas)"}  # fmt: skip
 DEMO_DAYS = 14
 DEFAULT_APP: dict[str, Any] = {
     "signup_open": False,  # solo por invitación: cada cliente lo aprueba la dueña
     "maintenance": False,
     "maintenance_message": "Estamos mejorando ORKESTA. Volvemos en unos minutos.",
     "announcement": {"active": False, "text": "", "tone": "blue"},
+    # Precios por usuario al mes (USD). Todos los planes tienen todas las funcionalidades: solo
+    # cambia el cupo de verificaciones (por usuario, sumado en una bolsa de la empresa) y el
+    # mínimo de usuarios. «users» = tope de usuarios (0 = sin tope); 0 en contactos = sin tope.
+    # Anual: 15 % de descuento. Margen ≥ 75 % aunque se gaste todo el cupo (19 nov 2026).
     "limits": {
+        "personal": {
+            "contacts": 0,
+            "emails_per_day": 2000,
+            "users": 1,
+            "min_users": 1,
+            "verifications_per_user": 1000,
+            "price_month": 25,
+            "price_year": 21,
+        },
         "inicial": {
-            "contacts": 5000,
-            "emails_per_day": 80,
-            "users": 3,
-            "verifications_per_user": 300,
+            "contacts": 0,
+            "emails_per_day": 2000,
+            "users": 0,
+            "min_users": 5,
+            "verifications_per_user": 2500,
             "price_month": 39,
-            "price_year": 29,
+            "price_year": 33,
         },
         "pro": {
-            "contacts": 50000,
-            "emails_per_day": 300,
-            "users": 15,
-            "verifications_per_user": 1000,
-            "price_month": 69,
-            "price_year": 55,
+            "contacts": 0,
+            "emails_per_day": 2000,
+            "users": 0,
+            "min_users": 10,
+            "verifications_per_user": 5000,
+            "price_month": 59,
+            "price_year": 50,
         },
         "empresa": {
-            "contacts": 500000,
+            "contacts": 0,
             "emails_per_day": 2000,
-            "users": 100,
-            "verifications_per_user": 2500,
+            "users": 0,
+            "min_users": 10,
+            "verifications_per_user": 10000,
             "price_month": 99,
-            "price_year": 79,
+            "price_year": 84,
         },
         "cortesia": {
             "contacts": 50000,
             "emails_per_day": 300,
             "users": 15,
+            "min_users": 1,
             "verifications_per_user": 300,
             "price_month": 0,
             "price_year": 0,
@@ -91,6 +108,7 @@ DEFAULT_APP: dict[str, Any] = {
             "contacts": 50000,
             "emails_per_day": 300,
             "users": 15,
+            "min_users": 1,
             "verifications_per_user": 100,
             "price_month": 0,
             "price_year": 0,
@@ -105,6 +123,7 @@ LIMIT_KEYS = (
     "contacts",
     "emails_per_day",
     "users",
+    "min_users",
     "verifications_per_user",
     "price_month",
     "price_year",
@@ -114,7 +133,7 @@ LIMIT_KEYS = (
 def public_pricing(session: Session) -> dict[str, Any]:
     """Precios y límites para la página pública (sin datos de ninguna empresa)."""
     data = app_settings(session)
-    shown = ("inicial", "pro", "empresa")
+    shown = ("personal", "inicial", "pro", "empresa")
     return {
         "currency": "USD",
         "plans": [{"code": p, "name": PLANS[p], **data["limits"][p]} for p in shown],
