@@ -37,7 +37,6 @@ import {
   TextField,
 } from "../components/ui";
 import { AskConcertino } from "../components/Concertino";
-import { LinkedInImportModal } from "../components/LinkedInImport";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ReassignButton } from "../components/Reassign";
 import { api } from "../lib/api";
@@ -172,7 +171,6 @@ export function ContactsPage() {
   const [params, setParams] = useSearchParams();
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
-  const [linkedInOpen, setLinkedInOpen] = useState(false);
   const navigate = useNavigate();
   const [q, setQ] = useState(params.get("q") ?? "");
   const query = useDebounced(q);
@@ -257,12 +255,10 @@ export function ContactsPage() {
               items={[
                 { title: "Uno a mano", hint: "Escribe nombre, cargo y empresa", onSelect: () => setEditing("new") },
                 { title: "Importar Excel o CSV", hint: "Sube tu base; ORKESTA reconoce las columnas", onSelect: () => navigate("/contactos/importar") },
-                { title: "Desde LinkedIn", hint: "Pega la dirección de uno o varios perfiles", onSelect: () => setLinkedInOpen(true) },
                 { title: "Buscar posibles clientes", hint: "Encuentra decisores con filtros en Prospección", onSelect: () => navigate("/prospeccion") },
                 { title: "Con la extensión de Chrome", hint: "Guarda perfiles y listas desde LinkedIn o Prospeo", onSelect: () => window.open(EXTENSION_STORE, "_blank", "noopener") },
               ]}
             />
-            <LinkedInImportModal open={linkedInOpen} onOpenChange={setLinkedInOpen} />
           </div>
         }
       />
