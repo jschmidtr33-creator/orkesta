@@ -1016,3 +1016,45 @@ def test_spam_check_and_variations() -> None:
     assert report["tips"]  # sugiere variaciones
     assert templating.spin("[[Hola|Buen día]] Ana", 0) == "Hola Ana"
     assert templating.spin("[[Hola|Buen día]] Ana", 1) == "Buen día Ana"
+
+
+def test_no_follow_up_after_a_bounce_or_block(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Si el primer correo rebotó o lo bloquearon, la campaña no le manda el seguimiento, aunque
+    la revisión periódica de hilos todavía no haya pasado por ese contacto."""
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Seguimiento"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0},
+                  {"subject": "", "body": "Seguimiento de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids[:2]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    _flush(session_factory, 2)
+    assert len(google.sent) == 2
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        threads = dict(conn.execute("SELECT email, thread_id FROM orkesta.campaign_recipients"))
+    daemon = "Mail Delivery Subsystem <mailer-daemon@googlemail.com>"
+    google.reply(threads["laura@bancoandino.co"], daemon, "Delivery Status Notification (Failure)",
+                 "Address not found Your message wasn't delivered to laura@bancoandino.co")  # fmt: skip
+    google.reply(threads["pedro@bancoandino.co"], daemon, "Delivery Status Notification (Failure)",
+                 "El mensaje se ha bloqueado Tu mensaje para pedro@bancoandino.co se ha bloqueado")  # fmt: skip
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        # La revisión periódica acaba de pasar: solo la revisión previa al envío puede verlo.
+        conn.execute("UPDATE orkesta.mailboxes SET next_send_after = NULL")
+        conn.execute("UPDATE orkesta.campaign_recipients SET checked_at = now(), "
+                     "next_send_at = now() - interval '1 minute'")  # fmt: skip
+    _flush(session_factory, 3)
+    assert len(google.sent) == 2  # ningún seguimiento
+    # (Si se revisa primero el bloqueo, la empresa queda en pausa por hoy y el otro espera a la
+    # revisión periódica: tampoco recibe nada.)
+    _rewind(database)
+    _flush(session_factory, 3)
+    assert len(google.sent) == 2
+    detail = client.get(f"/api/campaigns/{campaign['id']}").json()
+    assert detail["stats"]["bounced"] == 1 and detail["stats"]["blocked"] == 1
