@@ -158,14 +158,13 @@ def test_filters_lead_to_companies_and_decision_makers_with_sources(
     assert laura["provenance"]["title"]["url"].endswith("/nosotros/equipo-directivo")
     assert laura["data"]["linkedin"] == "https://www.linkedin.com/in/laura-gomez-ruiz"
 
+    # Prospección solo muestra correos que ORKESTA ya comprobó: un correo publicado o deducido
+    # sin verificar no se muestra; se busca y verifica al guardar el contacto.
     diana = people["Diana Castro Pérez"]
-    assert diana["data"]["email"] == "dcastro@bancoandino.co"
-    assert diana["data"]["email_status"] == "publicado"
-    # Con un correo publicado se deduce el patrón y se marca como estimado, nunca como real.
+    assert diana["data"]["email"] == "" and diana["data"]["email_status"] == "por_buscar"
     andres = people["Andrés Martínez"]
-    assert andres["data"]["email"] == "amartinez@bancoandino.co"
-    assert andres["data"]["email_status"] == "estimado"
-    assert andres["provenance"]["email"]["confidence"] == 40
+    assert andres["data"]["email"] == "" and andres["data"]["email_status"] == "por_buscar"
+    assert run["totals"]["with_email"] == 0 and run["totals"]["pending_emails"] >= 2
 
     # Noticia de nombramiento sí; la de renuncia no.
     camila = people["Camila Rojas"]
@@ -189,6 +188,7 @@ def test_save_people_to_contacts_with_provenance_and_list(
     client: TestClient, session_factory: sessionmaker[Session]
 ) -> None:
     me = register(client, "ana@lacteos.co")
+    _knows_pattern(session_factory, "bancoandino.co", "flast")
     run = _run(client, session_factory, companies=["bancoandino.co"])
     ids = [p["id"] for p in run["people"]]
     assert ids
@@ -205,11 +205,13 @@ def test_save_people_to_contacts_with_provenance_and_list(
         diana = session.scalar(select(Contact).where(Contact.email == "dcastro@bancoandino.co"))
         assert diana is not None and diana.source == "investigacion"
         assert diana.level_code == "gerente" and diana.area_code == "marketing"
+        # El formato ya está confirmado en ORKESTA: el contacto llega validado, sin gastar crédito.
+        assert diana.email_status == "valido" and diana.status == "validado"
         point = session.scalar(
             select(DataPoint).where(DataPoint.contact_id == diana.id, DataPoint.field == "email")
         )
         assert point is not None and point.source_type == "investigacion"
-        assert "bancoandino.co/nosotros/equipo-directivo" in point.source_label
+        assert "Formato inicial + apellido@bancoandino.co confirmado" in point.source_label
     listed = client.get("/api/contacts", params={"q": "castro"}).json()
     assert listed["total"] == 1
 
@@ -361,13 +363,12 @@ def test_leads_first_with_company_domain_and_email(
     assert all(p["sources"][0]["type"] == "perfil" for p in run["people"])
     assert people["Sofía Lara"]["company"] == "Financiera Austral"
     assert people["Sofía Lara"]["domain"] == "financieraaustral.com.co"
-    # El formato de correo se deduce de un correo público junto al nombre de su dueña.
-    assert people["Sofía Lara"]["email"] == "sofia.lara@financieraaustral.com.co"
-    assert people["Sofía Lara"]["email_status"] == "estimado"
-    # En Banco Andino el sitio publica dcastro@ junto a «Diana Castro»: formato inicial+apellido.
+    # Un formato deducido de un correo público no basta: sin verificar, no se muestra.
+    assert people["Sofía Lara"]["email"] == ""
+    assert people["Sofía Lara"]["email_status"] == "por_buscar"
     assert people["Carlos Ruiz Pardo"]["domain"] == "bancoandino.co"
-    assert people["Carlos Ruiz Pardo"]["email"] == "cruiz@bancoandino.co"
-    assert run["totals"]["domains"] == 2 and run["totals"]["estimated_emails"] >= 2
+    assert people["Carlos Ruiz Pardo"]["email"] == ""
+    assert run["totals"]["domains"] == 2 and run["totals"]["pending_emails"] >= 2
     queries = [a["q"] for a in with_serper if a["q"].startswith("site:linkedin.com/in (")]
     assert queries and all('"Colombia"' in q and "banco" in q for q in queries)
 
@@ -718,3 +719,57 @@ def test_backup_search_engine_takes_over_when_serper_runs_out(
         serp.call(fetcher, "search", {"q": "otra consulta", "num": 10}, stats)
     assert asked.count("google.serper.dev") == 1 and asked.count("api.search.brave.com") == 2
     assert not stats.fatal
+
+
+def _knows_pattern(factory: sessionmaker[Session], domain: str, pattern: str) -> None:
+    """ORKESTA ya verificó un buzón con ese formato en el dominio."""
+    from orkesta.research.models import PatternStat
+
+    with factory() as session:
+        session.add(PatternStat(domain=domain, pattern=pattern, verified=1))
+        session.commit()
+
+
+def test_verified_knowledge_is_shared_and_unknown_is_hidden(
+    client: TestClient, session_factory: sessionmaker[Session], with_serper: list[dict]
+) -> None:
+    """Lo que ORKESTA ya comprobó (en cualquier empresa) se muestra; lo que no sabe, no."""
+    from orkesta.research.memory import feedback, note_domain
+    from orkesta.research.models import PersonIndex
+
+    register(client, "ana@lacteos.co")
+    with session_factory() as session:
+        # Otra empresa cliente verificó a Sofía: su dirección exacta queda segura para todos.
+        session.add(PersonIndex(key="sofia-lara-fa", full_name="Sofía Lara",
+                                email="sofia.lara@financieraaustral.com.co",
+                                email_status="estimado", country="CO", company="Financiera Austral",
+                                company_key="financiera austral"))  # fmt: skip
+        session.flush()
+        feedback(session, "sofia.lara@financieraaustral.com.co", "first.last", "verified")
+        # Banco Andino tiene formato confirmado, pero el servidor acepta cualquier dirección:
+        # ahí un «válido» no prueba nada y no se muestra.
+        note_domain(session, "bancoandino.co", True)
+        session.commit()
+    _knows_pattern(session_factory, "bancoandino.co", "flast")
+    run = _run(client, session_factory, industries=["banca_finanzas"], limit=25)
+    people = {p["data"]["full_name"]: p for p in run["people"]}
+    sofia = people["Sofía Lara"]
+    assert sofia["data"]["email"] == "sofia.lara@financieraaustral.com.co"
+    assert sofia["data"]["email_status"] == "verificado"
+    assert sofia["provenance"]["email"]["label"] == "Correo verificado por ORKESTA"
+    assert people["Carlos Ruiz Pardo"]["data"]["email"] == ""
+    assert run["totals"]["with_email"] >= 1
+
+
+def test_pattern_needs_evidence_without_bounces() -> None:
+    from orkesta.research.models import PatternStat
+    from orkesta.research.trust import confirmed_pattern
+
+    def st(pattern: str, **kw: int) -> PatternStat:
+        base = {"verified": 0, "confirmed": 0, "delivered": 0, "bounced": 0, "seen": 0}
+        return PatternStat(domain="x.co", pattern=pattern, **(base | kw))
+
+    assert confirmed_pattern([st("flast", seen=5)]) is None  # visto publicado no es prueba
+    assert confirmed_pattern([st("flast", verified=1, bounced=1)]) is None  # rebota mucho
+    best = confirmed_pattern([st("flast", delivered=2), st("first.last", verified=6, bounced=1)])
+    assert best is not None and best.pattern == "first.last"

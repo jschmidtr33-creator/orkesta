@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -481,6 +481,10 @@ def save_people(
             "industry_code": classify(data.get("industry") or "") or None,
         }
         estimated = bool(email) and data.get("email_status") == "estimado"
+        # Correo que ORKESTA ya sabe que funciona (verificado, confirmado o con el formato
+        # confirmado del dominio): queda listo para campañas sin gastar una verificación.
+        verified = bool(email) and data.get("email_status") == "verificado"
+        why = ((data.get("provenance") or {}).get("email") or {}).get("label") or ""
         if contact is None and room is not None and created >= room:
             over_limit += 1
             continue
@@ -492,9 +496,13 @@ def save_people(
                 dedup_key=dedup_key(email, full_name, ckey),
                 source="investigacion",
                 status="nuevo",
-                email_status="estimado" if estimated else "sin_validar",
+                email_status="valido" if verified else "estimado" if estimated else "sin_validar",
                 **values,
             )
+            if verified:
+                contact.status = "validado"
+                contact.email_checked_at = datetime.now(UTC)
+                contact.email_check_reason = (why or "Verificado por ORKESTA")[:300]
             session.add(contact)
             created += 1
             new_contacts.append(contact)
@@ -505,6 +513,10 @@ def save_people(
                     setattr(contact, key, value)
             if not had_email and contact.email and estimated:
                 contact.email_status = "estimado"
+            if verified and contact.email == email and contact.email_status != "valido":
+                contact.email_status, contact.status = "valido", "validado"
+                contact.email_checked_at = datetime.now(UTC)
+                contact.email_check_reason = (why or "Verificado por ORKESTA")[:300]
             contact.company_id = contact.company_id or company_ids.get(ckey)
             contact.owner_user_id = contact.owner_user_id or user_id
             merged += 1

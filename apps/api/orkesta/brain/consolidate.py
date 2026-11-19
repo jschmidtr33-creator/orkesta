@@ -194,9 +194,10 @@ def _learn_sends(session: Session, tenant_id: uuid.UUID) -> dict[str, int]:
         if domain in catch_all or (contact.email or "").lower() != email:
             continue  # el servidor acepta todo: que llegue no prueba nada
         pattern = detect_pattern(contact.first_name or "", contact.last_name or "", email)
-        if pattern:
-            feedback(session, email, pattern, "delivered")
-            out["delivered"] += 1
+        # Llegó sin rebotar: la dirección queda verificada para todo ORKESTA (y su formato,
+        # si sigue uno reconocible, gana confianza en el dominio).
+        feedback(session, email, pattern or "", "delivered")
+        out["delivered"] += 1
         if contact.email_status == "estimado":
             contact.email_check_reason = "Se envió y no rebotó: el formato funciona"
     return out
@@ -221,7 +222,7 @@ def _profiles(
     for c in session.execute(select(
         Contact.full_name, Contact.first_name, Contact.last_name, Contact.job_title,
         Contact.company_name, Contact.country_code, Contact.city, Contact.linkedin_url,
-        Contact.email, Contact.email_domain, Contact.email_status,
+        Contact.email, Contact.email_domain, Contact.email_status, Contact.email_checked_at,
     ).where(*only, Contact.tenant_id == tenant_id, Contact.company_name.is_not(None),
             Contact.country_code.is_not(None),
             or_(Contact.linkedin_url.like("%linkedin.com/in/%"),
@@ -247,8 +248,10 @@ def _profiles(
             "domain": (domain or None) if email else None,
             "location": (c.city or "")[:200], "linkedin": linkedin[:300] or None,
             "email": email or None,
-            "email_status": ("confirmado" if c.email_status == "valido" else "publicado")
+            "email_status": ("verificado" if c.email_status == "valido" else "publicado")
             if email else None,
+            "email_checked_at": (c.email_checked_at or datetime.now(UTC))
+            if email and c.email_status == "valido" else None,
             "source": "bases",
         })  # fmt: skip
     return rows

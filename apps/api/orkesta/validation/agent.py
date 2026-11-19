@@ -26,7 +26,7 @@ from orkesta.core.db import set_context
 from orkesta.core.jobs import handler
 from orkesta.data.models import Company, Contact, DataPoint
 from orkesta.data.service import ContactFilters, _filtered
-from orkesta.research.extract import PATTERNS, apply_pattern
+from orkesta.research.extract import PATTERNS, apply_pattern, detect_pattern
 from orkesta.validation.checks import (
     Checker,
     RemoteProber,
@@ -219,6 +219,12 @@ def _save_verdict(session: Session, tenant_id: uuid.UUID, target: Target, v: Ver
         )
 
 
+def info_ok(checker: Checker, domain: str) -> bool:
+    """El dominio no acepta cualquier dirección: un «válido» ahí sí prueba el buzón."""
+    info = checker.domains.get(domain)
+    return info is None or info.catch_all is not True
+
+
 def _candidates(target: Target) -> list[str]:
     found = []
     for pattern in PATTERNS:
@@ -242,13 +248,17 @@ def _domain_work(
         emails = [t.email or "" for t in verify]
         for start in range(0, len(emails), RCPT_PER_SESSION):
             verdicts += checker.verify(emails[start : start + RCPT_PER_SESSION])
-        from orkesta.research.extract import detect_pattern
         from orkesta.research.memory import feedback
 
         with progress.tx() as session:
             for target, verdict in zip(verify, verdicts, strict=True):
                 _save_verdict(session, progress.tenant_id, target, verdict)
                 progress.add(verdict.status)
+                if verdict.status == "valido" and target.email and info_ok(checker, domain):
+                    # Buzón válido: la dirección y su formato quedan verificados para todo
+                    # ORKESTA (otra empresa que busque a esta persona no gasta otra consulta).
+                    pattern = detect_pattern(target.first_name, target.last_name, target.email)
+                    feedback(session, target.email, pattern or "", "verified")
                 rejected = verdict.status == "invalido" and verdict.mx
                 if rejected and target.email:
                     # El buzón no existe: ese formato pierde confianza en el dominio y la
@@ -317,6 +327,10 @@ def _domain_work(
                 contact.email_check_reason = f"Encontrado: {hit.reason}"[:300]
                 contact.status = "validado"
                 contact.search_text = f"{contact.search_text} {hit.email}"[:2000]
+                from orkesta.research.memory import feedback as learn
+
+                learn(session, hit.email, detect_pattern(target.first_name, target.last_name,
+                                                         hit.email) or "", "verified")  # fmt: skip
                 session.add(
                     DataPoint(
                         tenant_id=progress.tenant_id,
@@ -377,6 +391,11 @@ def _domain_work(
     if find:
         progress.add("found", found_here)
         progress.add("find_attempted", min(len(find), FIND_PER_DOMAIN))
+    if info.catch_all is not None and info.mx_hosts:
+        from orkesta.research.memory import note_domain
+
+        with progress.tx() as session:
+            note_domain(session, domain, bool(info.catch_all))
     label = f"{domain}: {len(verify)} verificados"
     if find:
         label += f", {found_here} correos encontrados"

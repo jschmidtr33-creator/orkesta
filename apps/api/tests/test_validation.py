@@ -127,6 +127,15 @@ def test_validates_and_finds_missing_emails(
         )
         assert point is not None and "SMTP" in point.source_label
 
+    # Lo verificado queda como conocimiento de ORKESTA para todas las empresas: el formato del
+    # dominio suma buzones verificados y el dominio que acepta todo queda anotado.
+    from orkesta.research.models import MailDomain, PatternStat
+
+    with session_factory() as session:
+        stat = session.get(PatternStat, ("bancoandino.co", "first.last"))
+        assert stat is not None and stat.verified >= 1
+        assert session.get(MailDomain, "todo.co").catch_all is True  # type: ignore[union-attr]
+
     summary = client.get("/api/validation/summary").json()
     assert summary["counts"]["valido"] == 2
     listed = client.get("/api/contacts", params={"correo": "invalido"}).json()

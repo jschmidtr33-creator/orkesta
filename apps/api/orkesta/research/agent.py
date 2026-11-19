@@ -130,6 +130,7 @@ class Prospect:
     linkedin: str = ""
     email: str = ""
     email_status: str = ""  # publicado | estimado
+    safe: bool = False  # ORKESTA sabe con certeza que el correo funciona (ver research.trust)
     location: str = ""
     provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
@@ -399,7 +400,31 @@ class Run:
         except Exception:
             logger.exception("research_learned_score")
         data = {**prospect.data(country), "score_reasons": reasons}
+        # Solo se muestra un correo que ORKESTA sabe con certeza que funciona; el resto se
+        # busca y se verifica al guardar el contacto (sin inventar y sin gastar créditos aquí).
+        safe, why = (self.trust().check(prospect.email, prospect.first_name, prospect.last_name,
+                                        prospect.company.domain)
+                     if prospect.email else (False, ""))  # fmt: skip
+        prospect.safe = safe
+        provenance = dict(data.get("provenance") or {})
+        if safe:
+            data["email_status"] = "verificado"
+            provenance["email"] = {"label": why, "url": "", "confidence": 95}
+        elif prospect.email:
+            data["email"], data["email_status"] = "", "por_buscar"
+            provenance.pop("email", None)
+        elif prospect.company.domain and prospect.company.mail_provider != "sin_correo":
+            data["email_status"] = "por_buscar"
+        data["provenance"] = provenance
         self._upsert("person", prospect.key, prospect.company.key, data, prospect.sources, score)
+
+    def trust(self) -> Any:
+        from orkesta.research.trust import Trust
+
+        with self.lock:
+            if getattr(self, "_trust", None) is None:
+                self._trust = Trust(self.factory)
+            return self._trust
 
     def merge_person(
         self,
@@ -1183,8 +1208,9 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
     return {
         "companies": len(companies),
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "learned_emails": counts["learned"],
         "pattern_emails": counts["evidence"],
         "common_emails": counts["common"],
@@ -1341,10 +1367,10 @@ def _index_hit(run: Run, filters: Filters, hit: dict[str, Any]) -> None:
     )  # fmt: skip
     with run.lock:
         prospect.location = prospect.location or person.location
-        if person.email and person.email_status in ("confirmado", "publicado"):
-            confirmed = person.email_status == "confirmado"
-            label = ("Correo confirmado por una respuesta" if confirmed
-                     else "Correo publicado (índice ORKESTA)")  # fmt: skip
+        if person.email and person.email_status in ("confirmado", "verificado", "publicado"):
+            label = {"confirmado": "Correo confirmado por una respuesta",
+                     "verificado": "Correo verificado por ORKESTA"}.get(
+                person.email_status, "Correo publicado (índice ORKESTA)")  # fmt: skip
             prospect.set("email", person.email, {"label": label, "url": ""}, 90)
             prospect.email_status = "publicado"
     _publish(run, prospect, filters)
@@ -1360,8 +1386,9 @@ def _summary(run: Run, filters: Filters, companies: int, estimated: int) -> dict
     return {
         "companies": companies,
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
@@ -1421,8 +1448,9 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
     return {
         "companies": len(companies),
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
