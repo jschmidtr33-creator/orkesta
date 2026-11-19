@@ -159,10 +159,11 @@ def test_full_search_brings_volume_and_emails(
     assert run["status"] == "completed", run
     people = run["people"]
     assert len(people) >= 200
-    with_email = [p for p in people if p["data"]["email"]]
-    assert len(with_email) == len(people)  # cada lead con su empresa identificada trae correo
-    sample = with_email[0]["data"]
-    assert re.fullmatch(r"[a-z]+@empresa\d+\.com", sample["email"])  # formato inicial+apellido
+    # Cada lead trae su empresa y dominio, pero el formato solo se dedujo (sin verificar): el
+    # correo no se muestra y se busca y verifica al guardar el contacto.
+    assert all(p["data"]["domain"] for p in people)
+    assert all(not p["data"]["email"] and p["data"]["email_status"] == "por_buscar" for p in people)
+    assert run["totals"]["pending_emails"] == len(people)
     assert all(p["data"]["linkedin"].startswith("https://co.linkedin.com/in/") for p in people)
     assert memory.known_pattern(session_factory, "empresa1.com")[0] == "flast"
 

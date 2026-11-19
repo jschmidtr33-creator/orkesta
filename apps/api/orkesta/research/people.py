@@ -17,7 +17,7 @@ import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STATUS_RANK = {"rebotado": 0, "estimado": 1, "publicado": 2, "confirmado": 3}
+STATUS_RANK = {"rebotado": 0, "estimado": 1, "publicado": 2, "verificado": 3, "confirmado": 4}
 
 
 def _linkedin_key(url: str) -> str:
@@ -94,6 +94,7 @@ def _upsert(factory: sessionmaker[Session], rows: dict[str, dict[str, Any]]) -> 
     for r in rows.values():
         r.setdefault("phone", None)
         r.setdefault("source", "busquedas")
+        r.setdefault("email_checked_at", None)
     try:
         with factory.begin() as session:
             blocked = _blocked(session, [*rows, *(r["email"] for r in rows.values() if r["email"])])
@@ -101,7 +102,7 @@ def _upsert(factory: sessionmaker[Session], rows: dict[str, dict[str, Any]]) -> 
             if not values:
                 return 0
             stmt = pg_insert(PersonIndex).values(values)
-            locked = PersonIndex.email_status.in_(("confirmado", "publicado"))
+            locked = PersonIndex.email_status.in_(("confirmado", "verificado", "publicado"))
             session.execute(stmt.on_conflict_do_update(
                 index_elements=["key"],
                 set_={
@@ -113,13 +114,22 @@ def _upsert(factory: sessionmaker[Session], rows: dict[str, dict[str, Any]]) -> 
                     "location": func.coalesce(func.nullif(stmt.excluded.location, ""),
                                               PersonIndex.location),
                     "linkedin": func.coalesce(stmt.excluded.linkedin, PersonIndex.linkedin),
-                    # Un correo confirmado o publicado no se reemplaza por uno estimado.
-                    "email": case((locked, PersonIndex.email),
+                    # Un correo confirmado por una respuesta no se toca; uno verificado reemplaza
+                    # a uno publicado o estimado; uno publicado no se reemplaza por uno estimado.
+                    "email": case((PersonIndex.email_status == "confirmado", PersonIndex.email),
+                                  (stmt.excluded.email_status.in_(("confirmado", "verificado")),
+                                   stmt.excluded.email),
+                                  (locked, PersonIndex.email),
                                   else_=func.coalesce(stmt.excluded.email, PersonIndex.email)),
                     "email_status": case(
+                        (PersonIndex.email_status == "confirmado", PersonIndex.email_status),
+                        (stmt.excluded.email_status.in_(("confirmado", "verificado")),
+                         stmt.excluded.email_status),
                         (locked, PersonIndex.email_status),
                         else_=func.coalesce(stmt.excluded.email_status, PersonIndex.email_status),
                     ),
+                    "email_checked_at": func.coalesce(stmt.excluded.email_checked_at,
+                                                      PersonIndex.email_checked_at),
                     "phone": func.coalesce(stmt.excluded.phone, PersonIndex.phone),
                     "seen": PersonIndex.seen + 1,
                     "last_seen": func.now(),
@@ -132,14 +142,20 @@ def _upsert(factory: sessionmaker[Session], rows: dict[str, dict[str, Any]]) -> 
 
 
 def feedback(session: Session, email: str, outcome: str) -> None:
-    """Lo que dicen las campañas: una respuesta confirma el correo; un rebote lo descarta."""
-    status = {"replied": "confirmado", "bounced": "rebotado"}.get(outcome)
-    if status and email:
-        session.execute(
-            update(PersonIndex)
-            .where(PersonIndex.email == email.lower())
-            .values(email_status=status)
-        )
+    """Lo que dicen las campañas y el verificador: una respuesta confirma el correo; un buzón
+    válido o un envío que llegó lo dejan verificado (con fecha); un rebote lo descarta."""
+    status = {"replied": "confirmado", "bounced": "rebotado", "verified": "verificado",
+              "delivered": "verificado"}.get(outcome)  # fmt: skip
+    if not status or not email:
+        return
+    query = update(PersonIndex).where(PersonIndex.email == email.lower())
+    if status == "verificado":  # no baja un correo confirmado por una respuesta
+        query = query.where(or_(PersonIndex.email_status.is_(None),
+                                PersonIndex.email_status != "confirmado"))  # fmt: skip
+    values: dict[str, Any] = {"email_status": status}
+    if status in ("verificado", "confirmado"):
+        values["email_checked_at"] = func.now()
+    session.execute(query.values(**values))
 
 
 INDEX_LIMIT = None  # sin tope: la búsqueda trae todo lo que el índice tiene del país
@@ -180,7 +196,7 @@ def search(session: Session, filters: Filters, limit: int | None = None) -> list
     if filters.areas and not filters.functions and not filters.seniority:
         query = query.where(PersonIndex.area.in_(filters.areas))
     rank = case({lvl: i for i, lvl in enumerate(LEVEL_ORDER)}, value=PersonIndex.level, else_=99)
-    has_email = case((PersonIndex.email_status.in_(("confirmado", "publicado")), 0),
+    has_email = case((PersonIndex.email_status.in_(("confirmado", "verificado")), 0),
                      (PersonIndex.email.is_not(None), 1), else_=2)  # fmt: skip
     query = query.order_by(has_email, rank, PersonIndex.seen.desc())
     if limit:

@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -140,6 +141,19 @@ class DomainPattern(Base):
     )
 
 
+class MailDomain(Base):
+    """Lo que ORKESTA sabe del servidor de correo de un dominio (sin empresa: vale para todos)."""
+
+    __tablename__ = "mail_domains"
+
+    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    # Acepta cualquier dirección: ahí un «válido» o un envío que llegó no prueban el buzón.
+    catch_all: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class PatternStat(Base):
     """Evidencia por dominio y formato: cuántas veces se vio, se confirmó o rebotó."""
 
@@ -152,6 +166,8 @@ class PatternStat(Base):
     bounced: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Correos estimados con este formato que llegaron (días sin rebote).
     delivered: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Buzones con este formato que MillionVerifier dio por válidos.
+    verified: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -241,6 +257,8 @@ class PersonIndex(Base):
     linkedin: Mapped[str | None] = mapped_column(String(300))
     email: Mapped[str | None] = mapped_column(String(320))
     email_status: Mapped[str | None] = mapped_column(String(12))
+    # Cuándo se comprobó el correo por última vez (verificación o envío que llegó).
+    email_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     phone: Mapped[str | None] = mapped_column(String(30))
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="busquedas")
     seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

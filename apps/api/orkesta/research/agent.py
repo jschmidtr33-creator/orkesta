@@ -130,6 +130,7 @@ class Prospect:
     linkedin: str = ""
     email: str = ""
     email_status: str = ""  # publicado | estimado
+    safe: bool = False  # ORKESTA sabe con certeza que el correo funciona (ver research.trust)
     location: str = ""
     provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
@@ -399,7 +400,31 @@ class Run:
         except Exception:
             logger.exception("research_learned_score")
         data = {**prospect.data(country), "score_reasons": reasons}
+        # Solo se muestra un correo que ORKESTA sabe con certeza que funciona; el resto se
+        # busca y se verifica al guardar el contacto (sin inventar y sin gastar créditos aquí).
+        safe, why = (self.trust().check(prospect.email, prospect.first_name, prospect.last_name,
+                                        prospect.company.domain)
+                     if prospect.email else (False, ""))  # fmt: skip
+        prospect.safe = safe
+        provenance = dict(data.get("provenance") or {})
+        if safe:
+            data["email_status"] = "verificado"
+            provenance["email"] = {"label": why, "url": "", "confidence": 95}
+        elif prospect.email:
+            data["email"], data["email_status"] = "", "por_buscar"
+            provenance.pop("email", None)
+        elif prospect.company.domain and prospect.company.mail_provider != "sin_correo":
+            data["email_status"] = "por_buscar"
+        data["provenance"] = provenance
         self._upsert("person", prospect.key, prospect.company.key, data, prospect.sources, score)
+
+    def trust(self) -> Any:
+        from orkesta.research.trust import Trust
+
+        with self.lock:
+            if getattr(self, "_trust", None) is None:
+                self._trust = Trust(self.factory)
+            return self._trust
 
     def merge_person(
         self,
@@ -1177,14 +1202,13 @@ def execute_leads_first(run: Run, filters: Filters, fetcher: Fetcher) -> dict[st
     run.log(f"{len(with_domain)} empresas con sitio web identificado.", step="correos")
     counts = assign_emails(run, fetcher, filters, with_domain)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
-    for company in companies:
-        company.people_found = sum(1 for p in shown if p.company.key == company.key)
-        run.save_company(company, filters.country)
+    total = save_people_companies(run, filters)
     return {
-        "companies": len(companies),
+        "companies": total,
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "learned_emails": counts["learned"],
         "pattern_emails": counts["evidence"],
         "common_emails": counts["common"],
@@ -1341,10 +1365,10 @@ def _index_hit(run: Run, filters: Filters, hit: dict[str, Any]) -> None:
     )  # fmt: skip
     with run.lock:
         prospect.location = prospect.location or person.location
-        if person.email and person.email_status in ("confirmado", "publicado"):
-            confirmed = person.email_status == "confirmado"
-            label = ("Correo confirmado por una respuesta" if confirmed
-                     else "Correo publicado (índice ORKESTA)")  # fmt: skip
+        if person.email and person.email_status in ("confirmado", "verificado", "publicado"):
+            label = {"confirmado": "Correo confirmado por una respuesta",
+                     "verificado": "Correo verificado por ORKESTA"}.get(
+                person.email_status, "Correo publicado (índice ORKESTA)")  # fmt: skip
             prospect.set("email", person.email, {"label": label, "url": ""}, 90)
             prospect.email_status = "publicado"
     _publish(run, prospect, filters)
@@ -1355,13 +1379,30 @@ def _index_hit(run: Run, filters: Filters, hit: dict[str, Any]) -> None:
 INDEX_ENOUGH = 50
 
 
+def save_people_companies(run: Run, filters: Filters) -> int:
+    """Cada empresa de la gente encontrada queda en «Empresas encontradas», con su conteo."""
+    shown = [p for people in run.people.values() for p in people if filters.wants(p)]
+    counts: dict[str, int] = {}
+    for p in shown:
+        counts[p.company.key] = counts.get(p.company.key, 0) + 1
+    saved = 0
+    for key, company in list(run.companies.items()):
+        if key not in counts and not company.people_found and key not in run.seen:
+            continue
+        company.people_found = counts.get(key, 0)
+        run.save_company(company, filters.country)
+        saved += 1
+    return saved
+
+
 def _summary(run: Run, filters: Filters, companies: int, estimated: int) -> dict[str, int]:
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     return {
         "companies": companies,
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},
@@ -1378,7 +1419,7 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         # Índice primero: si ya cubre lo pedido, no se gasta ni una consulta al buscador.
         run.log("El índice propio de ORKESTA cubrió la búsqueda completa.", step="correos")
         estimated = infer_emails(run, filters)
-        return _summary(run, filters, len(run.companies), estimated)
+        return _summary(run, filters, save_people_companies(run, filters), estimated)
     if serp.available() and not filters.companies:
         return execute_leads_first(run, filters, fetcher)
     pool = discover(run, fetcher, filters)
@@ -1416,13 +1457,15 @@ def execute(run: Run, filters: Filters, fetcher: Fetcher) -> dict[str, int]:
         complete_results(run, filters, fetcher, companies)
     shown = [p for people in run.people.values() for p in people if filters.wants(p)]
     for company in companies:
-        company.people_found = sum(1 for p in shown if p.company.key == company.key)
-        run.save_company(company, filters.country)
+        run.companies.setdefault(company.key, company)
+    # Incluye también las empresas de la gente que llegó del índice propio.
+    total = save_people_companies(run, filters)
     return {
-        "companies": len(companies),
+        "companies": total,
         "people": len(shown),
-        "with_email": sum(1 for p in shown if p.email_status == "publicado"),
-        "estimated_emails": sum(1 for p in shown if p.email_status == "estimado"),
+        "with_email": sum(1 for p in shown if p.safe),
+        "estimated_emails": 0,  # ya no se muestran correos estimados
+        "pending_emails": sum(1 for p in shown if not p.safe),
         "inferred": estimated,
         "filtered_out": sum(len(v) for v in run.people.values()) - len(shown),
         **{f"source_{k}": v for k, v in run.source_counts.items()},

@@ -88,13 +88,19 @@ def address_hash(email: str) -> str:
 
 def _bad(stat: PatternStat) -> bool:
     """La evidencia en contra supera a la evidencia a favor: el formato no sirve aquí."""
-    return stat.bounced > stat.confirmed + stat.seen + (stat.delivered or 0)
+    return stat.bounced > stat.confirmed + stat.seen + (stat.delivered or 0) + (stat.verified or 0)
 
 
 def weight(stat: PatternStat) -> int:
     """Fuerza de la evidencia: una respuesta vale más que un correo que llegó, y este más que
     uno visto publicado; cada rebote resta."""
-    return stat.confirmed * 5 + (stat.delivered or 0) * 3 + stat.seen * 2 - stat.bounced * 3
+    return (
+        stat.confirmed * 5
+        + (stat.verified or 0) * 4
+        + (stat.delivered or 0) * 3
+        + stat.seen * 2
+        - stat.bounced * 3
+    )
 
 
 def _stats(session: Session, domain: str) -> list[PatternStat]:
@@ -102,7 +108,11 @@ def _stats(session: Session, domain: str) -> list[PatternStat]:
 
 
 def _best(stats: list[PatternStat], domain: str) -> tuple[str, int, str]:
-    good = [st for st in stats if not _bad(st) and (st.confirmed or st.seen or st.delivered)]
+    good = [
+        st
+        for st in stats
+        if not _bad(st) and (st.confirmed or st.seen or st.delivered or st.verified)
+    ]
     if not good:
         return "", 0, ""
     st = max(good, key=lambda x: (weight(x), x.confirmed))
@@ -112,6 +122,12 @@ def _best(stats: list[PatternStat], domain: str) -> tuple[str, int, str]:
             st.pattern,
             75,
             f"Formato {label}@{domain} confirmado por {st.confirmed} respuesta(s)",
+        )
+    if st.verified:
+        return (
+            st.pattern,
+            70,
+            f"Formato {label}@{domain} confirmado por {st.verified} buzón(es) verificados",
         )
     if st.delivered:
         return (
@@ -252,18 +268,23 @@ def remember_pattern(
 
 
 def feedback(session: Session, email: str, pattern: str, outcome: str) -> None:
-    """Aprende de una campaña: una respuesta confirma el formato; un correo estimado que llegó
-    lo refuerza; un rebote le resta confianza y la dirección no se vuelve a proponer.
-    Sin ``pattern`` (correo que no era estimado) solo se recuerda la dirección."""
-    if "@" not in email or outcome not in ("replied", "bounced", "delivered"):
+    """Aprende de campañas y del verificador: una respuesta confirma el formato; un buzón
+    válido (verificador) o un correo que llegó lo refuerzan y dejan la dirección verificada para
+    todo ORKESTA; un rebote le resta confianza y la dirección no se vuelve a proponer.
+    Sin ``pattern`` (correo que no sigue un formato reconocible) solo se recuerda la dirección."""
+    if "@" not in email or outcome not in ("replied", "bounced", "delivered", "verified"):
         return
-    if outcome == "delivered":
+    if outcome in ("delivered", "verified"):
+        from orkesta.research import people
+
+        people.feedback(session, email, outcome)
         if pattern:
+            column = "delivered" if outcome == "delivered" else "verified"
             domain = email.rsplit("@", 1)[1].lower()
-            stmt = pg_insert(PatternStat).values(domain=domain, pattern=pattern, delivered=1)
+            stmt = pg_insert(PatternStat).values(domain=domain, pattern=pattern, **{column: 1})
             session.execute(stmt.on_conflict_do_update(
                 index_elements=["domain", "pattern"],
-                set_={"delivered": PatternStat.delivered + 1, "updated_at": func.now()},
+                set_={column: getattr(PatternStat, column) + 1, "updated_at": func.now()},
             ))  # fmt: skip
         return
     from orkesta.research import people
@@ -385,3 +406,13 @@ def _resolve_mx(domain: str) -> list[str] | None:
 
 
 MX_RESOLVER: Callable[[str], list[str] | None] | None = None  # pruebas
+
+
+def note_domain(session: Session, domain: str, catch_all: bool) -> None:
+    """Guarda (para todo ORKESTA) si el servidor del dominio acepta cualquier dirección."""
+    from orkesta.research.models import MailDomain
+
+    stmt = pg_insert(MailDomain).values(domain=domain.lower(), catch_all=catch_all)
+    session.execute(stmt.on_conflict_do_update(
+        index_elements=[MailDomain.domain],
+        set_={"catch_all": catch_all, "checked_at": func.now()}))  # fmt: skip

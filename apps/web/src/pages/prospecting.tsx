@@ -88,7 +88,7 @@ type PersonData = {
   company: string;
   domain: string;
   email: string;
-  email_status: "" | "publicado" | "estimado";
+  email_status: "" | "publicado" | "estimado" | "verificado" | "por_buscar";
   phone: string;
   linkedin: string;
   city: string;
@@ -799,15 +799,25 @@ function SavedSearches({ runs, loading, onOpen }: { runs?: Run[]; loading: boole
 // --- Resultados -----------------------------------------------------------------------------
 
 function EmailCell({ data, confidence, why }: { data: PersonData; confidence?: number; why?: string }) {
-  if (!data.email) return <span className="text-[12.5px] text-ork-mist">{data.domain ? "El dominio no recibe correo" : "Sin sitio web identificado"}</span>;
+  if (!data.email) {
+    if (data.email_status === "por_buscar")
+      return (
+        <Tip label="ORKESTA todavía no tiene un correo comprobado de esta persona. Al guardarla en Contactos se busca y se verifica." className="max-w-full">
+          <span className="text-[12.5px] text-ork-mist">Se busca y verifica al guardar</span>
+        </Tip>
+      );
+    return <span className="text-[12.5px] text-ork-mist">{data.domain ? "El dominio no recibe correo" : "Sin sitio web identificado"}</span>;
+  }
   const c = confidence ?? 0;
-  const label =
-    data.email_status === "publicado" ? "Publicado" : c >= 70 ? "Formato confirmado" : c >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
+  const verified = data.email_status === "verificado";
+  const label = verified
+    ? "Verificado"
+    : data.email_status === "publicado" ? "Publicado" : c >= 70 ? "Formato confirmado" : c >= 40 ? "Estimado · formato visto" : "Estimado · por validar";
   return (
     <div className="min-w-0">
       <p className="truncate text-[13px] text-ork-ink">{data.email}</p>
       <Tip label={why || label} className="max-w-full">
-        <Badge tone={data.email_status === "publicado" || c >= 70 ? "ok" : c >= 40 ? "violet" : "warn"}>{label}</Badge>
+        <Badge tone={verified || data.email_status === "publicado" || c >= 70 ? "ok" : c >= 40 ? "violet" : "warn"}>{label}</Badge>
       </Tip>
     </div>
   );
@@ -913,7 +923,7 @@ function RunHeader({
             {run.status === "completed" &&
               (run.filters.mode === "accounts"
                 ? ` · ${t.companies ?? 0} cuentas · ${t.with_domain ?? 0} con sitio web`
-                : ` · ${t.people ?? 0} posibles clientes · ${t.companies ?? 0} cuentas · ${(t.with_email ?? 0) + (t.estimated_emails ?? 0)} con correo`)}
+                : ` · ${t.people ?? 0} posibles clientes · ${t.companies ?? 0} cuentas · ${t.with_email ?? 0} con correo verificado`)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
