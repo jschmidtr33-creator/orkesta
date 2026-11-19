@@ -136,7 +136,7 @@ def thread_check(config: SmtpConfig, rfc_id: str, mailbox_email: str) -> tuple[s
         box = _imap(config)
     except (imaplib.IMAP4.error, OSError) as exc:
         raise _blocked(exc) from exc
-    outcome, replies = "", []
+    outcome, replies, bounce = "", [], ""
     try:
         box.select("INBOX", readonly=True)
         ids: set[bytes] = set()
@@ -157,9 +157,10 @@ def thread_check(config: SmtpConfig, rfc_id: str, mailbox_email: str) -> tuple[s
             subject = str(msg.get("Subject", "")).lower()
             body = re.sub(r"\s+", " ", _text(msg))[:600]
             if any(b in name for b in BOUNCE_SENDERS) or any(b in subject for b in BOUNCE_SUBJECTS):
-                kind = classify_bounce(f"{subject} {body}")
+                bounce_text = f"{subject} {body}"
+                kind = classify_bounce(bounce_text)
                 if kind == "bounced" or (kind == "blocked" and outcome != "bounced"):
-                    outcome = kind
+                    outcome, bounce = kind, bounce_text
                 continue
             if str(msg.get("Auto-Submitted", "no")).lower() not in ("", "no"):
                 continue
@@ -167,4 +168,5 @@ def thread_check(config: SmtpConfig, rfc_id: str, mailbox_email: str) -> tuple[s
     finally:
         with contextlib.suppress(imaplib.IMAP4.error, OSError):
             box.logout()
-    return ("replied" if replies else outcome), replies
+    # Sin respuestas, el texto del aviso de no entrega acompaña al resultado.
+    return ("replied" if replies else outcome), (replies or ([bounce] if bounce else []))

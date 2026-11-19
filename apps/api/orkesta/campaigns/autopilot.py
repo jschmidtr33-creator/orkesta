@@ -421,12 +421,12 @@ def _stage_list(
         companies = len({(c.company_name or "").lower() for c in keep if c.company_name})
         auto["counts"] = {"contacts": len(keep), "companies": companies, "total": counts["total"],
                           "excluded": counts["total"] - len(keep)}  # fmt: skip
-        detail = f"{len(keep)} confiables · {counts['total'] - len(keep)} quedan fuera"
+        detail = f"{len(keep)} verificados · {counts['total'] - len(keep)} quedan fuera"
         _state(auto["steps"], "lista", "done", detail)
         if not keep:
             auto["state"] = "failed"
-            auto["error"] = ("Ningún correo quedó confiable. Puedes incluir los estimados en «Audiencia», "
-                             "con más riesgo de rebote.")  # fmt: skip
+            auto["error"] = ("Ningún correo quedó verificado. Puedes elegir «Todos los correos "
+                             "válidos» en «Audiencia», con más riesgo de rebote.")  # fmt: skip
         _save(campaign, auto)
         _next(session, tenant_id, campaign_id, "revisar" if not keep else "escribir")
 
@@ -538,8 +538,8 @@ _LAST_SYNC: dict[uuid.UUID, float] = {}
 
 def sync_list(session: Session, campaign: Campaign) -> int:
     """Campaña automatizada en marcha: los contactos nuevos de su lista entran a la secuencia
-    (con las mismas reglas de la audiencia: solo correos confiables por defecto). A los que
-    llegan sin correo se les busca y valida primero. Devuelve cuántos entraron."""
+    (con las mismas reglas de la audiencia: solo correos verificados por defecto). A los que
+    llegan sin correo se les busca y a los que llegan sin verificar se les verifica primero. Devuelve cuántos entraron."""
     import time
 
     from orkesta.campaigns.models import Recipient
@@ -578,6 +578,17 @@ def sync_list(session: Session, campaign: Campaign) -> int:
         and _enrich_later(session, campaign, missing, uuid.UUID(auto["created_by"]))
     ):
         auto["enrich_asked"] = [*list(asked), *(str(i) for i in missing)][-5000:]
+    # Los que llegaron con un correo sin verificar: se verifican una vez (después entran solos
+    # si resultan válidos; la campaña automatizada solo envía a correos verificados).
+    checked = set(auto.get("verify_asked") or [])
+    unverified = [c.id for c in new if c.email and c.email_status not in ("valido", "invalido")
+                  and str(c.id) not in checked][:500]  # fmt: skip
+    if unverified and auto.get("created_by"):
+        from orkesta.validation.router import start_for
+
+        if start_for(session, campaign.tenant_id, uuid.UUID(auto["created_by"]), unverified,
+                     f"Nuevos de la lista de «{campaign.name[:80]}»"):  # fmt: skip
+            auto["verify_asked"] = [*list(checked), *(str(i) for i in unverified)][-5000:]
     if keep:
         auto["added_later"] = int(auto.get("added_later") or 0) + len(keep)
         notify(session, tenant_id=campaign.tenant_id, user_id=campaign.created_by, kind="campana",
