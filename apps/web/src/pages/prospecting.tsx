@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { LinkedInImportButton } from "../components/LinkedInImport";
 import { Alert, Badge, Button, Card, CardHeader, cx, PageHeader, Spinner, Tip } from "../components/ui";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
@@ -201,7 +200,7 @@ export function ProspectingPage() {
 
   return (
     <>
-      <PageHeader title="Búsqueda de contactos" description="Encuentra posibles clientes con filtros inteligentes y obtén su correo de contacto." action={<LinkedInImportButton />} />
+      <PageHeader title="Búsqueda de contactos" description="Encuentra posibles clientes con filtros inteligentes y obtén su correo de contacto." />
       {staff && options.data && !options.data.web_search && (
         <div className="mb-5">
           <Alert tone="blue">
