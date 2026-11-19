@@ -78,8 +78,9 @@ def test_pricing_is_public_and_packages_add_quota(
     register(client, "cliente@banco.co", company="Banco Andino")
     client.cookies.clear()
     pricing = client.get("/api/public/pricing").json()
-    assert [p["code"] for p in pricing["plans"]] == ["inicial", "pro", "empresa"]
-    assert pricing["plans"][1]["price_month"] == 69 and pricing["package"]["price"] == 9
+    assert [p["code"] for p in pricing["plans"]] == ["personal", "inicial", "pro", "empresa"]
+    pro = pricing["plans"][2]
+    assert pro["price_month"] == 59 and pro["min_users"] == 10 and pricing["package"]["price"] == 9
     register(client, "jenn@orkesta.co", company="ORKESTA")
     _role(database, "jenn@orkesta.co", "owner")
     _unlock(client, "jenn@orkesta.co")
@@ -90,7 +91,7 @@ def test_pricing_is_public_and_packages_add_quota(
     saved = client.put("/api/admin/settings", json={"limits": limits,
                                                     "package": {"verifications": 500, "price": 7}})  # fmt: skip
     assert saved.status_code == 200
-    assert client.get("/api/public/pricing").json()["plans"][1]["price_month"] == 75
+    assert client.get("/api/public/pricing").json()["plans"][2]["price_month"] == 75
     bank = next(t for t in client.get("/api/admin/tenants").json()["items"]
                 if t["name"] == "Banco Andino")  # fmt: skip
     client.patch(f"/api/admin/tenants/{bank['id']}", json={"plan": "inicial"})

@@ -49,15 +49,14 @@ const concertino = [
 
 // Precios de referencia: la página los actualiza al cargar desde el panel de administración.
 const plans = [
-  { code: "inicial", name: "Inicial", for: "Para vendedores y equipos que empiezan.", month: 39, year: 29,
-    users: 3, contacts: "5.000", emails: 80, verifications: 300,
-    extras: ["Prospección, campañas, CRM y propuestas", "Concertino, tu IA de ventas"] },
-  { code: "pro", name: "Pro", for: "Para equipos comerciales en crecimiento.", month: 69, year: 55, featured: true,
-    users: 15, contacts: "50.000", emails: 300, verifications: "1.000",
-    extras: ["Todo lo de Inicial", "Automatizaciones y pruebas A/B", "Concertino entrenador y estrategias"] },
-  { code: "empresa", name: "Empresa", for: "Para áreas comerciales grandes y corporativos.", month: 99, year: 79,
-    users: 100, contacts: "500.000", emails: "2.000", verifications: "2.500",
-    extras: ["Todo lo de Pro", "Varios buzones por vendedor", "Acompañamiento y soporte prioritario"] },
+  { code: "personal", name: "Personal", for: "Para un vendedor que trabaja solo.", month: 25, year: 21, min: 1, verifications: "1.000" },
+  { code: "inicial", name: "Inicial", for: "Para equipos que empiezan a prospectar.", month: 39, year: 33, min: 5, verifications: "2.500" },
+  { code: "pro", name: "Pro", for: "Para equipos comerciales en crecimiento.", month: 59, year: 50, min: 10, verifications: "5.000", featured: true },
+  { code: "empresa", name: "Enterprise", for: "Para áreas comerciales grandes.", month: 99, year: 84, min: 10, verifications: "10.000" },
+];
+const included = [
+  "Prospección y enriquecimiento", "Verificación de correos", "Campañas y campaña automatizada",
+  "CRM, agenda y tareas automáticas", "Propuestas con firma electrónica", "Concertino, tu agente vendedor",
 ];
 ---
 
@@ -306,34 +305,40 @@ const plans = [
           <div class="max-w-2xl">
             <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Precios</p>
             <h2 class="mt-3 text-[34px] font-bold leading-tight tracking-tight">Todo incluido, por usuario</h2>
-            <p class="mt-3 text-[16px] text-white/70">Prospección, enriquecimiento, campañas, CRM, propuestas y Concertino en cada plan. Sin créditos escondidos: las verificaciones de correo vienen incluidas.</p>
+            <p class="mt-3 text-[16px] text-white/70">Cada plan trae todas las funcionalidades de ORKESTA. Solo cambia cuántos correos puede verificar tu equipo al mes.</p>
           </div>
           <div class="inline-flex rounded-xl border border-white/15 bg-white/[0.03] p-1 text-[13.5px] font-semibold" role="group" aria-label="Forma de pago">
             <button type="button" data-billing="month" class="rounded-lg px-4 py-2 text-white/70 aria-pressed:bg-white aria-pressed:text-ork-ink" aria-pressed="false">Mensual</button>
-            <button type="button" data-billing="year" class="rounded-lg px-4 py-2 text-white/70 aria-pressed:bg-white aria-pressed:text-ork-ink" aria-pressed="true">Anual <span class="text-ork-violet">· ahorra 20 %</span></button>
+            <button type="button" data-billing="year" class="rounded-lg px-4 py-2 text-white/70 aria-pressed:bg-white aria-pressed:text-ork-ink" aria-pressed="true">Anual <span class="text-ork-violet">· ahorra 15 %</span></button>
           </div>
         </div>
-        <div class="mt-10 grid gap-5 lg:grid-cols-3">
+        <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {plans.map((p, i) => (
             <article class={`relative flex flex-col rounded-2xl border p-7 ${p.featured ? "border-ork-violet/60 bg-ork-violet/[0.08] shadow-[0_12px_40px_rgb(79_70_229/0.25)]" : "border-white/10 bg-white/[0.03]"}`} data-plan={p.code} data-reveal style={`--delay: ${80 * i}ms`}>
               {p.featured && <span class="ork-gradient absolute -top-3 left-7 rounded-full px-3 py-1 text-[11.5px] font-semibold text-white">El más elegido</span>}
               <h3 class="text-[19px] font-semibold">{p.name}</h3>
               <p class="mt-1 text-[14px] text-white/60">{p.for}</p>
-              <p class="mt-5 flex items-baseline gap-1.5">
+              <p class="mt-5 flex flex-wrap items-baseline gap-x-1.5">
                 <span class="text-[40px] font-bold tracking-tight">US$<span data-field="price">{p.year}</span></span>
-                <span class="text-[14px] text-white/60">por usuario al mes</span>
+                <span class="whitespace-nowrap text-[14px] text-white/60">por usuario al mes</span>
               </p>
               <p class="text-[12.5px] text-white/50" data-field="billing-note">Pago anual · US${p.month} mes a mes</p>
-              <ul class="mt-6 flex flex-col gap-2.5 text-[14.5px] text-white/80">
-                <li>Hasta <strong data-field="users">{p.users}</strong> usuarios</li>
-                <li><strong data-field="contacts">{p.contacts}</strong> contactos</li>
-                <li><strong data-field="emails_per_day">{p.emails}</strong> correos al día por buzón</li>
+              <p class="mt-4 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13.5px] text-white/75">
+                {p.min > 1 ? <>Mínimo <strong data-field="min_users">{p.min}</strong> usuarios · equipo desde <strong>US$<span data-field="company-from">{p.min * p.year}</span></strong> al mes</> : <>Para <strong>1</strong> usuario</>}
+              </p>
+              <ul class="mt-5 flex flex-col gap-2.5 text-[14.5px] text-white/80">
                 <li><strong data-field="verifications_per_user">{p.verifications}</strong> verificaciones de correo al mes por usuario</li>
-                {p.extras.map((e) => <li>{e}</li>)}
+                <li>Todas las funcionalidades de ORKESTA</li>
               </ul>
               <a href="#demo" class={`mt-7 rounded-xl px-5 py-3 text-center text-[15px] font-semibold ${p.featured ? "ork-gradient text-white" : "border border-white/15 text-white hover:bg-white/[0.07]"}`}>Solicitar demo</a>
             </article>
           ))}
+        </div>
+        <div class="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5" data-reveal>
+          <h3 class="text-[15.5px] font-semibold">Incluido en todos los planes</h3>
+          <ul class="mt-3 grid gap-x-6 gap-y-2 text-[14px] text-white/75 sm:grid-cols-2 lg:grid-cols-3">
+            {included.map((f) => <li class="flex items-center gap-2"><span class="ork-gradient inline-block h-1.5 w-1.5 rounded-full"></span>{f}</li>)}
+          </ul>
         </div>
         <div class="mt-6 grid gap-4 sm:grid-cols-2" data-reveal>
           <div class="rounded-2xl border border-white/10 p-5">
@@ -342,7 +347,7 @@ const plans = [
           </div>
           <div class="rounded-2xl border border-white/10 p-5">
             <h3 class="text-[15.5px] font-semibold">Paquete extra de verificaciones</h3>
-            <p class="mt-1 text-[14px] text-white/65"><span data-field="package-verifications">1.000</span> verificaciones por US$<span data-field="package-price">9</span>, para el mes en que las necesites.</p>
+            <p class="mt-1 text-[14px] text-white/65"><span data-field="package-verifications">1.000</span> verificaciones por US$<span data-field="package-price">9</span>, para el mes en que tu equipo las necesite.</p>
           </div>
         </div>
         <p class="mt-4 text-[12.5px] text-white/45">Precios en dólares estadounidenses, sin impuestos.</p>

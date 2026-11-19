@@ -23,9 +23,10 @@
       set("billing-note", billing === "year"
         ? "Pago anual · US$" + fmt(p.price_month) + " mes a mes"
         : "Mes a mes · US$" + fmt(p.price_year) + " con pago anual");
-      ["users", "contacts", "emails_per_day", "verifications_per_user"].forEach(function (k) {
-        set(k, p[k] ? fmt(p[k]) : "Sin límite de");
-      });
+      set("verifications_per_user", fmt(p.verifications_per_user));
+      set("min_users", fmt(p.min_users));
+      var each = billing === "year" ? p.price_year : p.price_month;
+      set("company-from", fmt(each * Math.max(1, p.min_users || 1)));
     });
     var put = function (field, value) {
       var el = section.querySelector('[data-field="' + field + '"]');
@@ -48,6 +49,9 @@
           if (m) {
             var other = price.textContent;
             price.textContent = m;
+            var from = card.querySelector('[data-field="company-from"]');
+            var min = card.querySelector('[data-field="min_users"]');
+            if (from && min) from.textContent = fmt(Number(m) * Number(min.textContent));
             note.textContent = billing === "year" ? "Pago anual · US$" + other + " mes a mes" : "Mes a mes · US$" + other + " con pago anual";
           }
         });

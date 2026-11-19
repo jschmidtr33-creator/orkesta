@@ -964,9 +964,10 @@ function Demos({ me }: { me: Me }) {
                             className="ork-focus h-8 rounded-lg border border-ork-line bg-ork-card px-2 text-[12.5px]"
                           >
                             <option value="">Convertir a plan…</option>
+                            <option value="personal">Personal</option>
                             <option value="inicial">Inicial</option>
                             <option value="pro">Pro</option>
-                            <option value="empresa">Empresa</option>
+                            <option value="empresa">Enterprise</option>
                           </select>
                           {!t.expired && (
                             <Button size="sm" variant="danger" onClick={() => window.confirm(`¿Terminar hoy la demo de «${t.name}»? Sus datos quedan guardados.`) && patch.mutate({ id: t.id, end_trial: true })}>
@@ -2111,13 +2112,14 @@ type AppSettings = {
   limits: Record<string, PlanLimits>;
   package: { verifications: number; price: number };
 };
-type PlanLimits = { contacts: number; emails_per_day: number; users: number; verifications_per_user: number; price_month: number; price_year: number };
+type PlanLimits = { contacts: number; emails_per_day: number; users: number; min_users: number; verifications_per_user: number; price_month: number; price_year: number };
 const LIMIT_COLUMNS: { key: keyof PlanLimits; label: string; width: string }[] = [
   { key: "price_month", label: "Precio mensual (USD por usuario)", width: "w-24" },
   { key: "price_year", label: "Precio anual (USD por usuario al mes)", width: "w-24" },
   { key: "contacts", label: "Contactos", width: "w-28" },
   { key: "emails_per_day", label: "Correos por día y buzón", width: "w-24" },
-  { key: "users", label: "Usuarios", width: "w-20" },
+  { key: "users", label: "Tope de usuarios (0 = sin tope)", width: "w-20" },
+  { key: "min_users", label: "Mínimo de usuarios", width: "w-20" },
   { key: "verifications_per_user", label: "Verificaciones al mes por usuario", width: "w-24" },
 ];
 
