@@ -18,7 +18,7 @@ export type DocData = {
   title: string;
   currency: string;
   items: DocItem[];
-  sections: { key: string; title: string; body: string }[];
+  sections: { key: string; title: string; body: string; image?: string }[];
   tax_rate: number;
   totals: {
     subtotal: number | null;
@@ -349,7 +349,11 @@ function Options({ c }: { c: Ctx }) {
                 )}
               </div>
               <div className="mt-2 flex gap-3">
-                {i.image_url && <img src={i.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                {i.image_url && (
+                  <a href={i.image_url} target="_blank" rel="noreferrer" title="Ver imagen en tamaño completo" className="shrink-0">
+                    <img src={i.image_url} alt="" className="size-16 rounded-lg object-cover transition hover:opacity-80" />
+                  </a>
+                )}
                 <div className="min-w-0">
                   <p className="text-[15px] font-bold text-[#0B1220]">{i.name}</p>
                   <RichText value={i.description} className="mt-1 text-[12.5px] leading-relaxed text-[#4B5563]" />
@@ -406,7 +410,11 @@ function Investment({ c, variant }: { c: Ctx; variant: "solid" | "line" | "card"
             <tr key={n} style={{ background: variant === "card" && n % 2 ? c.soft : undefined, borderBottom: "1px solid #E5E7EB" }}>
               <td className="px-3 py-3 align-top">
                 <div className="flex gap-3">
-                  {i.image_url && <img src={i.image_url} alt="" className="size-16 shrink-0 rounded-lg object-cover" />}
+                  {i.image_url && (
+                  <a href={i.image_url} target="_blank" rel="noreferrer" title="Ver imagen en tamaño completo" className="shrink-0">
+                    <img src={i.image_url} alt="" className="size-16 rounded-lg object-cover transition hover:opacity-80" />
+                  </a>
+                )}
                   <div className="min-w-0">
                     <p className="font-semibold text-[#0B1220]">{i.name}</p>
                     <RichText value={i.description} className="mt-1 text-[12.5px] leading-relaxed text-[#4B5563]" />
@@ -630,6 +638,7 @@ function Ejecutiva({ c }: { c: Ctx }) {
             </div>
             <span className="ml-8 mt-2 block h-0.5 w-10" style={{ background: "var(--p)" }} />
             <Body text={s.body} className="ml-8 mt-3 text-[14.5px] leading-relaxed text-[#374151]" />
+            <SectionImage src={s.image} title={s.title} className="mt-5" />
           </section>
         ))}
         {d.items.length > 0 && (
@@ -691,6 +700,7 @@ function Moderna({ c }: { c: Ctx }) {
                 <Body text={s.body} className="mt-2 text-[14.5px] leading-relaxed text-[#374151]" />
               </div>
             </div>
+            <SectionImage src={s.image} title={s.title} className="mt-5" />
           </section>
         ))}
         {d.items.length > 0 && (
@@ -745,6 +755,7 @@ function Corporativa({ c }: { c: Ctx }) {
               {i + 1}. {s.title}
             </h2>
             <Body text={s.body} className="mt-3 text-justify text-[14.5px] leading-[1.75] text-[#1F2937]" bullet="var(--p)" />
+            <SectionImage src={s.image} title={s.title} className="mt-5" />
           </section>
         ))}
         {d.items.length > 0 && (
@@ -788,6 +799,7 @@ function Minimal({ c }: { c: Ctx }) {
           <section key={s.key} className="grid gap-3 py-9 break-inside-avoid sm:grid-cols-[1fr_2fr] sm:gap-10">
             <h2 className="text-[15px] font-semibold text-[#0B1220]">{s.title}</h2>
             <Body text={s.body} className="text-[14.5px] leading-[1.8] text-[#4B5563]" bullet="var(--p)" />
+            <SectionImage src={s.image} title={s.title} className="sm:col-span-2" />
           </section>
         ))}
         {d.items.length > 0 && (
@@ -844,6 +856,7 @@ function Audaz({ c }: { c: Ctx }) {
                 {s.title}
               </h2>
               <Body text={s.body} className="mt-3 text-[14.5px] leading-relaxed text-[#374151]" />
+              <SectionImage src={s.image} title={s.title} className="mt-5" />
             </div>
           </section>
         ))}
@@ -900,5 +913,23 @@ export function ProposalDocument({
       <Template c={ctx} />
       {children}
     </article>
+  );
+}
+
+/** Imagen de una sección a todo el ancho (tablas, comparativos, planos): legible y con enlace al
+ * tamaño original. */
+function SectionImage({ src, title, className }: { src?: string; title: string; className?: string }) {
+  if (!src) return null;
+  return (
+    <figure className={className}>
+      <a href={src} target="_blank" rel="noreferrer" title="Ver en tamaño completo" className="block">
+        <img src={src} alt={title} loading="lazy" className="w-full rounded-xl border border-black/10 bg-white object-contain" />
+      </a>
+      <figcaption className="mt-1.5 text-right text-[11.5px] text-[#6B7280] print:hidden">
+        <a href={src} target="_blank" rel="noreferrer" className="hover:underline">
+          Ver en tamaño completo ↗
+        </a>
+      </figcaption>
+    </figure>
   );
 }

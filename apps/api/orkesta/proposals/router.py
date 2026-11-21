@@ -60,6 +60,7 @@ class SectionIn(BaseModel):
     key: str = Field(default="", max_length=30)
     title: str = Field(max_length=120)
     body: str = Field(default="", max_length=10000)
+    image: str = Field(default="", max_length=500)
 
 
 class UpdateIn(BaseModel):
