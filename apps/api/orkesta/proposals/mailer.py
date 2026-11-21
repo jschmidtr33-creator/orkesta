@@ -55,7 +55,7 @@ def send_by_email(session: Session, proposal: Proposal, user: User, *, mailbox_i
     recipients, copies = _emails(to), _emails(cc)
     if not recipients:
         raise ProposalError("Escribe el correo del cliente.")
-    from orkesta.core.assets import current_links
+    from orkesta.core.assets import absolute, current_links
 
     base = link.split("/app/p/", 1)[0]
     body = current_links(body, base)  # un enlace viejo pegado en el texto va al dominio actual
@@ -63,7 +63,9 @@ def send_by_email(session: Session, proposal: Proposal, user: User, *, mailbox_i
     subject_text = " ".join(render(subject, values)[0].split())[:250]
     if not subject_text:
         raise ProposalError("Escribe el asunto del correo.")
-    body_html = render(as_html(body), values, escape=True)[0]
+    # Las imágenes subidas se guardan con dirección relativa (/t/i/…): en el correo deben ir con
+    # el dominio completo, o el cliente ve la imagen rota.
+    body_html = absolute(render(as_html(body), values, escape=True)[0], base)
     look = resolved(get_brand(session, proposal.tenant_id), proposal.design or {})
     label = BUTTON.get(look["language"], BUTTON["es"])
     style = (
@@ -73,7 +75,7 @@ def send_by_email(session: Session, proposal: Proposal, user: User, *, mailbox_i
     button = (
         f'<p style="margin:24px 0"><a href="{html.escape(link)}" style="{style}">{label} →</a></p>'
     )
-    signature = current_links(as_html(mailbox.signature), base)
+    signature = current_links(absolute(as_html(mailbox.signature), base), base)
     content = (
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;'
         f'color:#1f2937">{body_html}{button if link not in body_html else ""}'

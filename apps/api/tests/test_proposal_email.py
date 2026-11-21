@@ -26,7 +26,8 @@ def test_send_proposal_by_email(client: TestClient, google: FakeGoogle) -> None:
     r = client.post(f"/api/proposals/{p['id']}/email", json={
         "mailbox_id": mailbox["id"], "to": "laura@bancoandino.co", "cc": "jefe@lacteos.co",
         "subject": "{{nombre}}, tu propuesta de {{mi_empresa}}",
-        "body": "<p>Hola {{nombre}} ({{cargo}}), te comparto la propuesta para {{empresa}}.</p>",
+        "body": "<p>Hola {{nombre}} ({{cargo}}), te comparto la propuesta para {{empresa}}.</p>"
+                '<p><img src="/t/i/6f1c2d3e-0000-4000-8000-000000000001.png" alt="Stand"></p>',
     })  # fmt: skip
     assert r.status_code == 200, r.text
     data = r.json()
@@ -42,6 +43,11 @@ def test_send_proposal_by_email(client: TestClient, google: FakeGoogle) -> None:
     )
     assert "Hola Laura (CIO)" in html and f"/app/p/{p['public_id']}" in html
     assert "Ver la propuesta" in html
+    # La imagen subida va con la dirección completa: si no, el cliente la ve rota.
+    base = f"/app/p/{p['public_id']}"
+    host = html.split(base)[0].rsplit('href="', 1)[1]
+    assert f'src="{host}/t/i/6f1c2d3e-0000-4000-8000-000000000001.png"' in html
+    assert host.startswith("http")
     timeline = client.get("/api/crm/timeline", params={"contacto": contact["id"]}).json()
     assert any("Envió por correo la propuesta" in a["body"] for a in timeline)
     assert client.get(f"/api/crm/deals/{deal['id']}").json()["stage"] == "Propuesta enviada"
