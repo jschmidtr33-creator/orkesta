@@ -97,7 +97,14 @@ export function PublicProposalPage() {
   const key = ["public-proposal", publicId];
   const q = useQuery({
     queryKey: key,
-    queryFn: () => api<PublicProposal>(`/api/public/proposals/${publicId}${preview ? "?vista_previa=true" : ""}`),
+    queryFn: async () => {
+      if (!preview) {
+        // Si quien abre es alguien del equipo con sesión de ORKESTA, se renueva su sesión para que
+        // el servidor la reconozca y no cuente la apertura como del cliente.
+        await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+      }
+      return api<PublicProposal>(`/api/public/proposals/${publicId}${preview ? "?vista_previa=true" : ""}`);
+    },
     retry: false,
     refetchOnWindowFocus: false,
   });

@@ -296,8 +296,24 @@ def public_view(
         proposal = svc.public_load(db, public_id)
     except svc.ProposalError as exc:
         raise _fail(exc) from exc
-    # La vista previa del equipo no cuenta como apertura del cliente.
-    return svc.public_view(db, proposal, record=not vista_previa)
+    # Solo cuentan las aperturas del cliente: ni la vista previa ni alguien del equipo que abre
+    # el enlace (por ejemplo, desde el correo que envió) con su sesión de ORKESTA.
+    return svc.public_view(
+        db, proposal, record=not vista_previa and not _team(request, db, proposal)
+    )
+
+
+def _team(request: Request, db: Db, proposal: Any) -> bool:
+    from orkesta.core.security import read_access_token
+    from orkesta.core.web import ACCESS_COOKIE
+    from orkesta.platform.models import Membership
+
+    claims = read_access_token(request.cookies.get(ACCESS_COOKIE, ""))
+    if claims is None:
+        return False
+    return db.scalar(select(Membership.id).where(
+        Membership.tenant_id == proposal.tenant_id, Membership.user_id == claims.user_id,
+        Membership.status == "active")) is not None  # fmt: skip
 
 
 @router.get("/api/public/proposals/{public_id}/constancia.pdf")
