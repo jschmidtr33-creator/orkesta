@@ -76,7 +76,7 @@ type Item = {
   image_url?: string;
   payment_url?: string;
 };
-type Section = { key: string; title: string; body: string };
+type Section = { key: string; title: string; body: string; image?: string };
 type Totals = {
   subtotal: number | null;
   discounts: number | null;
@@ -1407,6 +1407,16 @@ export function ProposalEditor() {
                       )}
                       className="ork-focus w-full resize-y rounded-lg border border-ork-line px-3 py-2 text-[13.5px] leading-relaxed text-ork-graphite"
                     />
+                    {!locked || s.image ? (
+                      <div className="mt-2">
+                        <ImageField
+                          label="Imagen de la sección (opcional)"
+                          value={s.image ?? ""}
+                          onChange={(v) => setSection(i, { image: v })}
+                          hint="Se muestra a todo el ancho: ideal para tablas, comparativos o planos."
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ))}
                 {!locked && (

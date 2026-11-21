@@ -97,6 +97,10 @@ def _items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for i in items]  # fmt: skip
 
 
+def _sections(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**x, "image": _image(x.get("image"))} if x.get("image") else x for x in sections]
+
+
 def product_dict(p: Product) -> dict[str, Any]:
     return {
         "id": str(p.id),
@@ -549,6 +553,7 @@ def update_proposal(session: Session, proposal: Proposal, data: dict[str, Any]) 
                 "key": str(s.get("key") or f"s{i}")[:30],
                 "title": " ".join(str(s.get("title", "")).split())[:120],
                 "body": _current(str(s.get("body", "")))[:10000],
+                **({"image": safe_url(s["image"])} if s.get("image") else {}),
             }
             for i, s in enumerate(list(data["sections"] or [])[:20])
             if str(s.get("title", "")).strip()
@@ -673,7 +678,8 @@ def proposal_dict(session: Session, p: Proposal, *, full: bool = True) -> dict[s
     }
     if full:
         brand = get_brand(session, p.tenant_id)
-        data.update(items=_items(p.items), sections=p.sections, tax_rate=float(p.tax_rate),
+        data.update(items=_items(p.items), sections=_sections(p.sections),
+                    tax_rate=float(p.tax_rate),
                     design=p.design or {}, look=resolved(brand, p.design or {}),
                     variables=VARIABLES, values=variable_values(session, p))  # fmt: skip
     return data

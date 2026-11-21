@@ -294,3 +294,23 @@ def test_catalog_each_person_edits_what_they_added(
     claimed = luis.patch(f"/api/products/{hers}", json={"name": "Licencia", "unit_price": 120})
     assert claimed.status_code == 200 and claimed.json()["created_by"]
     assert client.patch(f"/api/products/{hers}", json={"name": "Otra"}).status_code == 403
+
+
+def test_sections_carry_a_full_width_image(client: TestClient) -> None:
+    """Una sección puede llevar una imagen (tabla, comparativo) que la propuesta muestra grande."""
+    _, deal_id = _setup(client)
+    p = client.post("/api/proposals", json={"deal_id": deal_id}).json()
+    img = "/t/i/6f1c2d3e-0000-4000-8000-000000000001.png"
+    r = client.patch(f"/api/proposals/{p['id']}", json={"sections": [
+        {"key": "planes", "title": "Planes", "body": "Comparativo de planes", "image": img},
+        {"key": "cierre", "title": "Cierre", "body": "Gracias"},
+    ]})  # fmt: skip
+    assert r.status_code == 200, r.text
+    view = client.get(
+        f"/api/public/proposals/{p['public_id']}", params={"vista_previa": True}
+    ).json()
+    assert view["sections"][0]["image"] == img
+    assert "image" not in view["sections"][1]
+    bad = client.patch(f"/api/proposals/{p['id']}", json={"sections": [
+        {"key": "x", "title": "X", "body": "", "image": "javascript:alert(1)"}]})  # fmt: skip
+    assert bad.status_code in (400, 422)
