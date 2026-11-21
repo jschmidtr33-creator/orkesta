@@ -64,6 +64,10 @@ def test_catalog_draft_totals_and_public_acceptance(client: TestClient) -> None:
     assert sent["status"] == "sent"
     deal = client.get(f"/api/crm/deals/{deal_id}").json()
     assert deal["stage"] == "Propuesta enviada"
+    # Quien la envió abre el enlace (por ejemplo, desde su correo) con su sesión: no cuenta.
+    client.get(f"/api/public/proposals/{public_id}")
+    mine = client.get(f"/api/proposals/{p['id']}").json()
+    assert mine["view_count"] == 0 and mine["first_viewed_at"] is None
 
     client.post("/api/auth/logout")  # el cliente no tiene sesión
     view = client.get(f"/api/public/proposals/{public_id}").json()
