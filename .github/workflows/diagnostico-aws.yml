@@ -26,54 +26,56 @@ jobs:
           install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
           echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@$HOST" >> "$GITHUB_ENV"
 
-      - name: Campañas y rebotes
+      - name: Actividad desde el cambio a correos verificados
         run: |
           $SSH 'sudo bash -s' <<'REMOTE' | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<correo>/g; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g'
           cd /opt/orkesta
           q() { docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "$1" </dev/null; }
-          # «MP» marca a la persona revisada; el resto solo con el inicio de su id.
-          W="WITH dueno AS (SELECT id, CASE WHEN full_name ILIKE '%paula%monteverde%' OR full_name ILIKE '%monteverde%' THEN 'MP' ELSE left(id::text,6) END AS tag FROM orkesta.users)"
-          echo "==> Campañas con envíos (30 días)"
-          q "$W SELECT left(c.id::text,6) camp, d.tag, c.status, left(c.launched_at::text,16) lanzada, b.provider, (c.settings ? 'auto') auto,
-                     c.audience->>'include_estimated' estimados, c.audience->>'quality' calidad, c.settings->>'pause_rate' pausa,
-                     count(r.id) FILTER (WHERE r.sent_count>0) enviados, count(r.id) FILTER (WHERE r.status='bounced') reb,
-                     count(r.id) FILTER (WHERE r.status='blocked') bloq, count(r.id) FILTER (WHERE r.replied_at IS NOT NULL) resp
-              FROM orkesta.campaigns c LEFT JOIN dueno d ON d.id=c.created_by LEFT JOIN orkesta.mailboxes b ON b.id=c.mailbox_id
-              JOIN orkesta.campaign_recipients r ON r.campaign_id=c.id
-              WHERE c.launched_at > now()-interval '30 days' OR c.updated_at > now()-interval '30 days'
-              GROUP BY 1,2,3,4,5,6,7,8,9 HAVING count(r.id) FILTER (WHERE r.sent_count>0) > 0 ORDER BY 4 DESC NULLS LAST;"
-          echo "==> Enviados y rebotes por origen del correo (campañas de MP / todas)"
-          for who in "d.tag='MP'" "true"; do
-          echo "-- filtro: $who"
-          q "$W, ev AS (SELECT DISTINCT ON (p.contact_id, lower(p.value)) p.contact_id, lower(p.value) v, p.source_type, left(p.source_label,50) lbl, p.confidence
-                         FROM orkesta.data_points p WHERE p.field='email' ORDER BY p.contact_id, lower(p.value), p.confidence DESC)
-             SELECT coalesce(ev.source_type,'?') origen, coalesce(ev.lbl,'?') detalle,
-                    CASE WHEN ev.confidence IS NULL THEN '?' WHEN ev.confidence<40 THEN '<40' WHEN ev.confidence<70 THEN '40-69' ELSE '70+' END conf,
-                    count(*) enviados, count(*) FILTER (WHERE r.status='bounced') reb,
-                    round(100.0*count(*) FILTER (WHERE r.status='bounced')/count(*)) pct
-             FROM orkesta.campaign_recipients r JOIN orkesta.campaigns c ON c.id=r.campaign_id LEFT JOIN dueno d ON d.id=c.created_by
-             LEFT JOIN ev ON ev.contact_id=r.contact_id AND ev.v=lower(r.email)
-             WHERE r.sent_count>0 AND $who AND c.launched_at > now()-interval '30 days'
-             GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 25;"
-          done
-          echo "==> Rebotes por origen del contacto y estado actual del correo (todas, 30 días)"
-          q "SELECT k.source, k.email_status, count(*) enviados, count(*) FILTER (WHERE r.status='bounced') reb
-             FROM orkesta.campaign_recipients r JOIN orkesta.contacts k ON k.id=r.contact_id JOIN orkesta.campaigns c ON c.id=r.campaign_id
-             WHERE r.sent_count>0 AND c.launched_at > now()-interval '30 days' GROUP BY 1,2 ORDER BY 3 DESC;"
-          echo "==> ¿El dominio tenía formato confirmado? (todas, 30 días)"
-          q "SELECT CASE WHEN ps.confirmed>0 THEN 'formato confirmado' WHEN ps.domain IS NOT NULL THEN 'formato visto' ELSE 'sin evidencia' END ev,
-                    count(*) enviados, count(*) FILTER (WHERE r.status='bounced') reb
-             FROM orkesta.campaign_recipients r JOIN orkesta.campaigns c ON c.id=r.campaign_id
-             LEFT JOIN (SELECT domain, sum(confirmed) confirmed FROM orkesta.pattern_stats GROUP BY 1) ps ON ps.domain=split_part(lower(r.email),'@',2)
-             WHERE r.sent_count>0 AND c.launched_at > now()-interval '30 days' GROUP BY 1 ORDER BY 2 DESC;"
-          echo "==> Motivos de rebote más comunes"
-          q "SELECT left(regexp_replace(coalesce(r.error,'(sin texto)'),'[0-9a-f-]{20,}','<id>','g'),110) motivo, count(*)
-             FROM orkesta.campaign_recipients r JOIN orkesta.campaigns c ON c.id=r.campaign_id
-             WHERE r.status IN ('bounced','blocked') AND c.launched_at > now()-interval '30 days'
-             GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
-          echo "==> Verificador de pago configurado"
-          docker compose exec -T app sh -c 'env | grep -i -E "^(MILLION|VERIF)[A-Z_]*=" | sed -E "s/=.+/=<definida>/"' </dev/null
-          q "SELECT key, left(value::text,120) FROM orkesta.platform_settings WHERE key ILIKE '%verif%' OR key='paquetes';"
+          # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
+          T="'2026-11-19 15:20+00'"
+          W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
+          echo "==> Personas que entraron"
+          q "$W SELECT u.ini, left(m.tenant_id::text,6) emp, m.role, left(x.last_login_at::text,16) ultimo FROM orkesta.users x JOIN u ON u.id=x.id
+             JOIN orkesta.memberships m ON m.user_id=x.id WHERE x.last_login_at > $T ORDER BY 4 DESC;"
+          echo "==> Búsquedas de Prospección"
+          q "$W SELECT u.ini, r.status, count(*) busquedas, sum((r.totals->>'people')::int) personas,
+                     sum((r.totals->>'with_email')::int) con_correo_verificado, sum((r.totals->>'pending_emails')::int) por_buscar,
+                     sum((r.totals->>'companies')::int) empresas
+             FROM orkesta.research_runs r LEFT JOIN u ON u.id=r.created_by WHERE r.created_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
+          echo "==> Contactos creados (por origen y estado del correo)"
+          q "$W SELECT u.ini, c.source, coalesce(c.email_status,'(sin correo)') estado, count(*)
+             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.created_by WHERE c.created_at > $T GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 30;"
+          echo "==> Correos verificados con créditos desde entonces"
+          q "SELECT c.email_status, count(*) FROM orkesta.contacts c WHERE c.email_checked_at > $T GROUP BY 1 ORDER BY 2 DESC;"
+          echo "==> Campañas creadas o enviadas"
+          q "$W SELECT left(c.id::text,6) camp, u.ini, c.status, left(c.created_at::text,16) creada, left(c.launched_at::text,16) lanzada,
+                     c.audience->>'quality' calidad, count(r.id) destinatarios, count(r.id) FILTER (WHERE r.sent_count>0) enviados,
+                     count(r.id) FILTER (WHERE r.status='bounced') reb, count(r.id) FILTER (WHERE r.status='blocked') bloq,
+                     count(r.id) FILTER (WHERE r.replied_at IS NOT NULL) resp
+             FROM orkesta.campaigns c LEFT JOIN u ON u.id=c.created_by LEFT JOIN orkesta.campaign_recipients r ON r.campaign_id=c.id
+             WHERE c.created_at > $T OR c.launched_at > $T
+                OR EXISTS (SELECT 1 FROM orkesta.campaign_messages m WHERE m.campaign_id=c.id AND m.sent_at > $T)
+             GROUP BY 1,2,3,4,5,6 ORDER BY 4 DESC;"
+          echo "==> Envíos desde entonces: rebotes y bloqueos"
+          q "SELECT count(*) correos, count(DISTINCT m.recipient_id) personas,
+                    count(DISTINCT m.recipient_id) FILTER (WHERE r.status='bounced') reb,
+                    count(DISTINCT m.recipient_id) FILTER (WHERE r.status='blocked') bloq,
+                    count(DISTINCT m.recipient_id) FILTER (WHERE r.replied_at IS NOT NULL) resp
+             FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id WHERE m.sent_at > $T;"
+          echo "==> Seguimientos a quien rebotó o bloqueó (después del arreglo del 19 nov, 17:30 UTC)"
+          q "SELECT count(*) FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id
+             WHERE m.sent_at > '2026-11-19 17:30+00' AND m.step > 0 AND r.status IN ('bounced','blocked')
+               AND m.sent_at > (SELECT min(m2.sent_at) FROM orkesta.campaign_messages m2 WHERE m2.recipient_id=m.recipient_id) + interval '1 hour';"
+          echo "==> Propuestas"
+          q "$W SELECT u.ini, p.status, count(*), sum(p.view_count) aperturas FROM orkesta.proposals p LEFT JOIN u ON u.id=p.created_by
+             WHERE p.created_at > $T OR p.updated_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
+          echo "==> Conocimiento verificado de ORKESTA"
+          q "SELECT count(*) FILTER (WHERE verified>0) dominios_formato_verificado, sum(verified) buzones_verificados, sum(delivered) entregados,
+                    sum(confirmed) respondidos FROM orkesta.pattern_stats;"
+          q "SELECT email_status, count(*) FROM orkesta.people_index GROUP BY 1 ORDER BY 2 DESC;"
+          q "SELECT catch_all, count(*) FROM orkesta.mail_domains GROUP BY 1;"
+          echo "==> Errores de la app (24 h)"
+          docker compose logs --since 48h app 2>&1 | grep -E "ERROR|Traceback" | sed -E 's/[0-9a-f-]{36}/<id>/g' | cut -c1-200 | sort | uniq -c | sort -rn | head -15
           REMOTE
 
       - name: Estado
