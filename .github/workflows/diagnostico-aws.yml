@@ -34,60 +34,31 @@ jobs:
           # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
           T="'2026-11-19 15:20+00'"
           W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
-          echo "==> Personas que entraron"
-          q "$W SELECT u.ini, left(m.tenant_id::text,6) emp, m.role, left(x.last_login_at::text,16) ultimo FROM orkesta.users x JOIN u ON u.id=x.id
-             JOIN orkesta.memberships m ON m.user_id=x.id WHERE x.last_login_at > $T ORDER BY 4 DESC;"
-          echo "==> Búsquedas de Prospección"
-          q "$W SELECT u.ini, r.status, count(*) busquedas, sum((r.totals->>'people')::int) personas,
-                     sum((r.totals->>'with_email')::int) con_correo_verificado, sum((r.totals->>'pending_emails')::int) por_buscar,
-                     sum((r.totals->>'companies')::int) empresas
-             FROM orkesta.research_runs r LEFT JOIN u ON u.id=r.created_by WHERE r.created_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
-          echo "==> Contactos creados (por origen y estado del correo)"
-          q "$W SELECT u.ini, c.source, coalesce(c.email_status,'(sin correo)') estado, count(*)
-             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.owner_user_id WHERE c.created_at > $T GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 30;"
-          echo "==> Correos verificados con créditos desde entonces"
-          q "$W SELECT u.ini, c.email_status, left(regexp_replace(coalesce(c.email_check_reason,''),'[0-9a-f-]{20,}','<id>','g'),90) motivo,
-                     left(min(c.email_checked_at)::text,16) desde, left(max(c.email_checked_at)::text,16) hasta, count(*)
-             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.owner_user_id WHERE c.email_checked_at > $T GROUP BY 1,2,3 ORDER BY 6 DESC LIMIT 25;"
-          echo "==> Verificador configurado"
-          docker compose exec -T app sh -c 'env | grep -i -E "^(MILLION|VERIF|MV_)[A-Z_]*=" | sed -E "s/=.+/=<definida>/"' </dev/null
-          q "SELECT key, left(value::text,150) FROM orkesta.platform_settings WHERE key ILIKE '%verif%' OR key ILIKE '%million%';"
-          echo "==> Contactos de la campaña 58f7be (origen y estado)"
-          q "SELECT k.source, k.email_status, count(*) dest, count(*) FILTER (WHERE r.sent_count>0) env, count(*) FILTER (WHERE r.status='bounced') reb,
-                    count(*) FILTER (WHERE r.status='blocked') bloq
-             FROM orkesta.campaign_recipients r JOIN orkesta.contacts k ON k.id=r.contact_id WHERE r.campaign_id::text LIKE '58f7be%' GROUP BY 1,2 ORDER BY 3 DESC;"
-          q "SELECT c.status, c.settings->>'pause_rate', left(regexp_replace(coalesce(c.settings->>'paused_reason', c.settings::text),'[0-9a-f-]{20,}','<id>','g'),200) FROM orkesta.campaigns c WHERE c.id::text LIKE '58f7be%';"
-          echo "==> Campañas creadas o enviadas"
-          q "$W SELECT left(c.id::text,6) camp, u.ini, c.status, left(c.created_at::text,16) creada, left(c.launched_at::text,16) lanzada,
-                     c.audience->>'quality' calidad, count(r.id) destinatarios, count(r.id) FILTER (WHERE r.sent_count>0) enviados,
-                     count(r.id) FILTER (WHERE r.status='bounced') reb, count(r.id) FILTER (WHERE r.status='blocked') bloq,
-                     count(r.id) FILTER (WHERE r.replied_at IS NOT NULL) resp
-             FROM orkesta.campaigns c LEFT JOIN u ON u.id=c.created_by LEFT JOIN orkesta.campaign_recipients r ON r.campaign_id=c.id
-             WHERE c.created_at > $T OR c.launched_at > $T
-                OR EXISTS (SELECT 1 FROM orkesta.campaign_messages m WHERE m.campaign_id=c.id AND m.sent_at > $T)
-             GROUP BY 1,2,3,4,5,6 ORDER BY 4 DESC;"
-          echo "==> Envíos desde entonces: rebotes y bloqueos"
-          q "SELECT count(*) correos, count(DISTINCT m.recipient_id) personas,
-                    count(DISTINCT m.recipient_id) FILTER (WHERE r.status='bounced') reb,
-                    count(DISTINCT m.recipient_id) FILTER (WHERE r.status='blocked') bloq,
-                    count(DISTINCT m.recipient_id) FILTER (WHERE r.replied_at IS NOT NULL) resp
-             FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id WHERE m.sent_at > $T;"
-          echo "==> Seguimientos a quien rebotó o bloqueó (después del arreglo del 19 nov, 17:30 UTC)"
-          q "SELECT left(m.campaign_id::text,6) camp, m.step, r.status, left(m.sent_at::text,16) seguimiento,
-                    left((SELECT max(m2.sent_at) FROM orkesta.campaign_messages m2 WHERE m2.recipient_id=m.recipient_id AND m2.step < m.step)::text,16) anterior,
-                    left(r.checked_at::text,16) revisado
-             FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id
-             WHERE m.sent_at > '2026-11-19 17:30+00' AND m.step > 0 AND r.status IN ('bounced','blocked');"
-          echo "==> Propuestas"
-          q "$W SELECT u.ini, p.status, count(*), sum(p.view_count) aperturas FROM orkesta.proposals p LEFT JOIN u ON u.id=p.created_by
-             WHERE p.created_at > $T OR p.updated_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
-          echo "==> Conocimiento verificado de ORKESTA"
-          q "SELECT count(*) FILTER (WHERE verified>0) dominios_formato_verificado, sum(verified) buzones_verificados, sum(delivered) entregados,
-                    sum(confirmed) respondidos FROM orkesta.pattern_stats;"
-          q "SELECT email_status, count(*) FROM orkesta.people_index GROUP BY 1 ORDER BY 2 DESC;"
-          q "SELECT catch_all, count(*) FROM orkesta.mail_domains GROUP BY 1;"
-          echo "==> Errores de la app (24 h)"
-          docker compose logs --since 48h app 2>&1 | grep -A25 "Traceback" | grep -E "^app-1  \| [A-Za-z_.]+(Error|Exception)|File \"/app/orkesta" | sed -E 's/[0-9a-f-]{36}/<id>/g' | cut -c1-220 | sort | uniq -c | sort -rn | head -20
+          echo "==> Verificaciones desde el 18 nov"
+          q "$W SELECT left(v.tenant_id::text,6) emp, u.ini, v.status, left(v.created_at::text,16) creada, v.totals::text, left(coalesce(v.error,''),120) err,
+                     left(regexp_replace(coalesce(v.progress->>'notes', v.progress->>'log', ''),'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+','<correo>','g'),300) notas
+             FROM orkesta.validation_runs v LEFT JOIN u ON u.id=v.created_by WHERE v.created_at > '2026-11-18' ORDER BY v.created_at DESC LIMIT 25;"
+          echo "==> Plan y cupo de verificación por empresa"
+          docker compose exec -T app python -c "
+          import uuid
+          from sqlalchemy import select
+          from orkesta.core.db import get_session_factory, set_context
+          from orkesta.platform.models import Tenant
+          from orkesta.admin.limits import plan_limits, verifications_left
+          from orkesta.validation.api_verifier import configured_key, balance
+          f = get_session_factory()
+          with f() as s:
+              for t in list(s.scalars(select(Tenant))):
+                  set_context(s, tenant_id=t.id)
+                  try:
+                      print(str(t.id)[:6], plan_limits(s, t.id), 'quedan:', verifications_left(s, t.id))
+                  except Exception as e:
+                      print(str(t.id)[:6], 'error', type(e).__name__, str(e)[:120])
+              k = configured_key(s)
+              print('clave MillionVerifier:', bool(k), 'creditos:', balance(k) if k else None)
+          " </dev/null 2>&1 | tail -20
+          echo "==> Alertas de servicios"
+          q "SELECT key, left(value::text,300) FROM orkesta.platform_settings WHERE key ILIKE '%alert%';"
           REMOTE
 
       - name: Estado
@@ -178,7 +149,7 @@ jobs:
           echo "==> Buscador con un perfil público de prueba"
           docker compose exec -T app python - <<'PY' 2>&1 | tail -40
           from orkesta.core.config import get_settings
-          from orkesta.core.db import get_session_factory
+          from orkesta.core.db import get_session_factory, set_context
           from orkesta.research import serp
           from orkesta.research.fetch import Fetcher
           print("buscador configurado:", serp.enabled())
