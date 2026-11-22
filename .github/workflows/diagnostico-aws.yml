@@ -44,9 +44,19 @@ jobs:
              FROM orkesta.research_runs r LEFT JOIN u ON u.id=r.created_by WHERE r.created_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
           echo "==> Contactos creados (por origen y estado del correo)"
           q "$W SELECT u.ini, c.source, coalesce(c.email_status,'(sin correo)') estado, count(*)
-             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.created_by WHERE c.created_at > $T GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 30;"
+             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.owner_user_id WHERE c.created_at > $T GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 30;"
           echo "==> Correos verificados con créditos desde entonces"
-          q "SELECT c.email_status, count(*) FROM orkesta.contacts c WHERE c.email_checked_at > $T GROUP BY 1 ORDER BY 2 DESC;"
+          q "$W SELECT u.ini, c.email_status, left(regexp_replace(coalesce(c.email_check_reason,''),'[0-9a-f-]{20,}','<id>','g'),90) motivo,
+                     left(min(c.email_checked_at)::text,16) desde, left(max(c.email_checked_at)::text,16) hasta, count(*)
+             FROM orkesta.contacts c LEFT JOIN u ON u.id=c.owner_user_id WHERE c.email_checked_at > $T GROUP BY 1,2,3 ORDER BY 6 DESC LIMIT 25;"
+          echo "==> Verificador configurado"
+          docker compose exec -T app sh -c 'env | grep -i -E "^(MILLION|VERIF|MV_)[A-Z_]*=" | sed -E "s/=.+/=<definida>/"' </dev/null
+          q "SELECT key, left(value::text,150) FROM orkesta.platform_settings WHERE key ILIKE '%verif%' OR key ILIKE '%million%';"
+          echo "==> Contactos de la campaña 58f7be (origen y estado)"
+          q "SELECT k.source, k.email_status, count(*) dest, count(*) FILTER (WHERE r.sent_count>0) env, count(*) FILTER (WHERE r.status='bounced') reb,
+                    count(*) FILTER (WHERE r.status='blocked') bloq
+             FROM orkesta.campaign_recipients r JOIN orkesta.contacts k ON k.id=r.contact_id WHERE r.campaign_id::text LIKE '58f7be%' GROUP BY 1,2 ORDER BY 3 DESC;"
+          q "SELECT c.status, c.settings->>'pause_rate', left(regexp_replace(coalesce(c.settings->>'paused_reason', c.settings::text),'[0-9a-f-]{20,}','<id>','g'),200) FROM orkesta.campaigns c WHERE c.id::text LIKE '58f7be%';"
           echo "==> Campañas creadas o enviadas"
           q "$W SELECT left(c.id::text,6) camp, u.ini, c.status, left(c.created_at::text,16) creada, left(c.launched_at::text,16) lanzada,
                      c.audience->>'quality' calidad, count(r.id) destinatarios, count(r.id) FILTER (WHERE r.sent_count>0) enviados,
@@ -63,9 +73,11 @@ jobs:
                     count(DISTINCT m.recipient_id) FILTER (WHERE r.replied_at IS NOT NULL) resp
              FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id WHERE m.sent_at > $T;"
           echo "==> Seguimientos a quien rebotó o bloqueó (después del arreglo del 19 nov, 17:30 UTC)"
-          q "SELECT count(*) FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id
-             WHERE m.sent_at > '2026-11-19 17:30+00' AND m.step > 0 AND r.status IN ('bounced','blocked')
-               AND m.sent_at > (SELECT min(m2.sent_at) FROM orkesta.campaign_messages m2 WHERE m2.recipient_id=m.recipient_id) + interval '1 hour';"
+          q "SELECT left(m.campaign_id::text,6) camp, m.step, r.status, left(m.sent_at::text,16) seguimiento,
+                    left((SELECT max(m2.sent_at) FROM orkesta.campaign_messages m2 WHERE m2.recipient_id=m.recipient_id AND m2.step < m.step)::text,16) anterior,
+                    left(r.checked_at::text,16) revisado
+             FROM orkesta.campaign_messages m JOIN orkesta.campaign_recipients r ON r.id=m.recipient_id
+             WHERE m.sent_at > '2026-11-19 17:30+00' AND m.step > 0 AND r.status IN ('bounced','blocked');"
           echo "==> Propuestas"
           q "$W SELECT u.ini, p.status, count(*), sum(p.view_count) aperturas FROM orkesta.proposals p LEFT JOIN u ON u.id=p.created_by
              WHERE p.created_at > $T OR p.updated_at > $T GROUP BY 1,2 ORDER BY 3 DESC;"
@@ -75,7 +87,7 @@ jobs:
           q "SELECT email_status, count(*) FROM orkesta.people_index GROUP BY 1 ORDER BY 2 DESC;"
           q "SELECT catch_all, count(*) FROM orkesta.mail_domains GROUP BY 1;"
           echo "==> Errores de la app (24 h)"
-          docker compose logs --since 48h app 2>&1 | grep -E "ERROR|Traceback" | sed -E 's/[0-9a-f-]{36}/<id>/g' | cut -c1-200 | sort | uniq -c | sort -rn | head -15
+          docker compose logs --since 48h app 2>&1 | grep -A25 "Traceback" | grep -E "^app-1  \| [A-Za-z_.]+(Error|Exception)|File \"/app/orkesta" | sed -E 's/[0-9a-f-]{36}/<id>/g' | cut -c1-220 | sort | uniq -c | sort -rn | head -20
           REMOTE
 
       - name: Estado
