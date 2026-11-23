@@ -18,6 +18,7 @@ import {
   Wand2,
   Check,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import {
   useCallback,
@@ -3050,6 +3051,7 @@ function TemplatesGallery() {
   const list = useTeamTemplates("campaign");
   const [filter, setFilter] = useState<"todas" | "equipo" | "mias">("todas");
   const [seeing, setSeeing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
   if (list.isLoading) return <Spinner />;
   const items = (list.data ?? []).filter((t) =>
@@ -3130,6 +3132,16 @@ function TemplatesGallery() {
                 >
                   Ver correos
                 </Button>
+                {t.can_manage && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Pencil className="size-3.5" aria-hidden />}
+                    onClick={() => setEditing(t.id)}
+                  >
+                    Editar
+                  </Button>
+                )}
               </div>
             </Card>
           ))}
@@ -3147,6 +3159,9 @@ function TemplatesGallery() {
       )}
       {using && (
         <UseTemplateModal template={using} onClose={() => setUsing(null)} />
+      )}
+      {editing && (
+        <EditTemplateModal id={editing} onClose={() => setEditing(null)} />
       )}
     </div>
   );
@@ -3206,6 +3221,110 @@ function TemplatePreview({
             </Button>
           </div>
         </div>
+      )}
+    </Modal>
+  );
+}
+
+type TemplateStep = { subject: string; body: string; delay_days: number };
+
+/** Edita una plantilla (nombre, descripción y sus correos). Solo quien la creó (o la
+ * administración, si es del equipo). Las campañas ya creadas con ella no cambian. */
+function EditTemplateModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["template-detail", id],
+    queryFn: () => api<TemplateDetail>(`/api/templates/${id}?tipo=campaign`),
+  });
+  const [name, setName] = useState<string | null>(null);
+  const [description, setDescription] = useState<string | null>(null);
+  const [steps, setSteps] = useState<TemplateStep[] | null>(null);
+  const t = q.data;
+  const current: TemplateStep[] =
+    steps ??
+    (t?.payload.steps ?? []).map((st, i) => ({
+      subject: st.subject ?? "",
+      body: st.body ?? "",
+      delay_days: st.delay_days ?? (i === 0 ? 0 : 3),
+    }));
+  const update = (i: number, patch: Partial<TemplateStep>) =>
+    setSteps(current.map((st, j) => (j === i ? { ...st, ...patch } : st)));
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/templates/${id}`, {
+        method: "PATCH",
+        json: { name: name ?? t?.name, description: description ?? t?.description ?? "", steps: current },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["team-templates"] });
+      qc.invalidateQueries({ queryKey: ["template-detail", id] });
+      onClose();
+    },
+  });
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Editar plantilla"
+      description="Los cambios se aplican a las campañas que se creen desde ahora; las que ya existen no cambian."
+      wide
+    >
+      {q.isLoading || !t ? (
+        <Spinner />
+      ) : (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          {save.error && <Alert>{save.error.message}</Alert>}
+          <TextField label="Nombre" value={name ?? t.name} onChange={(e) => setName(e.target.value)} />
+          <TextField
+            label="Descripción (opcional)"
+            value={description ?? t.description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          {current.map((st, i) => (
+            <div key={i} className="rounded-xl border border-ork-line p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[12.5px] font-semibold text-ork-mist">Correo {i + 1}</p>
+                {i > 0 && (
+                  <label className="flex items-center gap-1.5 text-[12.5px] text-ork-graphite">
+                    Enviar
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={st.delay_days}
+                      onChange={(e) => update(i, { delay_days: Math.max(0, Math.min(60, Number(e.target.value) || 0)) })}
+                      className="ork-focus h-8 w-16 rounded-lg border border-ork-line px-2 text-center"
+                    />
+                    días después
+                  </label>
+                )}
+              </div>
+              <TextField
+                label="Asunto"
+                placeholder={i > 0 ? "Vacío: responde en el mismo hilo" : ""}
+                value={st.subject}
+                onChange={(e) => update(i, { subject: e.target.value })}
+              />
+              <div className="mt-2">
+                <RichEditor value={st.body} onChange={(html) => update(i, { body: html })} minHeight={140} />
+              </div>
+            </div>
+          ))}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={save.isPending}>
+              Guardar cambios
+            </Button>
+          </div>
+        </form>
       )}
     </Modal>
   );

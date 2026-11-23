@@ -54,6 +54,19 @@ def test_campaign_and_proposal_templates_are_shared_with_the_company(client: Tes
     assert used["Secuencia retail"] == 1
     # Solo quien la creó (o la administración) la cambia o la borra.
     assert luis.delete(f"/api/templates/{saved.json()['id']}").status_code == 403
+    # Quien la creó edita sus correos; los demás no. Las campañas ya creadas no cambian.
+    tid = saved.json()["id"]
+    edited = [{"subject": "{{nombre}}, nueva idea", "body": "<p>Hola de nuevo</p>",
+               "delay_days": 0}, {"subject": "", "body": "Te escribo otra vez", "delay_days": 6}]  # fmt: skip
+    assert luis.patch(f"/api/templates/{tid}", json={"steps": edited}).status_code == 403
+    r = client.patch(f"/api/templates/{tid}", json={"steps": edited, "name": "Retail v2"})
+    assert r.status_code == 200, r.text
+    again = luis.get(f"/api/templates/{tid}", params={"tipo": "campaign"}).json()
+    assert again["name"] == "Retail v2" and again["payload"]["steps"][1]["delay_days"] == 6
+    assert "Hola de nuevo" in again["payload"]["steps"][0]["body"]
+    assert luis.get(f"/api/campaigns/{mine['id']}").json()["steps"][0]["body"] == "Hola {{nombre}}"
+    empty = client.patch(f"/api/templates/{tid}", json={"steps": [{"subject": "x", "body": ""}]})
+    assert empty.status_code == 400
 
     # Propuestas: el contenido y los productos viajan; el cliente no.
     proposal = client.post("/api/proposals", json={}).json()
