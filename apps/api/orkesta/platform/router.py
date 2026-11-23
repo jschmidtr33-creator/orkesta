@@ -114,6 +114,8 @@ class DemoIn(BaseModel):
     job_title: str = Field(default="", max_length=160)
     country: str = Field(default="", max_length=80)
     message: str = Field(default="", max_length=2000)
+    # Motivo del formulario de contacto: demo, pregunta, precios o alianza.
+    topic: str = Field(default="demo", max_length=20)
     consent: bool = False
 
 
@@ -812,13 +814,18 @@ def demo_request(body: DemoIn, request: Request, db: Db) -> dict[str, bool]:
     ip = client_ip(request)
     demo_limiter.check(ip or "?")
     try:
-        svc.create_demo_request(
+        demo = svc.create_demo_request(
             db, name=body.name, email=body.email, company=body.company,
             job_title=body.job_title, country=body.country, message=body.message,
             consent=body.consent, ip=ip,
         )  # fmt: skip
     except svc.PlatformError as exc:
         raise _fail(exc) from exc
+    from orkesta.platform import house
+
+    house.receive(
+        db, demo, body.topic, get_settings().public_base_url.rstrip("/") or str(request.base_url)
+    )
     return {"ok": True}
 
 

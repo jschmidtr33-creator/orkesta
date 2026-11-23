@@ -6,7 +6,7 @@ import Base from "../layouts/Base.astro";
 const tour = [
   { key: "ingresar", tag: "Ingresa", title: "Entras con tu cuenta de Google o tu correo", text: "Cada empresa tiene su propio espacio, con su logo, aislado y seguro." },
   { key: "inicio", tag: "Tu día", title: "Lo primero que ves: tus pendientes y las novedades", text: "Tareas de hoy, vencidas, quién respondió y quién abrió tu propuesta." },
-  { key: "prospeccion", tag: "Prospecta", title: "Encuentra decisores con filtros inteligentes", text: "Cargo, función, sector y país. Cada lead con su correo, LinkedIn y un puntaje de encaje." },
+  { key: "prospeccion", tag: "Prospecta", title: "Encuentra decisores con filtros inteligentes", text: "Cargo, función, sector y país, con puntaje de encaje. Solo ves correos que ORKESTA ya comprobó; filtra «Con correo» y guarda todo en un clic." },
   { key: "campana", tag: "Contacta", title: "Campañas desde tu propio buzón, con pruebas A/B", text: "A un equipo entero o a un solo contacto. Se detienen solas cuando responden y aprenden qué versión funciona mejor." },
   { key: "respuestas", tag: "Responden", title: "La IA lee cada respuesta y actúa por ti", text: "Quiere reunión, pide información, más adelante, no interesado. Con un clic marcas a alguien como no interesado y no se le vuelve a escribir." },
   { key: "concertino", tag: "Concertino", title: "Tu asesor de ventas redacta contigo", text: "Pídele una secuencia para un cargo e industria, ajústala con «más corto» o «pásalo a WhatsApp» y créala como campaña." },
@@ -14,13 +14,13 @@ const tour = [
   { key: "crm", tag: "CRM", title: "Pipeline en Kanban con la salud de cada oportunidad", text: "Caliente, tibia o fría según actividad, respuestas y propuesta vista." },
   { key: "tareas", tag: "Seguimiento", title: "Ninguna tarea se te escapa", text: "Recordatorios, vencidas y próximas, conectadas a cada contacto y oportunidad." },
   { key: "pronostico", tag: "Pronóstico", title: "Sabe cuánto vas a cerrar este mes", text: "Pronóstico ponderado con probabilidades que aprende de tus ventas y atribución por campaña." },
-  { key: "plantillas", tag: "Plantillas", title: "Lo que funciona, listo para reutilizar", text: "Guarda campañas y propuestas solo para ti o compártelas con el equipo, y úsalas en un clic." },
+  { key: "plantillas", tag: "Plantillas", title: "Lo que funciona, listo para reutilizar", text: "Guarda campañas y propuestas solo para ti o compártelas con el equipo. Quien la creó la edita o la borra; el resto la usa en un clic." },
   { key: "automatizacion", tag: "Automatiza", title: "Reglas que trabajan solas", text: "Respondió → oportunidad y tarea. Abrió la propuesta → seguimiento en 24 h. Cada persona las activa o las apaga para sí." },
-  { key: "propuesta", tag: "Cierra", title: "Propuestas con tu logo y firma electrónica", text: "Tu cliente firma desde el celular; recibes la constancia en PDF con su huella digital." },
+  { key: "propuesta", tag: "Cierra", title: "Propuestas con tu logo y firma electrónica", text: "Con imágenes a todo el ancho para tablas y comparativos. Tu cliente firma desde el celular y recibes la constancia en PDF." },
 ];
 const flow = [
-  ["Prospecta", "Define tu cliente ideal y ORKESTA encuentra a los decisores con correo verificado."],
-  ["Contacta", "Concertino redacta la secuencia por cargo e industria y la lanzas desde tu Gmail o Microsoft 365, a un equipo entero o a un solo contacto."],
+  ["Prospecta", "Define tu cliente ideal y ORKESTA encuentra a los decisores. Solo te muestra correos que ya comprobó; el resto se busca y verifica al guardarlos."],
+  ["Contacta", "Concertino redacta la secuencia por cargo e industria y la lanzas desde tu Gmail o tu correo corporativo, a un equipo entero o a un solo contacto. Si un correo rebota, ese contacto no recibe más."],
   ["Responden", "Cada respuesta se clasifica sola y crea la oportunidad con su tarea. ¿Objeción? Concertino te dice cómo responderla."],
   ["Agenda", "Las reuniones quedan en tu Google Calendar y en ORKESTA, ligadas al contacto y a la oportunidad."],
   ["Da seguimiento", "El CRM te dice qué oportunidades están frías y qué hacer hoy."],
@@ -30,16 +30,18 @@ const flow = [
 const modules = [
   { title: "Concertino, tu asesor de ventas", text: "Un vendedor senior con IA propia: conversa, redacta correos y secuencias, maneja objeciones y conoce tu producto.", icon: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>' },
   { title: "Prospección con IA propia", text: "Directorio de empresas, índice de decisores y correos que aprenden de cada campaña.", icon: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M11 8v3l2 2"/>' },
-  { title: "Correos que no rebotan", text: "Formato por empresa y por país, verificación previa y aprendizaje de rebotes.", icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
+  { title: "Correos que no rebotan", text: "Solo usa correos comprobados, aprende de cada envío que llega y pausa sola la campaña si rebotan demasiados.", icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
   { title: "Campañas que aprenden", text: "Pruebas A/B con ganadora automática, campañas a un solo contacto y envío parejo para que ninguna se detenga.", icon: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>' },
   { title: "Plantillas tuyas y del equipo", text: "Guarda campañas y propuestas solo para ti o compártelas: el equipo las elige de una galería y las ajusta.", icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/>' },
   { title: "CRM inteligente", text: "Salud de cada oportunidad, tareas, pronóstico de cierre y atribución por campaña.", icon: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v8M12 7v5M16 7v10"/>' },
-  { title: "Propuestas con tu marca", text: "Tu logo en cada propuesta y en ORKESTA, seguimiento de lectura y firma electrónica con constancia PDF.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
+  { title: "Propuestas con tu marca", text: "Tu logo, imágenes a todo el ancho, aviso cuando tu cliente la abre y firma electrónica con constancia PDF.", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>' },
   { title: "Calendario conectado", text: "Tu Google Calendar en ORKESTA y al revés: agenda con Meet desde la ficha del contacto y detecta las reuniones que agendan tus leads.", icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h3v3H8z"/>' },
   { title: "Equipos con jefaturas", text: "Cada vendedor trabaja lo suyo; la jefatura ve el resumen de su equipo sin tocar nada.", icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.5a5 5 0 0 1 5.5 5"/>' },
   { title: "Automatizaciones", text: "Recetas listas y reglas propias que trabajan en segundo plano por tu equipo.", icon: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>' },
+  { title: "Extensión de Chrome", text: "Ya en la Chrome Web Store: guarda perfiles y búsquedas de LinkedIn en ORKESTA con un clic, directo a tus listas.", icon: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10v7M8 7v.01M12 17v-4a2 2 0 0 1 4 0v4M12 10v7"/>' },
+  { title: "Reportes que se entienden", text: "Respuestas, reuniones, oportunidades y ventas por persona y por campaña, para decidir con datos.", icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
 ];
-const ribbon = ["Concertino", "Google Calendar", "Google Workspace", "Gmail", "Microsoft 365", "Outlook", "Correo corporativo", "Pruebas A/B", "Plantillas de equipo", "Campañas 1 a 1", "Firma electrónica", "Contactos privados", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
+const ribbon = ["Concertino", "Google Calendar", "Google Workspace", "Gmail", "Correo corporativo", "Extensión de Chrome", "LinkedIn", "Solo correos verificados", "Pruebas A/B", "Plantillas de equipo", "Campañas 1 a 1", "Firma electrónica", "Contactos privados", "Modo oscuro", "Pronóstico de cierre", "Índice de decisores", "Ley 1581 y RGPD"];
 const concertino = [
   ["Conversa contigo", "Te saluda por tu nombre, sigue el hilo y te propone cómo seguir. Pregúntale como le preguntarías a un colega."],
   ["Redacta por ti", "Correos y secuencias por cargo e industria, mensajes de WhatsApp y LinkedIn, asuntos, resumen ejecutivo y guion de llamada."],
@@ -57,6 +59,23 @@ const plans = [
 const included = [
   "Prospección y enriquecimiento", "Verificación de correos", "Campañas y campaña automatizada",
   "CRM, agenda y tareas automáticas", "Propuestas con firma electrónica", "Concertino, tu agente vendedor",
+  "Extensión de Chrome para LinkedIn", "Plantillas de equipo", "Reportes y jefaturas",
+];
+const STORE = "https://chromewebstore.google.com/detail/cfaooobjacoehihnbhapaomnoidcoidp";
+const extension = [
+  ["Un perfil o la lista entera", "Guarda el perfil que estás viendo o toda la búsqueda de Sales Navigator, con un clic."],
+  ["Sin duplicados", "Te muestra quién ya está en tu base para que no lo guardes dos veces."],
+  ["Directo a tu lista", "Elige la lista de destino y el contacto queda listo para tu campaña."],
+  ["Correo verificado", "ORKESTA busca y verifica el correo de los que no lo tienen."],
+];
+const faq = [
+  ["¿Tengo que cambiar mi correo?", "No. Conectas tu Gmail o Google Workspace, o tu correo corporativo, y las campañas salen desde tu buzón, con tu firma. La conexión con Outlook y Microsoft 365 llega muy pronto."],
+  ["¿De dónde salen los correos de los prospectos?", "De lo que ORKESTA ya comprobó: direcciones verificadas o que respondieron, y formatos de empresa confirmados por correos que llegaron. Lo que no sabe no lo inventa: lo busca y lo verifica cuando guardas el contacto."],
+  ["¿Qué pasa si un correo rebota?", "Ese contacto no recibe más correos de la campaña, la dirección queda bloqueada para tus envíos y la campaña se pausa sola si rebotan demasiados."],
+  ["¿Mi equipo ve mis contactos?", "No. Cada vendedor ve solo lo suyo. La jefatura ve el resumen de su equipo sin poder modificar nada, y las plantillas se comparten solo si tú quieres."],
+  ["¿Concertino usa mis datos para entrenar a otros?", "No. Concertino corre con IA propia dentro de ORKESTA: tus datos y los de tus clientes no viajan a otros proveedores."],
+  ["¿Cómo instalo la extensión de Chrome?", "Desde la Chrome Web Store: búscala como «ORKESTA — Guardar contactos» o usa el botón de esta página. Luego la conectas a tu cuenta en un clic."],
+  ["¿Cómo empiezo?", "Escríbenos por el formulario de contacto: te mostramos ORKESTA con tu caso y activamos tu prueba gratis con tu equipo."],
 ];
 ---
 
@@ -67,17 +86,17 @@ const included = [
   <header class="sticky top-0 z-30 border-b border-white/5 bg-ork-ink/70 backdrop-blur-xl">
     <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
       <a href="/" aria-label="ORKESTA, inicio"><Logo size={28} /></a>
-      <nav class="hidden items-center gap-7 text-[14px] text-ork-mist md:flex" aria-label="Secciones">
+      <nav class="hidden items-center gap-6 whitespace-nowrap text-[14px] text-ork-mist lg:flex" aria-label="Secciones">
         <a href="#recorrido" class="hover:text-white">Recorrido</a>
-        <a href="#proceso" class="hover:text-white">Tu proceso</a>
         <a href="#concertino" class="hover:text-white">Concertino</a>
-        <a href="#modulos" class="hover:text-white">Producto</a>
-        <a href="#seguridad" class="hover:text-white">Seguridad</a>
+        <a href="#extension" class="hover:text-white">Extensión</a>
         <a href="#precios" class="hover:text-white">Precios</a>
+        <a href="#preguntas" class="hover:text-white">Preguntas</a>
+        <a href="#contacto" class="hover:text-white">Contacto</a>
       </nav>
       <div class="flex items-center gap-3">
-        <a href="/app/ingresar" class="hidden text-[14px] font-medium text-white/80 hover:text-white sm:inline">Iniciar sesión</a>
-        <a href="#demo" class="ork-gradient rounded-xl px-4 py-2 text-[14px] font-semibold text-white shadow-[0_6px_20px_rgb(79_70_229/0.35)] hover:brightness-110">Solicitar demo</a>
+        <a href="/app/ingresar" class="hidden whitespace-nowrap text-[14px] font-medium text-white/80 hover:text-white sm:inline">Iniciar sesión</a>
+        <a href="#demo" class="ork-gradient whitespace-nowrap rounded-xl px-4 py-2 text-[14px] font-semibold text-white shadow-[0_6px_20px_rgb(79_70_229/0.35)] hover:brightness-110">Solicitar demo</a>
       </div>
     </div>
   </header>
@@ -112,7 +131,7 @@ const included = [
                 <span class="size-2.5 rounded-full bg-[#FF5F57]"></span><span class="size-2.5 rounded-full bg-[#FEBC2E]"></span><span class="size-2.5 rounded-full bg-[#28C840]"></span>
                 <span class="mx-auto rounded-md bg-white/5 px-3 py-0.5 text-[11.5px] font-semibold tracking-[0.18em] text-white/55">ORKESTA</span>
               </div>
-              <video class="block aspect-[16/10] w-full bg-ork-night" autoplay muted loop playsinline preload="metadata" poster="/media/recorrido-poster.webp" aria-label="Recorrido por ORKESTA: ingreso, prospección, campañas y respuestas, Concertino redactando una secuencia, calendario, CRM, plantillas, automatizaciones y propuesta firmada">
+              <video class="block aspect-[16/10] w-full bg-ork-night" autoplay muted loop playsinline preload="metadata" poster="/media/recorrido-poster.webp" aria-label="Recorrido por ORKESTA: ingreso, prospección con correos verificados, contactos y extensión de Chrome, campañas y respuestas, Concertino redactando una secuencia, calendario, CRM y pronóstico, plantillas, automatizaciones y propuesta firmada">
                 <source src="/media/recorrido.webm" type="video/webm" />
                 <source src="/media/recorrido.mp4" type="video/mp4" />
               </video>
@@ -277,6 +296,38 @@ const included = [
       </div>
     </section>
 
+    <section id="extension" class="relative overflow-hidden bg-ork-night py-24">
+      <div class="ork-glow pointer-events-none absolute inset-0 opacity-40" aria-hidden="true"></div>
+      <div class="relative mx-auto grid max-w-6xl items-center gap-12 px-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <div data-reveal>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Extensión de Chrome</p>
+          <h2 class="mt-3 text-[34px] font-bold leading-tight tracking-tight sm:text-[42px]">De LinkedIn a tu base, en un clic</h2>
+          <p class="mt-3 text-[16px] text-white/70">La extensión de ORKESTA ya está en la Chrome Web Store. Mientras navegas LinkedIn o Sales Navigator, guarda a las personas que te interesan sin copiar ni pegar.</p>
+          <ul class="mt-8 grid gap-4 sm:grid-cols-2">
+            {extension.map(([t, d], i) => (
+              <li class="rounded-2xl border border-white/10 bg-white/[0.03] p-4" data-reveal style={`--delay: ${70 * i}ms`}>
+                <h3 class="text-[15.5px] font-semibold">{t}</h3>
+                <p class="mt-1 text-[14px] leading-relaxed text-white/65">{d}</p>
+              </li>
+            ))}
+          </ul>
+          <a href={STORE} target="_blank" rel="noopener" class="mt-8 inline-flex items-center gap-2.5 rounded-xl bg-white px-5 py-3 text-[15px] font-semibold text-ork-ink transition hover:-translate-y-0.5 hover:bg-white/90">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5h8.2M8.97 13.75 4.9 6.7M15.03 13.75 10.9 20.9"/></svg>
+            Instalar desde la Chrome Web Store
+          </a>
+          <p class="mt-2 text-[12.5px] text-white/45">Gratis para todos los planes de ORKESTA.</p>
+        </div>
+        <div class="mx-auto w-full max-w-[360px]" data-reveal style="--delay: 120ms">
+          <div class="glow-frame shadow-[0_30px_90px_rgb(0_0_0/0.55)]">
+            <div class="overflow-hidden rounded-[20px] bg-white">
+              <img src="/media/extension.webp" alt="Panel de la extensión de ORKESTA con tres personas leídas de una búsqueda, listas para guardar en una lista" width="800" height="1200" loading="lazy" decoding="async" class="block w-full" />
+            </div>
+          </div>
+          <p class="mt-3 text-center text-[12px] text-white/40">Panel real de la extensión con datos de ejemplo ficticios.</p>
+        </div>
+      </div>
+    </section>
+
     <section id="modulos" class="py-24">
       <div class="mx-auto max-w-6xl px-5">
         <div class="max-w-2xl" data-reveal>
@@ -378,26 +429,73 @@ const included = [
       </div>
     </section>
 
-    <section id="demo" class="relative overflow-hidden bg-ork-night py-20">
+    <section id="preguntas" class="py-24">
+      <div class="mx-auto max-w-4xl px-5">
+        <div class="text-center" data-reveal>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Preguntas frecuentes</p>
+          <h2 class="mt-3 text-[34px] font-bold tracking-tight">Lo que suelen preguntarnos</h2>
+        </div>
+        <div class="mt-10 flex flex-col gap-3">
+          {faq.map(([q, a], i) => (
+            <details class="group rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 open:bg-white/[0.05]" data-reveal style={`--delay: ${50 * i}ms`}>
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-4 text-[16px] font-semibold">
+                {q}
+                <span class="text-ork-violet transition group-open:rotate-45" aria-hidden="true">+</span>
+              </summary>
+              <p class="mt-2 text-[15px] leading-relaxed text-white/70">{a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section id="contacto" class="relative overflow-hidden bg-ork-night py-20">
+      <span id="demo" class="absolute -top-20" aria-hidden="true"></span>
       <div class="ork-glow pointer-events-none absolute inset-0 opacity-60" aria-hidden="true"></div>
       <div class="relative mx-auto grid max-w-6xl gap-10 px-5 lg:grid-cols-[1fr_1.1fr]">
         <div>
-          <h2 class="text-[32px] font-bold leading-tight tracking-tight">¿Listo para llevar tu prospección comercial al siguiente nivel?</h2>
-          <p class="mt-4 text-[16px] text-white/70">Solicita una demo y te mostramos cómo ORKESTA puede ayudar a tu equipo comercial.</p>
+          <p class="text-[12.5px] font-semibold uppercase tracking-[0.2em] text-ork-violet">Contacto</p>
+          <h2 class="mt-3 text-[32px] font-bold leading-tight tracking-tight">Hablemos de tu equipo comercial</h2>
+          <p class="mt-4 text-[16px] text-white/70">Pide una demo con tu caso, pregúntanos lo que necesites o cotiza para tu equipo. Te respondemos en menos de un día hábil.</p>
+          <ul class="mt-8 flex flex-col gap-4 text-[15px]">
+            <li class="flex items-start gap-3">
+              <span class="ork-gradient mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></span>
+              <span><span class="block text-[13px] text-white/55">Escríbenos directo</span><a href="mailto:jenn@orkestaapp.com" class="font-semibold hover:underline">jenn@orkestaapp.com</a></span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="ork-gradient mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <span><span class="block text-[13px] text-white/55">Demo</span><span class="font-semibold">30 minutos, con tu caso real</span></span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="ork-gradient mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+              <span><span class="block text-[13px] text-white/55">Atendemos</span><span class="font-semibold">Latinoamérica y equipos hispanohablantes</span></span>
+            </li>
+          </ul>
         </div>
         <form id="demo-form" class="grid gap-4 rounded-2xl bg-white p-6 text-ork-ink shadow-[var(--shadow-pop)] sm:grid-cols-2" novalidate>
+          <fieldset class="sm:col-span-2">
+            <legend class="mb-1.5 text-[13px] font-semibold">¿En qué te ayudamos?</legend>
+            <div class="flex flex-wrap gap-2">
+              {[["demo", "Quiero una demo"], ["precios", "Cotizar para mi equipo"], ["pregunta", "Tengo una pregunta"], ["alianza", "Alianzas"]].map(([v, l], i) => (
+                <label class="cursor-pointer">
+                  <input type="radio" name="topic" value={v} checked={i === 0} class="peer sr-only" />
+                  <span class="inline-flex rounded-full border border-ork-line px-3 py-1.5 text-[13px] font-semibold text-ork-graphite peer-checked:border-[#2563EB] peer-checked:bg-[#2563EB]/10 peer-checked:text-[#2563EB] peer-focus-visible:ring-2 peer-focus-visible:ring-[#2563EB]">{l}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Nombre<input name="name" required autocomplete="name" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Correo de trabajo<input name="email" type="email" required autocomplete="email" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Empresa<input name="company" required autocomplete="organization" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold">Cargo<input name="job_title" autocomplete="organization-title" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
           <label class="flex flex-col gap-1.5 text-[13px] font-semibold sm:col-span-2">País<input name="country" autocomplete="country-name" class="ork-focus h-11 rounded-xl border border-ork-line px-3 text-[15px] font-normal" /></label>
-          <label class="flex flex-col gap-1.5 text-[13px] font-semibold sm:col-span-2">¿Qué te gustaría resolver? (opcional)<textarea name="message" rows="3" class="ork-focus rounded-xl border border-ork-line px-3 py-2 text-[15px] font-normal"></textarea></label>
+          <label class="flex flex-col gap-1.5 text-[13px] font-semibold sm:col-span-2">Cuéntanos más (opcional)<textarea name="message" rows="3" placeholder="Tamaño de tu equipo, qué quieres resolver…" class="ork-focus rounded-xl border border-ork-line px-3 py-2 text-[15px] font-normal"></textarea></label>
           <label class="flex items-start gap-2.5 text-[13px] text-ork-graphite sm:col-span-2">
             <input type="checkbox" name="consent" required class="mt-0.5 size-4 accent-[#2563EB]" />
-            <span>Autorizo a ORKESTA a usar estos datos para contactarme sobre la demo, según la <a href="/privacidad" class="underline">política de privacidad</a>.</span>
+            <span>Autorizo a ORKESTA a usar estos datos para contactarme, según la <a href="/privacidad" class="underline">política de privacidad</a>.</span>
           </label>
           <p id="demo-status" class="text-[13.5px] sm:col-span-2" role="status" aria-live="polite"></p>
-          <button type="submit" class="ork-gradient h-12 rounded-xl text-[15px] font-semibold text-white hover:brightness-110 sm:col-span-2">Solicitar demo</button>
+          <button type="submit" class="ork-gradient h-12 rounded-xl text-[15px] font-semibold text-white hover:brightness-110 sm:col-span-2">Enviar</button>
         </form>
       </div>
     </section>
@@ -410,6 +508,8 @@ const included = [
       <nav class="flex gap-5" aria-label="Legal">
         <a href="/privacidad" class="hover:text-white">Privacidad</a>
         <a href="/terminos" class="hover:text-white">Términos</a>
+        <a href={STORE} target="_blank" rel="noopener" class="hover:text-white">Extensión de Chrome</a>
+        <a href="mailto:jenn@orkestaapp.com" class="hover:text-white">jenn@orkestaapp.com</a>
         <a href="/app/ingresar" class="hover:text-white">Iniciar sesión</a>
       </nav>
     </div>

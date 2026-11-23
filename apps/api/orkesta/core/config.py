@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     database_schema: str = "orkesta"
     secret_key: str = ""
     public_base_url: str = ""
+    # A dónde llega el aviso de cada solicitud del formulario de la landing.
+    demo_notify_email: str = "jenn@orkestaapp.com"
 
     access_token_minutes: int = Field(default=15, ge=1, le=120)
     refresh_token_days: int = Field(default=30, ge=1, le=90)
