@@ -1,0 +1,45 @@
+name: configurar-microsoft
+
+# Conecta la aplicación de Microsoft (Entra ID) para que los usuarios conecten buzones de
+# Outlook / Microsoft 365. Solo toca MICROSOFT_CLIENT_ID y MICROSOFT_CLIENT_SECRET del servidor
+# (no copia datos ni apaga las campañas) y reinicia la app.
+# Secretos (Settings → Secrets and variables → Actions): MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+jobs:
+  configurar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar y reiniciar
+        env:
+          HOST: ${{ secrets.AWS_HOST }}
+          KEY: ${{ secrets.AWS_SSH_KEY }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+        run: |
+          [ -n "$MICROSOFT_CLIENT_ID" ] || { echo "::error::Falta el secreto MICROSOFT_CLIENT_ID"; exit 1; }
+          [ -n "$MICROSOFT_CLIENT_SECRET" ] || { echo "::error::Falta el secreto MICROSOFT_CLIENT_SECRET"; exit 1; }
+          case "$MICROSOFT_CLIENT_ID" in (*[!0-9a-fA-F-]*) echo "::error::El ID de la aplicación no tiene el formato esperado"; exit 1;; esac
+          install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
+          SSH="ssh -i key.pem -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR ubuntu@$HOST"
+          umask 077
+          printf 'MICROSOFT_CLIENT_ID=%s\nMICROSOFT_CLIENT_SECRET=%s\n' "$MICROSOFT_CLIENT_ID" "$MICROSOFT_CLIENT_SECRET" > ms.env
+          $SSH 'cat > /tmp/ms.env' < ms.env && rm -f ms.env
+          $SSH 'sudo bash -s' <<'REMOTE'
+          set -e
+          cd /opt/orkesta
+          grep -v -E '^MICROSOFT_CLIENT_(ID|SECRET)=' .env > .env.tmp || true
+          cat /tmp/ms.env >> .env.tmp && mv .env.tmp .env && chmod 600 .env && rm -f /tmp/ms.env
+          docker compose up -d >/dev/null 2>&1
+          sleep 20
+          docker compose exec -T app python -c "from orkesta.campaigns import microsoft; print('Microsoft 365 listo:', microsoft.enabled()); print('Dirección de regreso:', microsoft.redirect_uri())" </dev/null
+          REMOTE
+          rm -f key.pem

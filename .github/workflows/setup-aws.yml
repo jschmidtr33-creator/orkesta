@@ -18,7 +18,7 @@ on:
       copiar_datos:
         description: "Copiar la base de datos desde Render (reemplaza lo que haya en AWS)"
         type: boolean
-        default: true
+        default: false  # nunca por defecto: reemplaza la base de AWS
       activar_trabajos:
         description: "Encender campañas y tareas programadas (solo cuando Render ya esté apagado)"
         type: boolean
