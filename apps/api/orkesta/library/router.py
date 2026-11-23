@@ -27,6 +27,8 @@ class PatchIn(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     description: str | None = Field(default=None, max_length=300)
     shared: bool | None = None
+    # Correos de una plantilla de campaña (mismo formato que los pasos de una campaña).
+    steps: list[dict[str, Any]] | None = Field(default=None, max_length=10)
 
 
 def _fail(exc: svc.TemplateError) -> HTTPException:
@@ -89,6 +91,15 @@ def rename(template_id: uuid.UUID, body: PatchIn, principal: Member, db: Db) -> 
         raise _fail(exc) from exc
     if body.description is not None:
         template.description = " ".join(body.description.split())[:300]
+    if body.steps is not None:
+        if template.kind != "campaign":
+            raise HTTPException(400, "Solo las plantillas de campaña tienen correos.")
+        from orkesta.campaigns.service import clean_steps
+
+        steps = clean_steps(body.steps)
+        if not steps or not any(str(st.get("body", "")).strip() for st in steps):
+            raise HTTPException(400, "La plantilla necesita al menos un correo con contenido.")
+        template.payload = {**(template.payload or {}), "steps": steps}
     if body.shared is not None:
         if template.created_by != principal.user.id:
             raise HTTPException(403, "Solo quien guardó la plantilla decide si se comparte.")
