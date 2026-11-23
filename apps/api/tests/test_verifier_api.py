@@ -98,3 +98,20 @@ def test_pricing_is_public_and_packages_add_quota(
     assert client.get(f"/api/admin/tenants/{bank['id']}").json()["verifications_left"] == 200
     added = client.post(f"/api/admin/tenants/{bank['id']}/verifications", json={"packages": 2})
     assert added.json() == {"extra_this_month": 1000, "left": 1200}
+
+
+def test_failed_service_calls_are_not_charged_to_the_plan() -> None:
+    """Sin créditos en el servicio (o sin respuesta), la consulta no se descuenta del plan."""
+
+    class Answer:
+        def json(self) -> dict:
+            return {"error": "Insufficient credits"}
+
+    class Client:
+        def get(self, *a: Any, **k: Any) -> Answer:
+            return Answer()
+
+    prober = api_verifier.ApiProber("k", limit=10)
+    with pytest.raises(api_verifier.SmtpUnavailable):
+        prober._one(Client(), "ana@lacteos.co")  # type: ignore[arg-type]
+    assert prober.used == 0

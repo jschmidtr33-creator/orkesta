@@ -219,6 +219,25 @@ def _save_verdict(session: Session, tenant_id: uuid.UUID, target: Target, v: Ver
         )
 
 
+def _known(
+    progress: Progress, targets: list[Target]
+) -> tuple[list[tuple[Target, str]], list[Target]]:
+    from orkesta.research.trust import Trust
+
+    trust = Trust(progress.factory)
+    known: list[tuple[Target, str]] = []
+    rest: list[Target] = []
+    for t in targets:
+        safe, why = (False, "")
+        if t.email:
+            safe, why = trust.check(t.email, t.first_name, t.last_name, t.domain)
+        if safe:
+            known.append((t, why))
+        else:
+            rest.append(t)
+    return known, rest
+
+
 def info_ok(checker: Checker, domain: str) -> bool:
     """El dominio no acepta cualquier dirección: un «válido» ahí sí prueba el buzón."""
     info = checker.domains.get(domain)
@@ -243,6 +262,17 @@ def _domain_work(
     retry_estimated: bool = False,
 ) -> None:
     planned = len(verify) + len(find)
+    if verify:
+        # Lo que ORKESTA ya comprobó (la dirección exacta o el formato confirmado del dominio)
+        # queda válido sin gastar verificaciones.
+        known, verify = _known(progress, verify)
+        if known:
+            with progress.tx() as session:
+                for target, why in known:
+                    _save_verdict(session, progress.tenant_id, target,
+                                  Verdict(target.email or "", "valido", why))  # fmt: skip
+                    progress.add("valido")
+                    progress.add("conocidos")
     if verify:
         verdicts: list[Verdict] = []
         emails = [t.email or "" for t in verify]
@@ -465,6 +495,9 @@ def execute(progress: Progress, scope: dict[str, Any]) -> None:
                           "«Sin confirmar». Puedes comprar un paquete extra.")  # fmt: skip
         elif not checker.health.available():
             progress.add("smtp_blocked", 1)
+            progress.note("La verificación de buzones no está disponible en este momento: los "
+                          "correos que ORKESTA no conocía quedaron «Sin confirmar» y no se "
+                          "descontaron de tu plan.")  # fmt: skip
             alerts.record(progress.factory, "verificador")
         else:
             with progress.factory.begin() as session:

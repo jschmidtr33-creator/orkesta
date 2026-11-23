@@ -79,7 +79,15 @@ class ApiProber:
         with self._lock:
             if self.limit is not None and self.used >= self.limit:
                 raise SmtpUnavailable("cupo de verificaciones del plan agotado")
-            self.used += 1
+            self.used += 1  # se reserva; si el servicio no responde, se devuelve
+        try:
+            return self._ask(client, email)
+        except SmtpUnavailable:
+            with self._lock:
+                self.used -= 1  # sin respuesta del servicio: no se cobra al plan
+            raise
+
+    def _ask(self, client: httpx.Client, email: str) -> tuple[int, str, str]:
         try:
             r = client.get(f"{BASE}/", params={"api": self.key, "email": email,
                                                "timeout": self.timeout})  # fmt: skip
