@@ -3052,7 +3052,16 @@ function TemplatesGallery() {
   const [filter, setFilter] = useState<"todas" | "equipo" | "mias">("todas");
   const [seeing, setSeeing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<{ id: string; name: string; shared: boolean } | null>(null);
   const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
+  const qc = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/api/templates/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["team-templates"] });
+      setRemoving(null);
+    },
+  });
   if (list.isLoading) return <Spinner />;
   const items = (list.data ?? []).filter((t) =>
     filter === "equipo" ? t.shared : filter === "mias" ? !t.shared : true,
@@ -3142,6 +3151,16 @@ function TemplatesGallery() {
                     Editar
                   </Button>
                 )}
+                {t.can_manage && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Borrar la plantilla ${t.name}`}
+                    title="Borrar plantilla"
+                    icon={<Trash2 className="size-3.5" aria-hidden />}
+                    onClick={() => setRemoving({ id: t.id, name: t.name, shared: t.shared })}
+                  />
+                )}
               </div>
             </Card>
           ))}
@@ -3162,6 +3181,28 @@ function TemplatesGallery() {
       )}
       {editing && (
         <EditTemplateModal id={editing} onClose={() => setEditing(null)} />
+      )}
+      {removing && (
+        <Modal
+          open
+          onOpenChange={(o) => !o && setRemoving(null)}
+          title="Borrar plantilla"
+          description={
+            removing.shared
+              ? `Se borra «${removing.name}» y nadie del equipo podrá volver a usarla. Las campañas ya creadas con ella no cambian.`
+              : `Se borra tu plantilla «${removing.name}». Las campañas ya creadas con ella no cambian.`
+          }
+        >
+          {remove.error && <Alert>{remove.error.message}</Alert>}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setRemoving(null)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate(removing.id)}>
+              Borrar plantilla
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );
