@@ -233,3 +233,25 @@ def test_invalid_without_a_working_format_is_not_retried(
     sessions = fake_network.sessions
     again = _validate(client, session_factory, find_missing=True)
     assert again["totals"].get("already_tried") == 1 and fake_network.sessions == sessions
+
+
+def test_known_emails_are_valid_without_spending_checks(
+    client: TestClient, session_factory: sessionmaker[Session], fake_network: FakeProber
+) -> None:
+    """Si ORKESTA ya confirmó el formato del dominio, el correo queda válido sin consultar al
+    verificador (aunque el verificador no esté disponible)."""
+    from orkesta.research.models import PatternStat
+
+    register(client, "ana@lacteos.co")
+    with session_factory() as session:
+        session.add(PatternStat(domain="bloqueado.co", pattern="first.last", verified=3))
+        session.commit()
+    cid = _contact(client, first_name="Laura", last_name="Gómez",
+                   email="laura.gomez@bloqueado.co")  # fmt: skip
+    other = _contact(client, first_name="Pedro", last_name="Ruiz", email="pruiz@bloqueado.co")
+    run = _validate(client, session_factory)
+    assert run["totals"]["conocidos"] == 1 and run["totals"]["valido"] == 1
+    assert client.get(f"/api/contacts/{cid}").json()["email_status"] == "valido"
+    # El otro no coincide con lo conocido y el verificador no responde: «Sin confirmar».
+    assert client.get(f"/api/contacts/{other}").json()["email_status"] == "desconocido"
+    assert fake_network.sessions == 0
