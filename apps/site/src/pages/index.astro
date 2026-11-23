@@ -374,6 +374,7 @@ const faq = [
                 <span class="whitespace-nowrap text-[14px] text-white/60">por usuario al mes</span>
               </p>
               <p class="text-[12.5px] text-white/50" data-field="billing-note">Pago anual · US${p.month} mes a mes</p>
+              <p class="mt-2 rounded-lg bg-white/[0.05] px-3 py-2 text-[13px] text-white/80" data-field="annual">Total anual: <strong>US${(p.year * 12).toLocaleString("es-CO")}</strong> por usuario{p.min > 1 && <> · equipo de {p.min}: <strong>US${(p.year * 12 * p.min).toLocaleString("es-CO")}</strong> al año</>}</p>
               <p class="mt-4 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-[13.5px] text-white/75">
                 {p.min > 1 ? <>Mínimo <strong data-field="min_users">{p.min}</strong> usuarios · equipo desde <strong>US$<span data-field="company-from">{p.min * p.year}</span></strong> al mes</> : <>Para <strong>1</strong> usuario</>}
               </p>
