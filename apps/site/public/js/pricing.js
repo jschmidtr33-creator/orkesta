@@ -7,6 +7,15 @@
   var data = null;
   var fmt = function (n) { return Number(n || 0).toLocaleString("es-CO"); };
 
+  // Pago anual: el total del año por usuario y por el equipo mínimo. Mes a mes no se muestra.
+  function annual(card, year, min) {
+    var el = card.querySelector('[data-field="annual"]');
+    if (!el) return;
+    el.hidden = billing !== "year";
+    var team = min > 1 ? " · equipo de " + min + ": <strong>US$" + fmt(year * 12 * min) + "</strong> al año" : "";
+    el.innerHTML = "Total anual: <strong>US$" + fmt(year * 12) + "</strong> por usuario" + team;
+  }
+
   function render() {
     section.querySelectorAll("[data-billing]").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.getAttribute("data-billing") === billing));
@@ -26,7 +35,9 @@
       set("verifications_per_user", fmt(p.verifications_per_user));
       set("min_users", fmt(p.min_users));
       var each = billing === "year" ? p.price_year : p.price_month;
-      set("company-from", fmt(each * Math.max(1, p.min_users || 1)));
+      var min = Math.max(1, p.min_users || 1);
+      set("company-from", fmt(each * min));
+      annual(card, p.price_year, min);
     });
     var put = function (field, value) {
       var el = section.querySelector('[data-field="' + field + '"]');
@@ -53,6 +64,7 @@
             var min = card.querySelector('[data-field="min_users"]');
             if (from && min) from.textContent = fmt(Number(m) * Number(min.textContent));
             note.textContent = billing === "year" ? "Pago anual · US$" + other + " mes a mes" : "Mes a mes · US$" + other + " con pago anual";
+            annual(card, Number(billing === "year" ? m : other), Number(min ? min.textContent : 1));
           }
         });
       }

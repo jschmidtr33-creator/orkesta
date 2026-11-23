@@ -34,6 +34,7 @@
         job_title: data.get("job_title") || "",
         country: data.get("country") || "",
         message: data.get("message") || "",
+        topic: data.get("topic") || "demo",
         consent: true,
       }),
     })
@@ -45,7 +46,7 @@
       .then(function (result) {
         if (result.ok) {
           form.reset();
-          show("¡Gracias! Te contactaremos pronto para agendar la demo.", true);
+          show("¡Gracias! Recibimos tu mensaje y te escribimos en menos de un día hábil.", true);
         } else {
           show(typeof result.body.detail === "string" ? result.body.detail : "Revisa los datos del formulario.", false);
         }
@@ -55,7 +56,7 @@
       })
       .finally(function () {
         button.disabled = false;
-        button.textContent = "Solicitar demo";
+        button.textContent = "Enviar";
       });
   });
 })();

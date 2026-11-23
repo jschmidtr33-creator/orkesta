@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -259,3 +260,35 @@ def test_release_bootstraps_platform_admin(
     assert data["user"]["platform_admin"] is True and data["workspace"]["name"] == "Mi Empresa"
     overview = client.get("/api/platform/overview").json()
     assert overview["tenants"] == 1
+
+
+def test_landing_requests_become_deals_in_orkesta_and_notify(
+    client: TestClient, database: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cada solicitud de la landing crea contacto y oportunidad en la empresa ORKESTA (a nombre
+    de la dueña de la plataforma) y le avisa por correo."""
+    import psycopg
+
+    from orkesta.core import system_mail
+
+    sent: list[dict] = []
+    monkeypatch.setattr(system_mail, "send", lambda session, **kw: sent.append(kw) or True)
+    register(client, "jenn@orkestaapp.co", company="ORKESTA")
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.users SET is_platform_admin = true "
+                     "WHERE email = 'jenn@orkestaapp.co'")  # fmt: skip
+    form = {"name": "María Pérez", "email": "maria@empresa.co", "company": "Empresa Ficticia",
+            "job_title": "Gerente comercial", "country": "Colombia",
+            "message": "Quiero automatizar el seguimiento", "consent": True}  # fmt: skip
+    assert client.post("/api/public/demo-requests", json=form).status_code == 201
+    deals = client.get("/api/crm/deals").json()
+    items = deals["deals"]
+    deal = next(d for d in items if d["title"] == "Demo · Empresa Ficticia")
+    assert deal["contact"]["email"] == "maria@empresa.co"
+    assert len(sent) == 1 and sent[0]["to"] == "jenn@orkestaapp.com"
+    assert "Quiero automatizar el seguimiento" in sent[0]["text"]
+    assert "/app/crm?oportunidad=" in sent[0]["text"]
+    # La misma persona de nuevo: otra oportunidad, sin duplicar el contacto.
+    assert client.post("/api/public/demo-requests", json=form).status_code == 201
+    contacts = client.get("/api/contacts", params={"q": "maria@empresa.co"}).json()
+    assert contacts["total"] == 1
