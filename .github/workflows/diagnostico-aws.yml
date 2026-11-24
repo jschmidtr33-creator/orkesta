@@ -45,15 +45,20 @@ jobs:
           with f() as s:
               print('buzon del sistema configurado:', system_mail.config(s) is not None)
           " </dev/null 2>&1 | tail -3
-          echo "==> Envío de prueba"
+          echo "==> Resultado del envío de prueba"
           docker compose exec -T app python -c "
-          import json, urllib.request
-          body = json.dumps({'name': 'Prueba ORKESTA', 'email': 'prueba-formulario@orkestaapp.com', 'company': 'PRUEBA (borrar)', 'job_title': 'Prueba', 'country': 'Colombia', 'message': 'Envío de prueba del formulario de la landing. Puedes borrar esta oportunidad.', 'topic': 'demo', 'consent': True}).encode()
-          req = urllib.request.Request('http://localhost:8000/api/public/demo-requests', data=body, headers={'Content-Type': 'application/json', 'Origin': 'https://orkestaapp.com'})
-          print('respuesta:', urllib.request.urlopen(req).status)
+          from sqlalchemy import select, func
+          from orkesta.core.db import get_session_factory, set_context
+          from orkesta.platform import house
+          from orkesta.crm.models import Deal
+          f = get_session_factory()
+          with f() as s:
+              h = house.find(s)
+              if h:
+                  set_context(s, tenant_id=h.tenant_id, user_id=h.user_id)
+                  print('oportunidades de prueba:', s.scalar(select(func.count()).select_from(Deal).where(Deal.title.like('%PRUEBA (borrar)%'))))
           " </dev/null 2>&1 | tail -2
-          sleep 3
-          docker compose logs --since 2m app 2>&1 | grep -E "house_|system_mail" | cut -c1-160 | tail -5
+          docker compose logs --since 30m app 2>&1 | grep -E "house_|system_mail|demo-requests" | cut -c1-160 | tail -6
           REMOTE
 
       - name: Estado
