@@ -1058,3 +1058,19 @@ def test_no_follow_up_after_a_bounce_or_block(
     assert len(google.sent) == 2
     detail = client.get(f"/api/campaigns/{campaign['id']}").json()
     assert detail["stats"]["bounced"] == 1 and detail["stats"]["blocked"] == 1
+
+
+def test_block_notices_keep_the_technical_cause_and_delays_are_not_blocks() -> None:
+    """El cuerpo del aviso trae el código del servidor: se guarda la causa (por ejemplo, falta
+    DKIM o DMARC). Un aviso de «retraso» no es un bloqueo: Gmail sigue intentando."""
+    from orkesta.campaigns import gmail
+
+    notice = ("delivery status notification (failure) El mensaje se ha bloqueado. "
+              "The response from the remote server was: 550-5.7.26 Unauthenticated email "
+              "from ejemplo.co is not accepted due to domain's DMARC policy.")  # fmt: skip
+    assert gmail.classify_bounce(notice) == "blocked"
+    note = svc._blocked_note([notice])
+    assert "falta autenticar el dominio" in note and "550-5.7.26" in note
+    delay = ("delivery status notification (delay) No se ha completado la entrega Se ha "
+             "producido un problema temporal al entregar el mensaje")  # fmt: skip
+    assert gmail.classify_bounce(delay) == ""

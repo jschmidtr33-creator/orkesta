@@ -6,7 +6,9 @@ Los tokens se guardan cifrados (Fernet con una clave derivada de SECRET_KEY).
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
@@ -238,7 +240,44 @@ NOT_FOUND = (
     "no existe el usuario", "cuenta deshabilitada", "dirección no válida",
 )  # fmt: skip
 DELAYED = ("retrasado", "delayed", "delivery incomplete", "entrega incompleta", "will retry",
-           "se volverá a intentar", "temporarily")  # fmt: skip
+           "se volverá a intentar", "temporarily", "(delay)", "problema temporal",
+           "temporary problem", "no se ha completado la entrega", "la entrega no se completó",
+           "seguirá intentando", "will keep trying", "4.4.", "4.7.")  # fmt: skip
+# Causa técnica de un bloqueo, según el código y el texto del servidor del destinatario.
+BLOCK_CAUSES = (
+    ("autenticacion", ("5.7.26", "5.7.27", "5.7.25", "5.7.30", "unauthenticated", "dkim", "dmarc",
+                       "spf", "not authenticated", "authentication")),
+    ("spam", ("spam", "junk", "bulk mail", "unsolicited", "5.7.350", "content")),
+    ("reputacion", ("reputation", "blocklist", "blacklist", "block list", "listed", "spamhaus",
+                    "barracuda", "rbl", "5.7.606", "5.7.511")),
+    ("limite", ("rate", "too many", "throttl", "4.7.0", "5.4.5", "quota")),
+    ("politica", ("policy", "policies", "not allowed", "relay", "denied", "prohibited",
+                  "5.7.1", "5.7.0", "access denied")),
+)  # fmt: skip
+CAUSE_LABELS = {
+    "autenticacion": "falta autenticar el dominio (DKIM, SPF o DMARC)",
+    "spam": "el filtro lo marcó como spam o correo masivo",
+    "reputacion": "reputación del dominio o del servidor de envío",
+    "limite": "límite de envíos del destinatario",
+    "politica": "política del servidor del destinatario",
+}
+_CODE = re.compile(
+    r"\b[45]\d\d[ -][45]\.\d{1,3}\.\d{1,3}\b[^\n]{0,160}|\b[45]\.\d{1,3}\.\d{1,3}\b[^\n]{0,160}"
+)
+
+
+def block_cause(text: str) -> str:
+    lowered = text.lower()
+    for cause, keys in BLOCK_CAUSES:
+        if any(k in lowered for k in keys):
+            return cause
+    return ""
+
+
+def technical_detail(text: str) -> str:
+    """La línea técnica del aviso (código SMTP y motivo), sin el saludo del servidor."""
+    found = _CODE.search(text)
+    return " ".join(found.group(0).split())[:220] if found else ""
 
 
 def classify_bounce(text: str) -> str:
@@ -249,6 +288,33 @@ def classify_bounce(text: str) -> str:
     if any(k in lowered for k in DELAYED):
         return ""
     return "blocked"
+
+
+def _message_text(access_token: str, message_id: str) -> str:
+    """Texto plano de un mensaje (para leer el detalle técnico de un aviso de no entrega)."""
+    if not message_id:
+        return ""
+    try:
+        with _client() as client:
+            response = client.get(f"{API}/messages/{message_id}", params={"format": "full"},
+                                  headers={"Authorization": f"Bearer {access_token}"})  # fmt: skip
+    except httpx.HTTPError:
+        return ""
+    if response.status_code != 200:
+        return ""
+    parts: list[str] = []
+
+    def walk(part: dict[str, Any]) -> None:
+        mime = str(part.get("mimeType", ""))
+        data = (part.get("body") or {}).get("data")
+        if data and (mime.startswith("text/plain") or mime in ("message/delivery-status",)):
+            with contextlib.suppress(ValueError):
+                parts.append(base64.urlsafe_b64decode(data + "==").decode("utf-8", "replace"))
+        for child in part.get("parts", []) or []:
+            walk(child)
+
+    walk(response.json().get("payload", {}))
+    return "\n".join(parts)[:6000]
 
 
 def thread_outcome(access_token: str, thread_id: str, mailbox_email: str) -> str:
@@ -279,7 +345,9 @@ def thread_check(access_token: str, thread_id: str, mailbox_email: str) -> tuple
             continue
         subject = headers.get("subject", "").lower()
         if any(b in name for b in BOUNCE_SENDERS) or any(b in subject for b in BOUNCE_SUBJECTS):
-            bounce_text = f"{subject} {message.get('snippet', '')}"
+            # El resumen trae solo el saludo del aviso: el código técnico está en el cuerpo.
+            body = _message_text(access_token, str(message.get("id", "")))
+            bounce_text = f"{subject} {message.get('snippet', '')} {body}"
             kind = classify_bounce(bounce_text)
             if kind == "bounced" or (kind == "blocked" and outcome != "bounced"):
                 outcome, bounce = kind, bounce_text

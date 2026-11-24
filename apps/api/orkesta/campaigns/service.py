@@ -1356,9 +1356,13 @@ _EMAIL = re.compile(r"[\w.%+-]+@[\w.-]+\.[a-z]{2,}", re.I)
 
 
 def _blocked_note(texts: list[str]) -> str:
-    """Nota del bloqueo con un extracto del aviso del servidor (sin direcciones de correo)."""
-    extract = _EMAIL.sub("<correo>", " ".join((texts or [""])[0].split()))[:150]
-    return f"{BLOCKED_NOTE} · {extract}"[:300] if extract else f"{BLOCKED_NOTE} · sin detalle"
+    """Nota del bloqueo: la causa y la línea técnica del servidor (sin direcciones de correo)."""
+    text = (texts or [""])[0]
+    cause = gmail.block_cause(text)
+    detail = _EMAIL.sub("<correo>", gmail.technical_detail(text))
+    extract = detail or _EMAIL.sub("<correo>", " ".join(text.split()))[:150]
+    label = f"{BLOCKED_NOTE} · Causa: {gmail.CAUSE_LABELS[cause]}" if cause else BLOCKED_NOTE
+    return f"{label} · {extract}"[:300] if extract else f"{label} · sin detalle"
 
 
 def _undo_bounce(session: Session, campaign: Campaign, recipient: Recipient) -> None:
