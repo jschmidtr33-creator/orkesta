@@ -251,3 +251,19 @@ class ApiToken(IdMixin, Base):
     prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PresenceMinute(Base):
+    """Un minuto con ORKESTA abierto (y si hubo interacción). Ver la migración 0055."""
+
+    __tablename__ = "presence_minutes"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    section: Mapped[str] = mapped_column(String(30), nullable=False, default="")

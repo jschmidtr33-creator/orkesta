@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronRight, Eye, Search } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, Clock, Eye, Lock, Search } from "lucide-react";
+import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Alert, Avatar, Badge, Card, CardHeader, cx, PageHeader, Spinner } from "../components/ui";
 import { api } from "../lib/api";
@@ -38,6 +38,28 @@ type Person = Metrics & {
   role: string;
   active: boolean;
   last_login_at: string | null;
+  worktime?: { avg_connected: number; avg_active: number; days_worked: number; today_connected: number; today_active: number } | null;
+};
+type WorkDay = {
+  day: string;
+  connected_minutes: number;
+  active_minutes: number | null;
+  first: string | null;
+  last: string | null;
+  measured: boolean;
+  actions: number;
+  emails_sent: number;
+};
+type WorkTime = {
+  days: WorkDay[];
+  summary: { days_worked: number; connected_minutes: number; active_minutes: number; avg_connected: number; avg_active: number | null; measured_days: number; actions: number; measured_since: string | null };
+};
+type DayDetail = {
+  day: string;
+  measured: boolean;
+  blocks: { start: string; end: string; minutes: number; active_minutes: number | null; sections: string[] }[];
+  sections: { name: string; minutes: number }[];
+  timeline: { at: string; label: string; kind: string }[];
 };
 type TeamOverview = { people: Person[]; totals: Partial<Metrics> & { reply_rate: number | null } };
 type Detail = {
@@ -81,6 +103,16 @@ function grouped(items: Detail["timeline"]) {
   }
   return out;
 }
+
+/** «3 h 25 min», «45 min», «—». */
+export function hm(minutes: number | null | undefined): string {
+  if (!minutes) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`;
+}
+const clock = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "—");
+const dayName = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" });
 
 const when = (iso: string) => new Date(iso).toLocaleString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -163,10 +195,11 @@ export function TeamPage() {
               <h2 className="text-[15px] font-bold text-ork-ink">Por persona</h2>
               <p className="text-[13px] text-ork-mist">Toca una persona para ver su pipeline, campañas, búsquedas y actividad.</p>
             </div>
-            <table className="mt-3 w-full min-w-[1080px] text-[13.5px]">
+            <table className="mt-3 w-full min-w-[1200px] text-[13.5px]">
               <thead>
                 <tr className="border-y border-ork-line bg-ork-surface/60 text-left text-[12px] font-semibold uppercase tracking-wide text-ork-mist">
                   <th className="min-w-[220px] px-5 py-2.5">Persona</th>
+                  <th className="whitespace-nowrap px-3 py-2.5 text-right">Tiempo en ORKESTA</th>
                   <th className="px-3 py-2.5 text-right">Búsquedas</th>
                   <th className="px-3 py-2.5 text-right">Contactos</th>
                   <th className="px-3 py-2.5 text-right">Enviados</th>
@@ -193,6 +226,16 @@ export function TeamPage() {
                         </span>
                         <ChevronRight className="ml-auto size-4 text-ork-mist" aria-hidden />
                       </Link>
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {p.worktime ? (
+                        <span className="whitespace-nowrap">
+                          {hm(p.worktime.avg_connected)} / día
+                          <span className="block text-[12px] text-ork-mist">Hoy: {hm(p.worktime.today_connected)}</span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">{n(p.searches)}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{n(p.contacts_added)}</td>
@@ -267,6 +310,7 @@ export function TeamMemberPage() {
             <Stat label="Rebotes" value={n(d.metrics.bounced)} tone={d.metrics.bounced > 0 ? "warn" : undefined} />
             <Stat label="Pipeline abierto" value={money(d.metrics.open_value)} hint={`${n(d.metrics.open_deals)} oportunidades`} />
           </div>
+          <WorkTimeCard userId={userId} params={period.params} periodKey={period.key} />
           <div className="grid gap-5 xl:grid-cols-2">
             <Card>
               <CardHeader title="Embudo del período" />
@@ -363,6 +407,196 @@ export function TeamMemberPage() {
           </Card>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Tiempo en ORKESTA por día e historial de cada día. Solo jefatura y administración. */
+function WorkTimeCard({ userId, params, periodKey }: { userId: string; params: string; periodKey: unknown[] }) {
+  const q = useQuery({
+    queryKey: ["team-worktime", userId, ...periodKey],
+    queryFn: () => api<WorkTime>(`/api/reports/team/${userId}/worktime?${params}`),
+    placeholderData: (prev) => prev,
+  });
+  const [open, setOpen] = useState<string | null>(null);
+  const d = q.data;
+  const max = Math.max(60, ...(d?.days ?? []).map((x) => x.connected_minutes));
+  const chart = [...(d?.days ?? [])].reverse();
+  return (
+    <Card>
+      <CardHeader
+        title="Tiempo en ORKESTA"
+        description="Cuánto tiempo tuvo ORKESTA abierto («conectado») y cuánto lo usó de verdad («activo»), día por día."
+      />
+      <p className="-mt-2 mb-4 flex items-center gap-1.5 text-[12.5px] text-ork-mist">
+        <Lock className="size-3.5 shrink-0" aria-hidden /> Solo lo ven la jefatura y la administración. La persona no ve esta medición.
+      </p>
+      {q.isLoading ? (
+        <Spinner label="Calculando" />
+      ) : q.error ? (
+        <Alert>{q.error.message}</Alert>
+      ) : d ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Conectado por día" value={hm(d.summary.avg_connected)} hint="Promedio de los días trabajados" />
+            <Stat
+              label="Activo por día"
+              value={d.summary.avg_active == null ? "Desde hoy" : hm(d.summary.avg_active)}
+              hint={d.summary.avg_active == null ? "Se mide minuto a minuto desde hoy" : `Usándolo de verdad · ${d.summary.measured_days} días medidos`}
+            />
+            <Stat label="Días trabajados" value={`${d.summary.days_worked} de ${d.days.length}`} />
+            <Stat label="Acciones" value={n(d.summary.actions)} hint="Contactos, notas, tareas, campañas…" />
+          </div>
+          <div className="mt-5" role="img" aria-label="Minutos conectado y activo por día">
+            <div className="flex h-36 items-end gap-[3px]">
+              {chart.map((x) => (
+                <button
+                  key={x.day}
+                  type="button"
+                  onClick={() => setOpen(open === x.day ? null : x.day)}
+                  title={`${dayName(x.day)}: conectado ${hm(x.connected_minutes)}${x.measured ? `, activo ${hm(x.active_minutes)}` : " (estimado)"}`}
+                  className={cx("ork-focus relative flex h-full min-w-0 flex-1 items-end rounded-t", open === x.day && "bg-ork-blue/5")}
+                >
+                  <span
+                    className={cx("relative w-full rounded-t", x.measured ? "bg-ork-blue/25" : "bg-ork-mist/25")}
+                    style={{ height: `${(x.connected_minutes / max) * 100}%` }}
+                  >
+                    <span
+                      className={cx("absolute inset-x-0 bottom-0 rounded-t", x.measured ? "bg-ork-blue" : "bg-ork-mist/70")}
+                      style={{ height: x.connected_minutes && x.active_minutes ? `${(x.active_minutes / x.connected_minutes) * 100}%` : 0 }}
+                    />
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-1 flex justify-between text-[11.5px] text-ork-mist">
+              <span>{chart[0] ? dayName(chart[0].day) : ""}</span>
+              <span className="flex items-center gap-3">
+                <span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-ork-blue" /> Activo</span>
+                <span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-ork-blue/25" /> Conectado</span>
+                <span className="flex items-center gap-1"><span className="size-2.5 rounded-sm bg-ork-mist/50" /> Estimado</span>
+              </span>
+              <span>{chart.length ? dayName(chart[chart.length - 1].day) : ""}</span>
+            </div>
+          </div>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-[13.5px]">
+              <thead>
+                <tr className="border-y border-ork-line bg-ork-surface/60 text-left text-[12px] font-semibold uppercase tracking-wide text-ork-mist">
+                  <th className="px-3 py-2">Día</th>
+                  <th className="px-3 py-2">Primera conexión</th>
+                  <th className="px-3 py-2">Última</th>
+                  <th className="px-3 py-2 text-right">Conectado</th>
+                  <th className="px-3 py-2 text-right">Activo</th>
+                  <th className="px-3 py-2 text-right">Acciones</th>
+                  <th className="px-3 py-2 text-right">Correos de campañas</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ork-line">
+                {d.days.map((x) => (
+                  <Fragment key={x.day}>
+                    <tr
+                      className={cx("cursor-pointer hover:bg-ork-surface/60", !x.connected_minutes && !x.actions && "text-ork-mist")}
+                      onClick={() => setOpen(open === x.day ? null : x.day)}
+                    >
+                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold capitalize text-ork-ink">
+                        {dayName(x.day)}
+                        {!x.measured && x.connected_minutes > 0 && <span className="ml-2"><Badge>Estimado</Badge></span>}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums">{clock(x.first)}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{clock(x.last)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{hm(x.connected_minutes)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{hm(x.active_minutes)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{n(x.actions)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{n(x.emails_sent)}</td>
+                      <td className="px-2">
+                        <button type="button" aria-label={`Ver el historial del ${dayName(x.day)}`} aria-expanded={open === x.day} className="ork-focus rounded p-1">
+                          <ChevronDown className={cx("size-4 text-ork-mist transition", open === x.day && "rotate-180")} aria-hidden />
+                        </button>
+                      </td>
+                    </tr>
+                    {open === x.day && (
+                      <tr>
+                        <td colSpan={8} className="bg-ork-surface/40 px-4 py-4">
+                          <DayHistory userId={userId} day={x.day} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[12px] text-ork-mist">
+            {d.summary.measured_since
+              ? `Medido minuto a minuto desde el ${new Date(d.summary.measured_since).toLocaleDateString("es", { day: "numeric", month: "long" })}. `
+              : "La medición minuto a minuto empieza hoy. "}
+            Los días «estimado» se calculan con las sesiones abiertas y las acciones registradas; el tiempo activo solo existe en los días medidos.
+          </p>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
+function DayHistory({ userId, day }: { userId: string; day: string }) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const q = useQuery({
+    queryKey: ["team-day", userId, day, tz],
+    queryFn: () => api<DayDetail>(`/api/reports/team/${userId}/worktime/${day}?tz=${encodeURIComponent(tz)}`),
+  });
+  const d = q.data;
+  if (q.isLoading) return <Spinner label="Cargando el día" />;
+  if (q.error) return <Alert>{q.error.message}</Alert>;
+  if (!d) return null;
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+      <div>
+        <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold uppercase tracking-wide text-ork-mist">
+          <Clock className="size-3.5" aria-hidden /> Conexiones {d.measured ? "" : "(estimadas)"}
+        </p>
+        {d.blocks.length === 0 ? (
+          <p className="text-[13px] text-ork-mist">No se conectó este día.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {d.blocks.map((b) => (
+              <li key={b.start} className="rounded-lg border border-ork-line bg-ork-card px-3 py-2 text-[13px]">
+                <span className="font-semibold tabular-nums text-ork-ink">
+                  {clock(b.start)} – {clock(b.end)}
+                </span>
+                <span className="text-ork-mist">
+                  {" "}
+                  · {hm(b.minutes)} conectado{b.active_minutes != null && ` · ${hm(b.active_minutes)} activo`}
+                </span>
+                {b.sections.length > 0 && <span className="block text-[12px] text-ork-mist">En {b.sections.join(", ")}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {d.sections.length > 0 && (
+          <>
+            <p className="mb-2 mt-4 text-[12.5px] font-semibold uppercase tracking-wide text-ork-mist">Dónde pasó el tiempo</p>
+            <HBars rows={d.sections.map((s) => ({ label: s.name, value: s.minutes, note: hm(s.minutes) }))} empty="" />
+          </>
+        )}
+      </div>
+      <div>
+        <p className="mb-2 text-[12.5px] font-semibold uppercase tracking-wide text-ork-mist">Qué hizo</p>
+        {d.timeline.length === 0 ? (
+          <p className="text-[13px] text-ork-mist">Sin acciones registradas este día.</p>
+        ) : (
+          <ol className="relative ml-2 border-l border-ork-line">
+            {d.timeline.map((a, i) => (
+              <li key={`${a.at}-${i}`} className="mb-2.5 ml-4 text-[13px]">
+                <span className={cx("absolute -left-[5px] mt-1.5 size-2.5 rounded-full", a.kind === "correo" ? "bg-ork-mist" : "bg-ork-blue")} aria-hidden />
+                <span className="tabular-nums text-ork-mist">{clock(a.at)}</span>{" "}
+                <span className="text-ork-ink">{a.label.charAt(0).toUpperCase() + a.label.slice(1)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
