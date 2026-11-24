@@ -294,3 +294,46 @@ def test_teammates_can_import_the_same_contacts(
     assert again["totals"]["nuevos"] == 0 and again["totals"]["actualizados"] == 3
     assert luis.get("/api/contacts").json()["total"] == 3
     assert client.get("/api/contacts").json()["total"] == 3
+
+
+def test_work_time_is_only_for_managers_and_admins(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """La app suma minutos mientras está abierta; solo la jefatura (de su equipo) y la
+    administración ven el tiempo y el historial del día. Nadie ve su propia medición."""
+    from datetime import date
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    jefa = _join(client, "jefa@lacteos.co", "supervisor", "Jefa Comercial")
+    luis = _join(client, "luis@lacteos.co", "vendedor", "Luis")
+    sara = _join(client, "sara@lacteos.co", "vendedor", "Sara")
+    people = _members(client)
+    client.put(f"/api/team/members/{people['jefa@lacteos.co']['id']}/assignments",
+               json={"member_ids": [people["luis@lacteos.co"]["user_id"]]})  # fmt: skip
+    luis_id = people["luis@lacteos.co"]["user_id"]
+    # Dos pestañas en el mismo minuto cuentan una vez; con interacción, «activo».
+    for active in (False, True):
+        assert luis.post("/api/reports/presence",
+                         json={"path": "/crm", "active": active}).status_code == 204  # fmt: skip
+    _contact(luis, "sofia@retaildemo.cl")
+
+    data = jefa.get(f"/api/reports/team/{luis_id}/worktime").json()
+    today = data["days"][0]
+    assert today["measured"] is True
+    assert today["connected_minutes"] == 1 and today["active_minutes"] == 1
+    assert today["actions"] >= 1 and len(data["days"]) == 30
+    detail = jefa.get(f"/api/reports/team/{luis_id}/worktime/{today['day']}").json()
+    assert detail["blocks"][0]["sections"] == ["CRM"]
+    assert any(t["label"] == "creó un contacto" for t in detail["timeline"])
+    panel = jefa.get("/api/reports/team").json()
+    assert panel["people"][0]["worktime"]["today_connected"] == 1
+    # La administración también lo ve; Sara no está a cargo de la jefa; nadie se ve a sí mismo.
+    assert client.get(f"/api/reports/team/{luis_id}/worktime").status_code == 200
+    sara_id = people["sara@lacteos.co"]["user_id"]
+    assert jefa.get(f"/api/reports/team/{sara_id}/worktime").status_code == 404
+    assert luis.get(f"/api/reports/team/{luis_id}/worktime").status_code == 403
+    assert sara.get(f"/api/reports/team/{luis_id}/worktime/{date.today()}").status_code == 403
+    # Los días antes de la medición se estiman con las sesiones y las acciones.
+    old = data["days"][-1]
+    assert old["measured"] is False

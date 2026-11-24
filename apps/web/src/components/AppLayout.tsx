@@ -28,6 +28,7 @@ import { useTheme, type Theme } from "../lib/theme";
 import { Fragment, useRef, useState, type ComponentType } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, type Session, type Workspace } from "../lib/api";
+import { usePresence } from "../lib/presence";
 import { useSession } from "../lib/session";
 import { ConcertinoProvider } from "./Concertino";
 import { NotificationBell } from "./Notifications";
@@ -278,6 +279,7 @@ function Sidebar({
 export function AppLayout() {
   const { session, loading } = useSession();
   const [open, setOpen] = useState(false);
+  usePresence(Boolean(session?.workspace));
   if (loading) return <Spinner label="Abriendo ORKESTA" />;
   if (!session) return <Navigate to="/ingresar" replace />;
   if (!session.workspace) return <Navigate to="/bienvenida" replace />;
