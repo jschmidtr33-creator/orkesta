@@ -34,31 +34,26 @@ jobs:
           # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
           T="'2026-11-19 15:20+00'"
           W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
-          echo "==> Verificaciones desde el 18 nov"
-          q "$W SELECT left(v.tenant_id::text,6) emp, u.ini, v.status, left(v.created_at::text,16) creada, v.totals::text, left(coalesce(v.error,''),120) err,
-                     left(regexp_replace(coalesce(v.progress->>'notes', v.progress->>'log', ''),'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+','<correo>','g'),300) notas
-             FROM orkesta.validation_runs v LEFT JOIN u ON u.id=v.created_by WHERE v.created_at > '2026-11-18' ORDER BY v.created_at DESC LIMIT 25;"
-          echo "==> Plan y cupo de verificación por empresa"
+          echo "==> Formulario de la landing"
           docker compose exec -T app python -c "
-          import uuid
-          from sqlalchemy import select
-          from orkesta.core.db import get_session_factory, set_context
-          from orkesta.platform.models import Tenant
-          from orkesta.admin.limits import plan_limits, verifications_left
-          from orkesta.validation.api_verifier import configured_key, balance
+          from orkesta.core.db import get_session_factory
+          from orkesta.platform import house
+          from orkesta.core import system_mail
           f = get_session_factory()
           with f() as s:
-              for t in list(s.scalars(select(Tenant))):
-                  set_context(s, tenant_id=t.id)
-                  try:
-                      print(str(t.id)[:6], plan_limits(s, t.id), 'quedan:', verifications_left(s, t.id))
-                  except Exception as e:
-                      print(str(t.id)[:6], 'error', type(e).__name__, str(e)[:120])
-              k = configured_key(s)
-              print('clave MillionVerifier:', bool(k), 'creditos:', balance(k) if k else None)
-          " </dev/null 2>&1 | tail -20
-          echo "==> Alertas de servicios"
-          q "SELECT key, left(value::text,300) FROM orkesta.platform_settings WHERE key ILIKE '%alert%';"
+              print('empresa ORKESTA encontrada:', house.find(s) is not None)
+          with f() as s:
+              print('buzon del sistema configurado:', system_mail.config(s) is not None)
+          " </dev/null 2>&1 | tail -3
+          echo "==> Envío de prueba"
+          docker compose exec -T app python -c "
+          import json, urllib.request
+          body = json.dumps({'name': 'Prueba ORKESTA', 'email': 'prueba-formulario@orkestaapp.com', 'company': 'PRUEBA (borrar)', 'job_title': 'Prueba', 'country': 'Colombia', 'message': 'Envío de prueba del formulario de la landing. Puedes borrar esta oportunidad.', 'topic': 'demo', 'consent': True}).encode()
+          req = urllib.request.Request('http://localhost:8000/api/public/demo-requests', data=body, headers={'Content-Type': 'application/json', 'Origin': 'https://orkestaapp.com'})
+          print('respuesta:', urllib.request.urlopen(req).status)
+          " </dev/null 2>&1 | tail -2
+          sleep 3
+          docker compose logs --since 2m app 2>&1 | grep -E "house_|system_mail" | cut -c1-160 | tail -5
           REMOTE
 
       - name: Estado
