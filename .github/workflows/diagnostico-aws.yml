@@ -34,31 +34,35 @@ jobs:
           # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
           T="'2026-11-19 15:20+00'"
           W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
-          echo "==> Formulario de la landing"
-          docker compose exec -T app python -c "
-          from orkesta.core.db import get_session_factory
-          from orkesta.platform import house
-          from orkesta.core import system_mail
-          f = get_session_factory()
-          with f() as s:
-              print('empresa ORKESTA encontrada:', house.find(s) is not None)
-          with f() as s:
-              print('buzon del sistema configurado:', system_mail.config(s) is not None)
-          " </dev/null 2>&1 | tail -3
-          echo "==> Resultado del envío de prueba"
-          docker compose exec -T app python -c "
-          from sqlalchemy import select, func
-          from orkesta.core.db import get_session_factory, set_context
-          from orkesta.platform import house
-          from orkesta.crm.models import Deal
-          f = get_session_factory()
-          with f() as s:
-              h = house.find(s)
-              if h:
-                  set_context(s, tenant_id=h.tenant_id, user_id=h.user_id)
-                  print('oportunidades de prueba:', s.scalar(select(func.count()).select_from(Deal).where(Deal.title.like('%PRUEBA (borrar)%'))))
-          " </dev/null 2>&1 | tail -2
-          docker compose logs --since 30m app 2>&1 | grep -E "house_|system_mail|demo-requests" | cut -c1-160 | tail -6
+          echo "==> Bloqueos de los últimos 30 días por causa"
+          q "SELECT CASE
+                 WHEN error ~* 'dkim' THEN 'DKIM'
+                 WHEN error ~* 'dmarc' THEN 'DMARC'
+                 WHEN error ~* 'spf' THEN 'SPF'
+                 WHEN error ~* 'unauthenticated|not authenticated|authentication' THEN 'Sin autenticar (DKIM/SPF/DMARC)'
+                 WHEN error ~* 'spam|junk|bulk|unsolicited' THEN 'Spam / contenido'
+                 WHEN error ~* 'reputation|blocklist|blacklist|block list|listed|spamhaus|barracuda' THEN 'Reputación / listas negras'
+                 WHEN error ~* 'rate|too many|throttl|limit' THEN 'Límite de envío'
+                 WHEN error ~* 'policy|policies|not allowed|rejected|refused|denied|prohibited' THEN 'Política del destinatario'
+                 WHEN error ~* 'gateway|proofpoint|mimecast|barracuda|ironport|security' THEN 'Filtro de seguridad corporativo'
+                 WHEN coalesce(error,'') = '' THEN '(sin texto)'
+                 ELSE 'Otro' END causa, count(*)
+             FROM orkesta.campaign_recipients r
+             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days'
+             GROUP BY 1 ORDER BY 2 DESC;"
+          echo "==> Ejemplos de avisos (anonimizados)"
+          q "SELECT left(regexp_replace(regexp_replace(error, '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', '<correo>', 'g'), '([a-z0-9-]+\\.)+(com|co|net|org|mx|cl|pe|ar|io|es|ec|gt|cr|uy|py|bo|pa|do|ve)(\\.[a-z]{2})?', '<dominio>', 'gi'), 220) aviso, count(*)
+             FROM orkesta.campaign_recipients r
+             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days'
+             GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
+          echo "==> Bloqueos por proveedor del destinatario (MX)"
+          q "SELECT CASE WHEN error ~* 'outlook|microsoft|protection.outlook|exchange' THEN 'Microsoft 365'
+                         WHEN error ~* 'google|gmail' THEN 'Google'
+                         WHEN error ~* 'proofpoint|pphosted' THEN 'Proofpoint'
+                         WHEN error ~* 'mimecast' THEN 'Mimecast'
+                         ELSE 'Otro / no dice' END proveedor, count(*)
+             FROM orkesta.campaign_recipients r
+             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days' GROUP BY 1 ORDER BY 2 DESC;"
           REMOTE
 
       - name: Estado
