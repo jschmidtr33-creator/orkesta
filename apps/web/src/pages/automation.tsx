@@ -10,7 +10,7 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Alert,
@@ -155,13 +155,8 @@ export function AutomationPage() {
           </Alert>
         </div>
       )}
-      {editing && (
-        <RuleEditor
-          catalog={c}
-          rule={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          onSaved={refresh}
-        />
+      {editing === "new" && (
+        <RuleEditor catalog={c} rule={null} onClose={() => setEditing(null)} onSaved={refresh} />
       )}
 
       <Card className="mb-5">
@@ -221,7 +216,13 @@ export function AutomationPage() {
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
-            {c.items.map((r) => (
+            {c.items.map((r) =>
+              editing !== "new" && editing?.id === r.id ? (
+                // El editor se abre en el lugar de la regla, no arriba de la página.
+                <li key={r.id}>
+                  <RuleEditor key={r.id} catalog={c} rule={r} onClose={() => setEditing(null)} onSaved={refresh} />
+                </li>
+              ) : (
               <li
                 key={r.id}
                 className={cx(
@@ -305,7 +306,8 @@ export function AutomationPage() {
                   </div>
                 </div>
               </li>
-            ))}
+              ),
+            )}
           </ul>
         )}
       </Card>
@@ -511,8 +513,13 @@ function RuleEditor({
     setConditions((s) => ({ ...s, [k]: v }));
   const setAction = (i: number, patch: Partial<Action>) =>
     setActions((s) => s.map((a, n) => (n === i ? { ...a, ...patch } : a)));
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    box.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
   return (
-    <Card className="mb-5 border-ork-blue/40">
+    <div ref={box} className="scroll-mt-4">
+    <Card className={cx("border-ork-blue/40", !rule && "mb-5")}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[16px] font-bold text-ork-ink">
@@ -700,6 +707,7 @@ function RuleEditor({
         </div>
       )}
     </Card>
+    </div>
   );
 }
 
