@@ -34,35 +34,25 @@ jobs:
           # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
           T="'2026-11-19 15:20+00'"
           W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
-          echo "==> Bloqueos de los últimos 30 días por causa"
-          q "SELECT CASE
-                 WHEN error ~* 'dkim' THEN 'DKIM'
-                 WHEN error ~* 'dmarc' THEN 'DMARC'
-                 WHEN error ~* 'spf' THEN 'SPF'
-                 WHEN error ~* 'unauthenticated|not authenticated|authentication' THEN 'Sin autenticar (DKIM/SPF/DMARC)'
-                 WHEN error ~* 'spam|junk|bulk|unsolicited' THEN 'Spam / contenido'
-                 WHEN error ~* 'reputation|blocklist|blacklist|block list|listed|spamhaus|barracuda' THEN 'Reputación / listas negras'
-                 WHEN error ~* 'rate|too many|throttl|limit' THEN 'Límite de envío'
-                 WHEN error ~* 'policy|policies|not allowed|rejected|refused|denied|prohibited' THEN 'Política del destinatario'
-                 WHEN error ~* 'gateway|proofpoint|mimecast|barracuda|ironport|security' THEN 'Filtro de seguridad corporativo'
-                 WHEN coalesce(error,'') = '' THEN '(sin texto)'
-                 ELSE 'Otro' END causa, count(*)
-             FROM orkesta.campaign_recipients r
-             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days'
-             GROUP BY 1 ORDER BY 2 DESC;"
-          echo "==> Ejemplos de avisos (anonimizados)"
-          q "SELECT left(regexp_replace(regexp_replace(error, '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', '<correo>', 'g'), '([a-z0-9-]+\\.)+(com|co|net|org|mx|cl|pe|ar|io|es|ec|gt|cr|uy|py|bo|pa|do|ve)(\\.[a-z]{2})?', '<dominio>', 'gi'), 220) aviso, count(*)
-             FROM orkesta.campaign_recipients r
-             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days'
-             GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
-          echo "==> Bloqueos por proveedor del destinatario (MX)"
-          q "SELECT CASE WHEN error ~* 'outlook|microsoft|protection.outlook|exchange' THEN 'Microsoft 365'
-                         WHEN error ~* 'google|gmail' THEN 'Google'
-                         WHEN error ~* 'proofpoint|pphosted' THEN 'Proofpoint'
-                         WHEN error ~* 'mimecast' THEN 'Mimecast'
-                         ELSE 'Otro / no dice' END proveedor, count(*)
-             FROM orkesta.campaign_recipients r
-             WHERE r.status = 'blocked' AND r.created_at > now() - interval '45 days' GROUP BY 1 ORDER BY 2 DESC;"
+          echo "==> Tracción (todas las empresas, sin la de demostración)"
+          q "SELECT count(*) empresas FROM orkesta.tenants WHERE slug NOT LIKE '%demo%';"
+          q "SELECT count(DISTINCT m.user_id) usuarios_activos_30d FROM orkesta.memberships m JOIN orkesta.users u ON u.id=m.user_id WHERE m.status='active' AND u.last_login_at > now() - interval '30 days';"
+          for P in "30 days" "90 days"; do
+          echo "-- Últimos $P"
+          q "SELECT
+               (SELECT count(*) FROM orkesta.campaign_messages WHERE sent_at > now() - interval '$P') correos,
+               (SELECT count(DISTINCT recipient_id) FROM orkesta.campaign_messages WHERE sent_at > now() - interval '$P') personas,
+               (SELECT count(*) FROM orkesta.campaign_recipients WHERE replied_at > now() - interval '$P') respuestas,
+               (SELECT count(*) FROM orkesta.deals WHERE created_at > now() - interval '$P') oportunidades,
+               (SELECT count(*) FROM orkesta.deals d WHERE d.status='won' AND d.updated_at > now() - interval '$P') ganadas,
+               (SELECT count(*) FROM orkesta.activities WHERE type='meeting' AND created_at > now() - interval '$P') reuniones,
+               (SELECT count(*) FROM orkesta.proposals WHERE sent_at > now() - interval '$P') propuestas,
+               (SELECT count(*) FROM orkesta.contacts WHERE created_at > now() - interval '$P') contactos,
+               (SELECT count(*) FROM orkesta.research_runs WHERE created_at > now() - interval '$P') busquedas;"
+          done
+          q "SELECT reply_category, count(*) FROM orkesta.campaign_recipients WHERE replied_at > now() - interval '90 days' GROUP BY 1 ORDER BY 2 DESC;" 2>&1 | head -12
+          q "SELECT count(*) FILTER (WHERE email_status IN ('verificado','confirmado')) verificados, count(*) FILTER (WHERE email_status='confirmado') confirmados FROM orkesta.people_index;"
+          q "SELECT min(created_at)::date primer_envio FROM orkesta.campaign_messages;"
           REMOTE
 
       - name: Estado
