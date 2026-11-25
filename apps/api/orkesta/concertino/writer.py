@@ -20,7 +20,7 @@ from orkesta.concertino import playbook as pb
 from orkesta.concertino.intent import PIECES, Intent
 from orkesta.concertino.models import ProductFact
 from orkesta.copywriter import engine as copy
-from orkesta.copywriter.knowledge import INDUSTRY_CONTEXT, PERSONAS
+from orkesta.copywriter.knowledge import INDUSTRY_CONTEXT, PERSONAS, WHO
 from orkesta.engine.normalize.text import fold
 
 _EVENT = re.compile(
@@ -166,7 +166,9 @@ def _offer_kind(fact: ProductFact | None) -> str:
 
 def _who(it: Intent, area: str | None) -> str:
     if it.cargo:
-        return f"un {it.cargo.upper()}" if len(it.cargo) <= 5 else f"un {it.cargo}"
+        first = it.cargo.split()[0]
+        acronym = re.fullmatch(r"c[a-z]?o|ciso|chro|vp", first) is not None
+        return f"un {it.cargo.upper()}" if acronym and " " not in it.cargo else f"un {it.cargo}"
     if area and area in PERSONAS:
         return PERSONAS[area]["es"]["label"]
     return "tus contactos"
@@ -218,7 +220,10 @@ def brief(
         language=it.language,
         steps=count if it.piece in ("secuencia", "correo") else 1,
     )
-    meta = {"who": _who(it, area), "where": _where(it.industry), "product": b.product,
+    where = _where(it.industry)
+    if where and fold(where.split(" de ", 1)[-1].split(" y ")[0]) in fold(it.cargo):
+        where = ""  # «gerente de logística» ya dice el sector: no «… de logística y transporte»
+    meta = {"who": _who(it, area), "where": where, "product": b.product,
             "formal": tone == "formal" or (tone == "directo" and group in ("alta", "direccion")), "area": area, "focus": focus, "proof": proof,
             "main": _offer_name(main) if main else b.product, "kind": _offer_kind(focus),
             "price": _price_for(ctx, text, focus),
@@ -377,7 +382,13 @@ def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str
                 f"Lo que se llevan: {valor}." if valor else "",
                 team or proof,
                 "¿[Te|Le] reservo un lugar o prefiere[s|] que [te|le] envíe la agenda?"]  # fmt: skip
-    return [f"Hablo seguido con líderes{where} y hay un tema que se repite: {problema}." if problema else "",
+    peers = WHO[meta["area"]]["es"] if meta.get("area") in WHO else ("líderes" if where else "")
+    talk = (
+        f"Hablo seguido con {peers}{where}"
+        if peers
+        else "Hablo seguido con equipos como el [tuyo|suyo]"
+    )
+    return [f"{talk} y hay un tema que se repite: {problema}." if problema else "",
             f"Por eso [te|le] escribo por {product}: {valor}." if valor else f"[Te|Le] escribo por {product}.",
             proof, cta]  # fmt: skip
 

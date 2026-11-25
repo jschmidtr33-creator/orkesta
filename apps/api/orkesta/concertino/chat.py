@@ -76,7 +76,15 @@ def short_name(fact: ProductFact) -> str:
     """«Delegación Silver: 5 entradas…» → «Delegación Silver»."""
     title = fact.title.strip()
     head = re.split(r":| — | \(", title, maxsplit=1)[0].strip()
-    return head if 3 <= len(head) <= 70 else title[:70].rsplit(" ", 1)[0] + "…"
+    if 3 <= len(head) <= 70:
+        return head
+    # Nombre largo: se corta donde termina la idea («Operación logística de última milla con
+    # seguimiento…» → «Operación logística de última milla»), nunca con puntos suspensivos.
+    for cut in (" con ", " para ", " que ", ", ", " y "):
+        part = head.split(cut, 1)[0].strip()
+        if 12 <= len(part) <= 70:
+            return part
+    return head[:70].rsplit(" ", 1)[0].rstrip(" ,;-")
 
 
 def _faqs(ctx: engine.Context) -> list[ProductFact]:

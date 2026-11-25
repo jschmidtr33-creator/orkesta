@@ -6,8 +6,10 @@ from __future__ import annotations
 
 OBJECTIONS: dict[str, tuple[str, ...]] = {
     "precio": ("me dijo que está carísimo", "dice que se sale del presupuesto", "le pareció costoso",
-               "pidió un descuento grande", "dice que por ese precio no", "comparó el precio y le pareció alto",
+               "dice que por ese precio no", "comparó el precio y le pareció alto",
                "no tienen plata para eso", "el cliente dice que es muy caro para su tamaño"),
+    "descuento": ("pidió un descuento grande", "quiere 30 % de descuento para firmar", "me pidió rebaja para cerrar este mes",
+                  "dice que si le bajo el precio firma", "compras quiere sacar un 10 % más"),
     "prioridad": ("me dijo que ahora no es el momento", "tienen otras prioridades este trimestre",
                   "que lo hablemos el próximo año", "están en cierre fiscal", "dice que lo deja para después",
                   "que le escriba en unos meses"),
