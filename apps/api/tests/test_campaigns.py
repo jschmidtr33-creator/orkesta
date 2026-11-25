@@ -1051,8 +1051,6 @@ def test_no_follow_up_after_a_bounce_or_block(
                      "next_send_at = now() - interval '1 minute'")  # fmt: skip
     _flush(session_factory, 3)
     assert len(google.sent) == 2  # ningún seguimiento
-    # (Si se revisa primero el bloqueo, la empresa queda en pausa por hoy y el otro espera a la
-    # revisión periódica: tampoco recibe nada.)
     _rewind(database)
     _flush(session_factory, 3)
     assert len(google.sent) == 2
@@ -1074,3 +1072,36 @@ def test_block_notices_keep_the_technical_cause_and_delays_are_not_blocks() -> N
     delay = ("delivery status notification (delay) No se ha completado la entrega Se ha "
              "producido un problema temporal al entregar el mensaje")  # fmt: skip
     assert gmail.classify_bounce(delay) == ""
+
+
+def test_a_block_does_not_stop_the_rest_of_the_company(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Si una persona de una empresa bloqueó un correo, la campaña sigue con las demás de esa
+    empresa el mismo día (en texto plano y con el tope por empresa), sin esperar a mañana."""
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    ids = _contacts(client)
+    first = client.post("/api/campaigns", json={"name": "Primera"}).json()
+    client.patch(f"/api/campaigns/{first['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids[:1]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{first['id']}/launch")
+    _flush(session_factory, 2)
+    with psycopg.connect(database[0], autocommit=True) as conn:
+        conn.execute("UPDATE orkesta.campaign_recipients SET status = 'blocked'")
+    second = client.post("/api/campaigns", json={"name": "Segunda"}).json()
+    client.patch(f"/api/campaigns/{second['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids[1:3]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{second['id']}/launch")
+    for _ in range(4):
+        _rewind(database)
+        _flush(session_factory)
+    assert len(google.sent) == 3  # Laura (antes del bloqueo) + Pedro y Sofía hoy mismo
+    detail = client.get(f"/api/campaigns/{second['id']}").json()
+    assert detail["stats"]["emails_sent"] == 2 and detail.get("waiting") is None
