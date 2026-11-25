@@ -599,8 +599,9 @@ def test_warmup_domain_cap_and_corporate_mode(
     # Tope por empresa: hoy salen 2 de los 3 contactos de bancoandino.co.
     assert len(google.sent) == 2
     msg = google.sent[0]["msg"]
-    assert msg.get_content_type() == "text/plain"  # modo corporativo: solo texto, sin pixel
-    assert "/t/o/" not in msg.as_string()
+    # Modo corporativo: sin píxel ni enlaces medidos, pero con HTML para que la firma llegue bien.
+    assert any(p.get_content_type() == "text/html" for p in msg.walk())
+    assert "/t/o/" not in msg.as_string() and "/t/c/" not in msg.as_string()
     client.patch(f"/api/mailboxes/{box['id']}", json={"warmup": False})
     assert client.get("/api/mailboxes").json()["items"][0]["effective_limit"] == 80
 
@@ -1105,3 +1106,43 @@ def test_a_block_does_not_stop_the_rest_of_the_company(
     assert len(google.sent) == 3  # Laura (antes del bloqueo) + Pedro y Sofía hoy mismo
     detail = client.get(f"/api/campaigns/{second['id']}").json()
     assert detail["stats"]["emails_sent"] == 2 and detail.get("waiting") is None
+
+
+def test_signature_arrives_intact_even_in_plain_first_emails(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """La firma nunca se toca: el primer correo (sin medición) lleva igual la firma en HTML, con
+    su imagen, sus tamaños y sus estilos, fuera del contenedor del texto."""
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    box = _connect(client)
+    signature = (
+        '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;min-width:420px">'
+        '<tr><td valign="top" style="padding-right:12px;border-right:2px solid #1E40AF">'
+        '<img src="https://cdn.lacteos.co/logo.png" width="96" height="40" '
+        'style="width:96px;height:40px;display:block" alt="Lácteos"></td>'
+        '<td style="white-space:nowrap;text-transform:uppercase;font-size:12px">'
+        "<b>Ana Pérez</b><br>Gerente comercial</td></tr></table>"
+    )
+    client.patch(f"/api/mailboxes/{box['id']}", json={"signature": signature})
+    ids = _contacts(client)
+    campaign = client.post("/api/campaigns", json={"name": "Firma"}).json()
+    client.patch(f"/api/campaigns/{campaign['id']}", json={
+        "steps": [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}],
+        "audience": {"contact_ids": ids[:1]},
+    })  # fmt: skip
+    client.post(f"/api/campaigns/{campaign['id']}/launch")
+    _flush(session_factory, 2)
+    msg = google.sent[0]["msg"]
+    html_body = next(
+        p.get_payload(decode=True).decode()
+        for p in msg.walk()
+        if p.get_content_type() == "text/html"
+    )
+    for piece in ('src="https://cdn.lacteos.co/logo.png"', 'width="96"', "width:96px;height:40px",
+                  "border-collapse:collapse", "min-width:420px", "border-right:2px solid #1E40AF",
+                  "white-space:nowrap", "text-transform:uppercase", 'valign="top"'):  # fmt: skip
+        assert piece in html_body, piece
+    assert "max-width:100%;height:auto" not in html_body  # ningún estilo encima de la firma
+    assert "/t/o/" not in html_body  # el primer correo sigue sin medición

@@ -111,15 +111,18 @@ class Built:
 TAGS = {
     "p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "a", "ul", "ol", "li",
     "h1", "h2", "h3", "h4", "blockquote", "img", "table", "thead", "tbody", "tr", "td", "th",
-    "hr", "font", "center", "small", "sup", "sub",
+    "hr", "font", "center", "small", "sup", "sub", "tfoot", "caption", "colgroup", "col",
+    "h5", "h6", "strike", "big",
 }  # fmt: skip
 ATTRIBUTES = {
-    "*": {"style", "align"},
+    "*": {"style", "align", "dir", "valign"},
     "a": {"href", "title", "target"},
     "img": {"src", "alt", "width", "height", "border"},
     "table": {"width", "cellpadding", "cellspacing", "border", "bgcolor", "role"},
-    "td": {"width", "valign", "colspan", "rowspan", "bgcolor", "height"},
-    "th": {"width", "valign", "colspan", "rowspan", "bgcolor"},
+    "td": {"width", "colspan", "rowspan", "bgcolor", "height", "nowrap"},
+    "th": {"width", "colspan", "rowspan", "bgcolor", "height"},
+    "tr": {"bgcolor", "height"},
+    "col": {"width", "span"},
     "font": {"color", "face", "size"},
 }
 STYLES = {
@@ -128,6 +131,11 @@ STYLES = {
     "margin-left", "margin-right", "padding", "padding-top", "padding-bottom", "padding-left",
     "padding-right", "width", "max-width", "height", "border", "border-radius", "display",
     "vertical-align", "letter-spacing",
+    # Firmas de Gmail/Outlook: se conservan para que la firma llegue igual a como se diseñó.
+    "min-width", "min-height", "max-height", "border-top", "border-bottom", "border-left",
+    "border-right", "border-color", "border-width", "border-style", "border-collapse",
+    "border-spacing", "background", "font", "white-space", "text-transform", "font-variant",
+    "text-indent", "overflow", "float", "clear", "word-break", "object-fit", "table-layout",
 }  # fmt: skip
 _HTML = re.compile(r"<(p|div|br|img|a|table|strong|b|em|ul|ol|span|h[1-4])\b", re.I)
 _HREF = re.compile(r'href="(https?://[^"]+)"')
@@ -193,11 +201,13 @@ def build(
     base = get_settings().public_base_url.rstrip("/")
     tracking = bool(base)
     unsubscribe_url = f"{base}/t/u/{token}" if tracking else ""
-    content = body_html + (f'<div style="margin-top:16px">{signature_html}</div>'
-                           if signature_html.strip() else "")  # fmt: skip
     # Las imágenes subidas a ORKESTA viajan con la dirección pública actual.
-    content = assets.current_links(assets.absolute(content, base), base)
-    text_body = html_to_text(content)
+    content = assets.current_links(assets.absolute(body_html, base), base)
+    # La firma viaja INTACTA: sin enlaces medidos, sin estilos encima y fuera del contenedor
+    # del texto (su tamaño de letra o interlineado la desordenarían). Siempre en HTML.
+    signature = (assets.current_links(assets.absolute(signature_html, base), base)
+                 if signature_html.strip() else "")  # fmt: skip
+    text_body = html_to_text(content + (f"<br><br>{signature}" if signature else ""))
     if tracking and track_clicks:
         content = _HREF.sub(
             lambda m: f'href="{html.escape(click_url(token, html.unescape(m.group(1))))}"', content
@@ -210,16 +220,16 @@ def build(
     )
     html_body = (
         "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;"
-        "color:#1f2937\">" + content
-        + "<p style=\"margin:24px 0 0;font-size:11px;color:#94a3b8\">Si prefieres no recibir más "
-        "correos míos, "
+        "color:#1f2937\">" + content + "</div>"
+        + (f'<br><div dir="ltr">{signature}</div>' if signature else "")
+        + "<p style=\"margin:24px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;"
+        "color:#94a3b8\">Si prefieres no recibir más correos míos, "
         + (f"<a href=\"{html.escape(unsubscribe_url)}\" style=\"color:#94a3b8\">"
            "date de baja aquí</a>"
            if unsubscribe_url else "responde «baja»")
         + ".</p>"
         + (f"<img src=\"{base}/t/o/{token}.gif\" width=\"1\" height=\"1\" alt=\"\" "
            "style=\"display:block\">" if tracking and track_opens else "")
-        + "</div>"
     )  # fmt: skip
     message = EmailMessage()
     domain = sender_email.split("@", 1)[1] if "@" in sender_email else "orkesta.local"
@@ -237,6 +247,7 @@ def build(
         )
         message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     message.set_content(text_body + footer_text)
-    if not plain:  # modo corporativo: solo texto, sin pixel, enlaces rastreados ni imágenes
-        message.add_alternative(html_body, subtype="html")
+    # Modo corporativo (``plain``): sin píxel ni enlaces medidos, pero el HTML va siempre para
+    # que la firma llegue tal como la diseñó la persona.
+    message.add_alternative(html_body, subtype="html")
     return Built(message, rfc_id, subject)
