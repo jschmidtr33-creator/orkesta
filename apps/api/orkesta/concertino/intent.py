@@ -98,7 +98,7 @@ _INDUSTRY: tuple[tuple[str, str], ...] = (
     ("seguros", r"\b(seguros?|asegurador(a|as)?|aseguradoras)\b"),
     (
         "retail_consumo",
-        r"\b(retail|consumo masivo|supermercados?|tiendas?|ecommerce|e-commerce|comercio)\b",
+        r"\b(retail|minoristas?|consumo masivo|supermercados?|tiendas?|ecommerce|e-commerce|comercio)\b",
     ),
     (
         "telecomunicaciones",
@@ -235,6 +235,34 @@ def _count(folded: str) -> int | None:
     return max(1, min(6, n)) if n else None
 
 
+_TILDES = {
+    "logistica": "logística",
+    "tecnologia": "tecnología",
+    "tecnologico": "tecnológico",
+    "tecnologica": "tecnológica",
+    "informacion": "información",
+    "produccion": "producción",
+    "operacion": "operación",
+    "administracion": "administración",
+    "atencion": "atención",
+    "innovacion": "innovación",
+    "comunicacion": "comunicación",
+    "transformacion": "transformación",
+    "gestion": "gestión",
+    "dueno": "dueño",
+    "duena": "dueña",
+    "lider": "líder",
+    "credito": "crédito",
+    "analitica": "analítica",
+    "estrategia": "estrategia",
+}
+
+
+def _accents(cargo: str) -> str:
+    """El cargo se detecta sin tildes; se devuelve escrito bien («gerente de logística»)."""
+    return " ".join(_TILDES.get(w, w) for w in cargo.split())
+
+
 def details(text: str) -> Intent:
     """Los datos que vienen en la frase, sin decidir todavía la acción."""
     folded = fold(text)
@@ -251,9 +279,11 @@ def details(text: str) -> Intent:
         words = m.group(0).split()
         while len(words) > 1 and words[-1] in _TAIL:
             words.pop()
-        it.cargo = " ".join(words)
+        it.cargo = _accents(" ".join(words))
+    # El sector se busca fuera del cargo: «gerente de logística de una minorista» es retail.
+    sector_text = folded[: m.start()] + " " + folded[m.end() :] if m else folded
     for code, pattern in _INDUSTRY:
-        if re.search(pattern, folded):
+        if re.search(pattern, sector_text):
             it.industry = code
             break
     it.language = "en" if _ENGLISH.search(folded) else "es"
@@ -321,10 +351,21 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
     )
     # «¿Qué le digo en la llamada?» pide el guion aunque venga como pregunta.
     bare = bare or (it.piece == "guion" and bool(re.search(r"\bque (le )?digo\b", folded)))
-    if (asks_to_write or bare) and not question:
+    # «¿Qué hago si no me contestan después de 3 correos?» pide un consejo, no una secuencia:
+    # sin un verbo de redactar, una pregunta de «qué hago / cómo manejo» va al oficio.
+    advice = not verb and bool(
+        re.match(
+            r"^(y )?(que (hago|hacemos|debo hacer|deberia hacer|me recomiendas|recomiendas)|"
+            r"como (hago|hacemos|manejo|manejar|le hago|puedo|debo|deberia|se hace|lograr|logro|consigo|mejoro)|"
+            r"(es normal|vale la pena|conviene|sirve) )",
+            folded,
+        )
+    )
+    if (asks_to_write or bare) and not question and not advice:
         it.action = "redactar"
     elif (
         last_topic == "redactar"
+        and not advice
         and len(folded.split()) <= 10
         and (
             _TWEAK.search(folded)

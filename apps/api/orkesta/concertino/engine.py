@@ -762,6 +762,38 @@ _STOP = frozenset(
 _PRICE = re.compile(
     r"\b(cuesta|cuestan|costo|precio|precios|vale|valen|valor|cuanto|tarifa|inversion)\b"
 )
+_ONE_LINE = re.compile(
+    r"\b(en una (linea|frase|oracion)|en un renglon|en pocas palabras|"
+    r"por que (nos |me )?(deberian|deben|van a|tendrian que) (comprar|elegir|contratar)\w*|"
+    r"por que (comprarnos|elegirnos|contratarnos)|elevator pitch)\b"
+)
+
+
+def one_liner(ctx: Context) -> str:
+    """Una frase con lo que hay en la ficha: a quién, qué problema y qué resultado."""
+    v = slots(ctx)
+    valor, publico, problema = v.get("valor", ""), v.get("publico", ""), v.get("problema", "")
+    if valor and publico:
+        text = (
+            f"Ayudamos a {publico} a {valor}"
+            if re.match(
+                r"^(bajar|reducir|subir|aumentar|vender|ganar|lograr|cerrar|ahorrar|conseguir|mejorar|crecer)\b",
+                fold(valor),
+            )
+            else f"Para {publico}: {valor}"
+        )
+    elif valor:
+        text = f"Con nosotros logras {valor}"
+    elif problema:
+        text = f"Resolvemos {problema}"
+    else:
+        return ""
+    text = text.rstrip(". ")
+    if v.get("prueba"):
+        text += f", y ya lo probamos: {v['prueba'].rstrip('. ')}"
+    return pb.voice(text[0].upper() + text[1:] + ".", ctx.formal)
+
+
 _PITCH = re.compile(r"\b(presento|presentar|presentacion|pitch|explico|explicar|resumo|resumir)\b")
 
 
@@ -793,6 +825,15 @@ def advise_product(
     session: Session, ctx: Context, question: str, previous: str = ""
 ) -> dict[str, Any]:
     all_facts = [f for items in ctx.facts.values() for f in items]
+    if _ONE_LINE.search(fold(question)):
+        line = one_liner(ctx)
+        if line:
+            return {"summary": "En una línea:", "_pitch": True,
+                    "options": [{"code": "una_linea", "name": "Por qué comprarnos",
+                                 "why": "A quién, qué problema y qué resultado: lo que el cliente repite cuando te recomienda.",
+                                 "text": line, "record": None}],
+                    "tips": [], "sections": [], "next_step": "Pídeme «preséntame el producto en 30 segundos» para la versión larga.",
+                    "missing": []}  # fmt: skip
     # «¿Cómo presento el producto?» pide el discurso armado, no datos sueltos.
     pitch_only = (
         bool(_PITCH.search(fold(question))) and len(_terms(_PITCH.sub(" ", fold(question)))) <= 1

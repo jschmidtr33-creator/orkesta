@@ -152,7 +152,7 @@ def ask(
     history: list[dict[str, Any]] | None = None, answering: str | None = None,
     role: str | None = None, practicing: str | None = None,
 ) -> dict[str, Any]:  # fmt: skip
-    from orkesta.concertino import coach, interview, strategy
+    from orkesta.concertino import coach, interview, pipeline, strategy
 
     question = (question or "").strip()[:4000]
     history = (history or [])[-6:]
@@ -185,6 +185,18 @@ def ask(
         return strategy.build(session, ctx, question)
     if question and mode is None and strategy.wants_pains(question):
         return strategy.pains(ctx, question)
+    # «¿Qué oportunidad priorizo esta semana?»: con los datos del CRM de la persona.
+    if (
+        question
+        and mode is None
+        and pipeline.wants(question)
+        and allowed(session, tenant_id, "cuenta")
+    ):
+        ranked = pipeline.build(session, tenant_id, user.id)
+        ranked["summary"] = chat.greet(str(ranked["summary"]), name, turn)
+        return {"case_id": None, "topic": "cuenta", "topic_label": pb.TOPICS["cuenta"],
+                "objection": None, "objection_label": None, "formal": ctx.formal, **ranked,
+                "sources": ["CRM de ORKESTA"]}  # fmt: skip
     # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
     # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).

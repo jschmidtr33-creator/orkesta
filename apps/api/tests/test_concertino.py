@@ -518,3 +518,69 @@ def test_concertino_builds_strategies_and_knows_pains(
     assert "Lo que preocupa en el sector financiero" in got
     assert any(t.startswith("Lo que le duele a") for t in got)
     assert ask("qué le duele")["suggestions"]
+
+
+def test_concertino_negotiates_discounts_and_writes_clean_emails(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """«Quiere 30 % de descuento para firmar» es una negociación, no «es caro»; el correo dice
+    el cargo con tildes, sin repetir el sector, y el nombre del producto nunca sale cortado."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    ask = lambda q: client.post("/api/concertino/ask", json={"question": q}).json()  # noqa: E731
+    deal = ask("mi cliente quiere 30% de descuento para firmar este mes, qué le contesto")
+    assert deal["objection"] == "descuento", deal
+    assert [o["code"] for o in deal["options"]][:2] == ["intercambio", "entender"]
+    assert ask("el cliente me dice que es muy caro")["objection"] == "precio"
+    mail = ask(
+        "escríbeme un correo en frío para un gerente de logística de una minorista en México"
+    )
+    assert "un gerente de logística de retail y consumo" in mail["summary"], mail["summary"]
+    assert "…" not in mail["summary"] and "…" not in mail["options"][0]["text"]
+    assert "líderes de logística" in mail["options"][0]["text"]
+    advice = ask("qué hago si no me contestan después de 3 correos")
+    assert advice["topic"] != "redactar"
+    line = ask("resume en una línea por qué deberían comprarnos")
+    assert line["options"][0]["code"] == "una_linea"
+    assert (
+        "Triplicar las reuniones" in line["options"][0]["text"]
+        or "triplicar las reuniones" in line["options"][0]["text"]
+    )
+
+
+def test_concertino_prioritizes_the_sellers_opportunities(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """«¿Qué oportunidad priorizo esta semana?» ordena las oportunidades del CRM y dice qué hacer
+    con cada una."""
+    from datetime import UTC, date, datetime, timedelta
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    empty = client.post(
+        "/api/concertino/ask", json={"question": "cuál de mis oportunidades priorizo esta semana"}
+    ).json()
+    assert empty["topic"] == "cuenta" and "No tienes oportunidades" in empty["summary"]
+    stages = {s["name"]: s for s in client.get("/api/crm/stages").json()["stages"]}
+    contact = client.post("/api/contacts", json={"first_name": "Laura", "company": "Banco Andino",
+                                                 "email": "laura@bancoandino.co"}).json()  # fmt: skip
+    small = client.post("/api/crm/deals", json={"contact_id": contact["id"], "title": "Pequeña",
+                                                "value": 1000}).json()  # fmt: skip
+    big = client.post("/api/crm/deals", json={"contact_id": contact["id"], "title": "Grande",
+                                              "value": 50000,
+                                              "expected_close": (date.today() + timedelta(days=5)).isoformat()}).json()  # fmt: skip
+    client.post(
+        f"/api/crm/deals/{big['id']}/move", json={"stage_id": stages["Propuesta enviada"]["id"]}
+    )
+    due = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    client.post("/api/crm/activities", json={"type": "task", "deal_id": big["id"],
+                                             "body": "Llamar para cerrar", "due_at": due})  # fmt: skip
+    r = client.post(
+        "/api/concertino/ask", json={"question": "¿Qué oportunidad debería priorizar esta semana?"}
+    ).json()
+    assert r["topic"] == "cuenta" and "2 oportunidades abiertas" in r["summary"], r["summary"]
+    items = r["sections"][0]["items"]
+    assert items[0].startswith("1. Grande") and "Llamar para cerrar" in items[0]
+    assert items[1].startswith("2. Pequeña") and small["id"]
