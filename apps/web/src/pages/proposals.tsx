@@ -1852,17 +1852,19 @@ export function ProposalEditor() {
               {p.design.last_email.from}.
             </p>
           )}
-          {!locked && (
             <button
               type="button"
               className="mt-5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-bad hover:underline"
               onClick={() =>
-                window.confirm("¿Eliminar esta propuesta?") && remove.mutate()
+                window.confirm(
+                  locked
+                    ? `La propuesta #${p.number} ya fue ${p.status === "accepted" ? "aceptada" : "rechazada"} por el cliente. Si la eliminas, el enlace deja de funcionar y no se puede recuperar. ¿Eliminarla?`
+                    : "¿Eliminar esta propuesta?",
+                ) && remove.mutate()
               }
             >
               <Trash2 className="size-3.5" aria-hidden /> Eliminar propuesta
             </button>
-          )}
         </Card>
       </div>
       {linking && (
