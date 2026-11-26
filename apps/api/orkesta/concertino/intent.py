@@ -21,6 +21,7 @@ PIECES = {
     "whatsapp": "Mensaje de WhatsApp",
     "linkedin": "Mensaje de LinkedIn",
     "post": "Post de LinkedIn",
+    "referido": "Pedido de referidos",
     "asuntos": "Asuntos de correo",
     "resumen": "Resumen ejecutivo",
     "guion": "Guion de llamada",
@@ -30,7 +31,8 @@ _VERB = (
     r"(crea|creame|crear|crees|redacta|redactame|redactar|escribe|escribeme|escribir|arma|armame|armar|"
     r"genera|generame|generar|hazme|haz|hacer|hagamos|prepara|preparame|preparar|dame|damelo|necesito|quiero|"
     r"ayudame (a|con)|propon|proponme|sugiere|sugiereme|elabora|elaborame|construye|monta|diseña|disena|"
-    r"pasame|mandame|envia(me)?|me (das|haces|armas|escribes|redactas|creas|preparas))"
+    r"pasame|mandame|envia(me)?|me (das|haces|armas|escribes|redactas|creas|preparas)|"
+    r"que (le|les) (escribo|digo|mando|envio|pongo))"
 )
 _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
     (
@@ -38,6 +40,10 @@ _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
         r"\b(secuencia|secuensia|secuancia|cadencia|seguidilla|serie de correos|varios correos|flujo de correos|campa(n|ñ)a de correos?|\d+ (correos|mails|emails|toques)|(dos|tres|cuatro|cinco|seis) (correos|mails|emails|toques))\b",
     ),
     ("whatsapp", r"\b(whatsapp|whats|wsp|wpp|wasap|guasap|mensaje de texto|sms)\b"),
+    (
+        "referido",
+        r"\b(referid\w*|referencias?|recomendacion(es)?|que me recomiende|recomendarnos|resena|resenas|testimonio\w*)\b",
+    ),
     ("post", r"\b(post|posts|posteo|posteos|publicacion|publicaciones|articulo|carrusel)\b"),
     ("linkedin", r"\b(linkedin|linked in|inmail|in mail)\b"),
     ("asuntos", r"\b(asuntos?|subject|linea de asunto)\b"),
@@ -147,12 +153,16 @@ _TWEAK = re.compile(
 # Para qué es la pieza: no es lo mismo el primer contacto que un seguimiento o una invitación.
 _PURPOSES: tuple[tuple[str, str], ...] = (
     (
-        "seguimiento",
-        r"\b(seguimiento|no (me )?(ha )?(respondio|respondido|contesto|contestado|responde|contesta)|sin respuesta|no respondio|recordatorio|insistir|volver a escribir(le)?)\b",
+        "confirmar",
+        r"\b(confirmar|confirmacion|confirma|recordar(le)?|recordatorio)( de)? (la |nuestra |su |mi |una )?(reunion|cita|llamada|demo|visita)\b",
     ),
     (
         "agradecer",
-        r"\b(despues de (la|una) (reunion|llamada|demo)|post ?reunion|gracias por (la|su) (reunion|tiempo|llamada)|agradecer|agradecimiento)\b",
+        r"\b(despues de (la|una|nuestra) (reunion|llamada|demo|presentacion)|post ?(reunion|demo)|gracias por (la|su) (reunion|tiempo|llamada)|agradecer|agradecimiento)\b",
+    ),
+    (
+        "seguimiento",
+        r"\b(seguimiento|no (me )?(ha )?(respondio|respondido|contesto|contestado|responde|contesta)|sin respuesta|no respondio|recordatorio|insistir|volver a escribir(le)?)\b",
     ),
     (
         "propuesta",
@@ -214,7 +224,9 @@ class Intent:
     language: str = "es"
     tone: str | None = None  # formal | cercano | directo
     goal: str | None = None
-    purpose: str | None = None  # seguimiento | invitacion | propuesta | agradecer | reactivar
+    purpose: str | None = (
+        None  # seguimiento | invitacion | propuesta | agradecer | reactivar | confirmar
+    )
     person: str = ""  # «para Juan Pérez»: el correo sale con su nombre
     target_company: str = ""  # «CFO de Bancolombia»
     place: str = ""  # «a Miami», «en Chile»
@@ -282,6 +294,13 @@ def details(text: str) -> Intent:
         while len(words) > 1 and words[-1] in _TAIL:
             words.pop()
         it.cargo = _accents(" ".join(words))
+    # «¿Qué le digo a un CFO para que me reciba?» es un pedido de correo para ese cargo.
+    if (
+        it.piece is None
+        and it.cargo
+        and re.match(r"^(y )?que (le|les) (digo|escribo|mando|envio|pongo)\b", folded)
+    ):
+        it.piece = "correo"
     # El sector se busca fuera del cargo: «gerente de logística de una minorista» es retail.
     sector_text = folded[: m.start()] + " " + folded[m.end() :] if m else folded
     for code, pattern in _INDUSTRY:
