@@ -1146,3 +1146,31 @@ def test_signature_arrives_intact_even_in_plain_first_emails(
         assert piece in html_body, piece
     assert "max-width:100%;height:auto" not in html_body  # ningún estilo encima de la firma
     assert "/t/o/" not in html_body  # el primer correo sigue sin medición
+
+
+def test_company_cap_is_per_campaign_and_ignores_personal_email(
+    client: TestClient, google: FakeGoogle, session_factory: sessionmaker[Session],
+    database: tuple[str, str], monkeypatch: pytest.MonkeyPatch,
+) -> None:  # fmt: skip
+    """Gmail/Hotmail no son una empresa: no tienen tope. Y dos campañas a la misma empresa no se
+    quitan el cupo: cada una envía hasta su máximo por empresa."""
+    monkeypatch.setattr(svc, "_gap", lambda *a: timedelta(0))
+    register(client, "ana@lacteos.co")
+    _connect(client)
+    personal = [client.post("/api/contacts", json={"first_name": f"P{i}", "email": f"p{i}@gmail.com"}).json()["id"]
+                for i in range(5)]  # fmt: skip
+    corp = [client.post("/api/contacts", json={"first_name": f"C{i}", "company": "Procaps",
+                                               "email": f"c{i}@procaps.com"}).json()["id"]
+            for i in range(4)]  # fmt: skip
+    step = [{"subject": "Hola", "body": "Mensaje de prueba largo", "delay_days": 0}]
+    for name, ids in (("Personales", personal), ("Procaps", corp[:2]), ("Procaps 2", corp[2:])):
+        c = client.post("/api/campaigns", json={"name": name}).json()
+        client.patch(f"/api/campaigns/{c['id']}", json={
+            "steps": step, "settings": {"per_domain_daily": 2}, "audience": {"contact_ids": ids}})  # fmt: skip
+        client.post(f"/api/campaigns/{c['id']}/launch")
+    for _ in range(16):
+        _rewind(database)
+        _flush(session_factory)
+    to = [str(m["msg"]["To"]) for m in google.sent]
+    assert sum("gmail.com" in t for t in to) == 5, to
+    assert sum("procaps.com" in t for t in to) == 4, to
