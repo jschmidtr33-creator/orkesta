@@ -318,3 +318,27 @@ def test_sections_carry_a_full_width_image(client: TestClient) -> None:
     bad = client.patch(f"/api/proposals/{p['id']}", json={"sections": [
         {"key": "x", "title": "X", "body": "", "image": "javascript:alert(1)"}]})  # fmt: skip
     assert bad.status_code in (400, 422)
+
+
+def test_a_sent_proposal_can_be_linked_to_a_contact(client: TestClient) -> None:
+    """Una propuesta creada sin contacto y ya enviada se liga después: queda con el contacto, su
+    única oportunidad abierta y su historia (creada, enviada) aparece en la ficha del contacto."""
+    contact_id, deal_id = _setup(client)
+    p = client.post("/api/proposals", json={}).json()
+    assert p["contact"] is None
+    client.post(f"/api/proposals/{p['id']}/send")
+    other = client.post("/api/proposals", json={}).json()  # otra propuesta: su historia no se toca
+    linked = client.put(f"/api/proposals/{p['id']}/contact", json={"contact_id": contact_id})
+    assert linked.status_code == 200, linked.text
+    body = linked.json()
+    assert body["contact"]["id"] == contact_id and body["deal"]["id"] == deal_id
+    assert body["status"] == "sent"
+    timeline = client.get("/api/crm/timeline", params={"contacto": contact_id}).json()
+    texts = " ".join(a["body"] for a in timeline)
+    assert f"Envió la propuesta N.º {p['number']} al cliente" in texts
+    assert f"Ligó la propuesta N.º {p['number']}" in texts
+    assert f"N.º {other['number']}:" not in texts
+    missing = client.put(
+        f"/api/proposals/{p['id']}/contact", json={"contact_id": str(uuid.uuid4())}
+    )
+    assert missing.status_code == 404

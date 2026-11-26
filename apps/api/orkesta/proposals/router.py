@@ -225,6 +225,22 @@ def update(proposal_id: uuid.UUID, body: UpdateIn, principal: Member, db: Db) ->
     return svc.proposal_dict(db, proposal)
 
 
+class LinkIn(BaseModel):
+    contact_id: uuid.UUID
+
+
+@router.put("/api/proposals/{proposal_id}/contact")
+def link_contact(proposal_id: uuid.UUID, body: LinkIn, principal: Member, db: Db) -> dict[str, Any]:
+    """Ligar a un contacto, también una propuesta ya enviada."""
+    proposal = _load(db, principal, proposal_id)
+    try:
+        svc.link_contact(db, proposal, body.contact_id, principal.user)
+    except svc.ProposalError as exc:
+        raise _fail(exc) from exc
+    db.flush()
+    return svc.proposal_dict(db, proposal)
+
+
 @router.post("/api/proposals/{proposal_id}/regenerate")
 def regenerate(proposal_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any]:
     proposal = _load(db, principal, proposal_id)

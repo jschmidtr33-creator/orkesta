@@ -24,9 +24,12 @@ type PickedContact = {
 export function ContactPicker({
   ids,
   onChange,
+  single = false,
 }: {
   ids: string[];
   onChange: (ids: string[]) => void;
+  /** Un solo contacto: el buscador dice «Buscar otro contacto» en vez de «Agregar otro». */
+  single?: boolean;
 }) {
   const [q, setQ] = useState("");
   const term = useDebounced(q.trim(), 300);
@@ -93,7 +96,13 @@ export function ContactPicker({
         </ul>
       )}
       <TextField
-        label={ids.length ? "Agregar otro contacto" : "Busca el contacto"}
+        label={
+          ids.length
+            ? single
+              ? "Buscar otro contacto"
+              : "Agregar otro contacto"
+            : "Busca el contacto"
+        }
         placeholder="Nombre, correo o empresa"
         value={q}
         onChange={(e) => setQ(e.target.value)}
