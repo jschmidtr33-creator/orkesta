@@ -114,3 +114,10 @@ def test_cargo_keeps_accents_and_sector_comes_from_outside_the_cargo() -> None:
 def test_advice_question_after_a_draft_is_not_a_tweak() -> None:
     it = understand("qué hago si no me contestan después de 3 correos", last_topic="redactar")
     assert it.action is None
+
+
+def test_linkedin_post_and_messages_are_different_pieces() -> None:
+    assert understand("hazme un post de linkedin").piece == "post"
+    assert understand("una publicación para linkedin sobre el producto").piece == "post"
+    assert understand("escríbeme un mensaje de linkedin para un CFO").piece == "linkedin"
+    assert understand("hazme un post de linkedin").action == "redactar"
