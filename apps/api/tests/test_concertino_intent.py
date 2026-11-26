@@ -121,3 +121,15 @@ def test_linkedin_post_and_messages_are_different_pieces() -> None:
     assert understand("una publicación para linkedin sobre el producto").piece == "post"
     assert understand("escríbeme un mensaje de linkedin para un CFO").piece == "linkedin"
     assert understand("hazme un post de linkedin").action == "redactar"
+
+
+def test_purposes_and_new_pieces() -> None:
+    assert (
+        understand("escríbeme un whatsapp para confirmar la reunión de mañana").purpose
+        == "confirmar"
+    )
+    assert (
+        understand("escríbeme un correo de seguimiento después de una demo").purpose == "agradecer"
+    )
+    assert understand("qué le escribo a un cliente para pedirle un referido").piece == "referido"
+    assert understand("qué le digo a un CFO para que me reciba").piece == "correo"

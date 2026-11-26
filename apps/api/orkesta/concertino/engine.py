@@ -43,6 +43,15 @@ def objection_rules(text: str) -> tuple[str | None, int]:
     return best, hits
 
 
+def objection_said(text: str, code: str) -> bool:
+    """¿El texto trae señales de esa objeción (aunque otra haya ganado)?"""
+    folded = fold(text).lower()
+    obj = pb.OBJECTION_BY_CODE.get(code)
+    if obj is None:
+        return False
+    return any(re.search(p, folded) for p in (*obj.patterns, *pb.MORE_PATTERNS.get(code, ())))
+
+
 def topic_rules(text: str) -> dict[str, float]:
     folded = fold(text).lower()
     out: dict[str, float] = {}
@@ -340,14 +349,19 @@ def advise_reply(session: Session, ctx: Context, text: str) -> tuple[dict[str, A
     objection = classify_objection(session, text)
     category = replies.decide(session, text).category if text.strip() else "otro"
     if objection and category not in ("reunion", "interesado", "baja", "fuera_oficina"):
-        return advise_objection(session, ctx, objection, from_reply=True), objection
+        # «Te respondió con…» solo cuando es la respuesta real de un destinatario de campaña.
+        return advise_objection(
+            session, ctx, objection, from_reply=ctx.recipient is not None
+        ), objection
     play, lines = pb.REPLY_PLAYS.get(category, pb.REPLY_PLAYS["otro"])
     values = slots(ctx)
     draft, missing = render(lines, values, ctx) if lines else ("", [])
     options = [{"code": f"respuesta:{category}", "name": "Respuesta sugerida",
                 "why": play, "text": draft, "record": None}] if draft else []  # fmt: skip
     label = CATEGORIES.get(category, {}).get("label", "Respuesta")
-    return {"summary": f"Lo que entendí: {label.lower()}. {play}", "options": options,
+    lead = (f"Es una respuesta de tipo «{label.lower()}»." if category not in ("otro", "otra")
+            else "Es una respuesta sin una objeción clara.")  # fmt: skip
+    return {"summary": f"{lead} {play}", "options": options,
             "tips": _level_tips(ctx), "sections": [],
             "next_step": "Responde hoy: la velocidad de respuesta pesa tanto como el contenido." if draft else "",
             "missing": _missing_text(missing)}, None  # fmt: skip
@@ -529,10 +543,34 @@ def advise_campaign(session: Session, ctx: Context) -> dict[str, Any]:
                    func.count().filter(Recipient.reply_category.in_(POSITIVE)))  # fmt: skip
     query = query.where(Recipient.tenant_id == ctx.tenant_id, Recipient.sent_count > 0)
     campaign = ctx.campaign
+    overview: list[str] = []
     if campaign is None:
-        campaign = session.scalars(select(Campaign).where(Campaign.tenant_id == ctx.tenant_id,
-                                                          Campaign.created_by == ctx.user_id)
-                                   .order_by(Campaign.created_at.desc()).limit(1)).first()  # fmt: skip
+        # Sin una campaña puntual: el panorama de todas y el detalle de la que más envió.
+        mine = list(session.scalars(select(Campaign).where(Campaign.tenant_id == ctx.tenant_id,
+                                                           Campaign.created_by == ctx.user_id,
+                                                           Campaign.status != "draft")))  # fmt: skip
+        stats = {
+            row[0]: row[1:]
+            for row in session.execute(
+                select(Recipient.campaign_id, func.count(), func.count(Recipient.opened_at),
+                       func.count(Recipient.replied_at),
+                       func.count().filter(Recipient.reply_category.in_(POSITIVE)))
+                .where(Recipient.tenant_id == ctx.tenant_id, Recipient.sent_count > 0,
+                       Recipient.campaign_id.in_([c.id for c in mine]))
+                .group_by(Recipient.campaign_id)
+            ).all()
+        }  # fmt: skip
+        ranked = sorted(mine, key=lambda c: stats.get(c.id, (0,))[0], reverse=True)
+        for c in ranked[:8]:
+            n, _o, r, pos = stats.get(c.id, (0, 0, 0, 0))
+            overview.append(
+                f"«{c.name}»: {n} contactadas · respondieron {_rate(r, n)} · positivas {pos}."
+            )
+        campaign = ranked[0] if ranked and stats.get(ranked[0].id) else None
+        if campaign is None:
+            campaign = session.scalars(select(Campaign).where(Campaign.tenant_id == ctx.tenant_id,
+                                                              Campaign.created_by == ctx.user_id)
+                                       .order_by(Campaign.created_at.desc()).limit(1)).first()  # fmt: skip
     if campaign is None:
         return _ask_more("Todavía no tienes campañas. Cuando envíes la primera, pregúntame y la "
                          "reviso con sus números.")  # fmt: skip
@@ -582,9 +620,14 @@ def advise_campaign(session: Session, ctx: Context) -> dict[str, Any]:
     else:
         summary = "La campaña va bien: replica lo que funciona en la siguiente."
         fixes = ["Guárdala como plantilla de equipo para que otros la usen.", *fixes]
-    return {"summary": summary, "options": [], "tips": [],
-            "sections": [{"title": "Números", "items": numbers},
-                         {"title": "Cambios concretos", "items": list(dict.fromkeys(fixes))[:5]}],
+    sections = [
+        {"title": "Números", "items": numbers},
+        {"title": "Cambios concretos", "items": list(dict.fromkeys(fixes))[:5]},
+    ]
+    if len(overview) > 1:
+        sections.insert(0, {"title": "Tus campañas", "items": overview})
+        summary = f"Revisé tus {len(overview)} campañas; el detalle es de «{campaign.name}», la que más envió. {summary}"
+    return {"summary": summary, "options": [], "tips": [], "sections": sections,
             "next_step": "", "missing": []}  # fmt: skip
 
 
@@ -653,6 +696,59 @@ DISCOVERY = {
 }
 
 
+def _account_brief(session: Session, ctx: Context) -> list[str]:
+    """Lo que el CRM sabe de la cuenta: etapa, valor, cierre, tareas, propuestas y lo último."""
+    from sqlalchemy import or_
+
+    from orkesta.crm.models import Activity, Stage
+    from orkesta.proposals.models import STATUS_LABELS, Proposal
+
+    if ctx.deal is None and ctx.contact is None:
+        return []
+    out: list[str] = []
+    d = ctx.deal
+    if d is not None:
+        stage = session.get(Stage, d.stage_id)
+        value = f"{d.value:,.0f} {d.currency}".replace(",", ".") if d.value else "sin valor"
+        close = (
+            f", cierre estimado {d.expected_close.strftime('%d/%m')}" if d.expected_close else ""
+        )
+        out.append(
+            f"Oportunidad «{d.title}» en {stage.name if stage else 'su etapa'} ({value}{close})."
+        )
+    conds = []
+    if d is not None:
+        conds.append(Activity.deal_id == d.id)
+    if ctx.contact is not None:
+        conds.append(Activity.contact_id == ctx.contact.id)
+    acts = list(session.scalars(
+        select(Activity).where(Activity.tenant_id == ctx.tenant_id, or_(*conds))
+        .order_by(Activity.created_at.desc()).limit(40)
+    ))  # fmt: skip
+    pending = [a for a in acts if a.type == "task" and a.done_at is None]
+    for t in pending[:3]:
+        when = t.due_at.strftime("%d/%m") if t.due_at else "sin fecha"
+        late = " (vencida)" if t.due_at and t.due_at < datetime.now(UTC) else ""
+        out.append(f"Tarea pendiente {when}{late}: {t.body[:120]}.")
+    human = [a for a in acts if a.type in ("note", "call", "meeting", "email")]
+    for a in human[:2]:
+        out.append(
+            f"{_ACT.get(a.type, a.type).capitalize()} del {a.created_at.strftime('%d/%m')}: {a.body[:140]}."
+        )
+    pconds = []
+    if d is not None:
+        pconds.append(Proposal.deal_id == d.id)
+    if ctx.contact is not None:
+        pconds.append(Proposal.contact_id == ctx.contact.id)
+    for p in session.scalars(
+        select(Proposal).where(Proposal.tenant_id == ctx.tenant_id, or_(*pconds))
+        .order_by(Proposal.created_at.desc()).limit(2)
+    ):  # fmt: skip
+        seen = f", vista {p.view_count} vez/veces" if p.view_count else ""
+        out.append(f"Propuesta #{p.number} «{p.title}»: {STATUS_LABELS[p.status].lower()}{seen}.")
+    return [x.replace("..", ".") for x in out]
+
+
 def advise_meeting(session: Session, ctx: Context) -> dict[str, Any]:
     from orkesta.copywriter.knowledge import PERSONAS
 
@@ -677,6 +773,9 @@ def advise_meeting(session: Session, ctx: Context) -> dict[str, Any]:
     sections = []
     if who:
         sections.append({"title": "Con quién", "items": who})
+    account = _account_brief(session, ctx)
+    if account:
+        sections.append({"title": "Lo que ya sabes de la cuenta", "items": account})
     sections.append({"title": "Dolor probable", "items": list(dict.fromkeys(pains))
                      or ["Abre el contacto para afinar: no sé aún su cargo ni su área."]})  # fmt: skip
     sections.append({"title": "Preguntas de descubrimiento",
@@ -690,7 +789,11 @@ def advise_meeting(session: Session, ctx: Context) -> dict[str, Any]:
             ],
         }
     )
-    return {"summary": "Así llegas preparado: escucha más de lo que presentas.", "options": [],
+    place = (getattr(ctx.contact, "company_name", None) or getattr(ctx.contact, "full_name", None)
+             if ctx.contact is not None else None)  # fmt: skip
+    summary = (f"Así llegas con todo a la reunión con {place}: escucha más de lo que presentas."
+               if place else "Así llegas con todo a la reunión: escucha más de lo que presentas.")  # fmt: skip
+    return {"summary": summary, "options": [],
             "tips": _level_tips(ctx), "sections": sections,
             "next_step": "Envía hoy la invitación con la agenda en tres líneas.", "missing": []}  # fmt: skip
 
@@ -794,7 +897,12 @@ def one_liner(ctx: Context) -> str:
     return pb.voice(text[0].upper() + text[1:] + ".", ctx.formal)
 
 
-_PITCH = re.compile(r"\b(presento|presentar|presentacion|pitch|explico|explicar|resumo|resumir)\b")
+_PITCH = re.compile(
+    r"\b(presento|presentar|presentame|presentacion|pitch|explico|explicar|explicame|explicale|resumo|resumir|resumeme)\b"
+)
+_PITCH_EXTRA = re.compile(
+    r"\b(el|mi|nuestro|tu) producto|en \d+ segundos|en (un|1) minuto|que vendemos|que hacemos\b"
+)
 
 
 def _terms(text: str) -> set[str]:
@@ -835,8 +943,9 @@ def advise_product(
                     "tips": [], "sections": [], "next_step": "Pídeme «preséntame el producto en 30 segundos» para la versión larga.",
                     "missing": []}  # fmt: skip
     # «¿Cómo presento el producto?» pide el discurso armado, no datos sueltos.
-    pitch_only = (
-        bool(_PITCH.search(fold(question))) and len(_terms(_PITCH.sub(" ", fold(question)))) <= 1
+    folded_q = fold(question)
+    pitch_only = bool(_PITCH.search(folded_q)) and (
+        len(_terms(_PITCH.sub(" ", folded_q))) <= 1 or bool(_PITCH_EXTRA.search(folded_q))
     )
     # En un seguimiento («¿y en Miami?») manda la pregunta nueva; la anterior solo desempata.
     scored = [] if pitch_only else [(f, _overlap(question, f)) for f in all_facts]

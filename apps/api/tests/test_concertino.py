@@ -612,3 +612,92 @@ def test_concertino_writes_linkedin_posts_and_messages_from_the_sheet(
     assert "4 a 12 reuniones" in msgs["options"][2]["text"]
     ceo = ask("mensajes de linkedin para un CEO")
     assert "[tu|su]" not in ceo["options"][0]["text"] and "su perfil" in ceo["options"][0]["text"]
+
+
+def test_concertino_handles_stalls_referrals_and_sales_moments(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Las preguntas que hacen la diferencia en el día a día: «lo voy a pensar», «lo iba a hablar
+    con su jefe y no volvió», referidos, después de ganar, ánimo, ORKESTA paso a paso y textos
+    para confirmar una reunión o hacer seguimiento después de una demo."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    ask = lambda q: client.post("/api/concertino/ask", json={"question": q}).json()  # noqa: E731
+    think = ask("me dijo que lo va a pensar")
+    assert think["objection"] == "pensar" and think["options"][0]["code"] == "aislar"
+    assert ask("cómo manejo a un cliente que me pide más tiempo")["objection"] == "pensar"
+    boss = ask("el gerente me dijo que lo hablaría con su jefe y no volvió a responder")
+    assert boss["objection"] == "comite" and boss["options"][0]["code"] == "retomar"
+    assert ask("me dicen que ya lo resolvieron internamente")["objection"] == "interno"
+    ref = ask("qué le escribo a un cliente que ya compró para pedirle un referido")
+    assert [o["name"] for o in ref["options"]][:2] == ["Pedir un referido", "Pedir un testimonio"]
+    assert (
+        "Triplicar las reuniones" in ref["options"][1]["text"]
+        or "triplicar las reuniones" in ref["options"][1]["text"]
+    )
+    won = ask("el cliente aceptó la propuesta, qué sigue")
+    assert won["sections"][0]["title"] == "Hoy" and "Felicitaciones" in won["summary"]
+    mood = ask("estoy desmotivada, nadie me responde")
+    assert "Te entiendo" in mood["summary"] and mood["objection"] is None
+    how = ask("cómo uso ORKESTA para prospectar")
+    assert "Prospección" in how["sections"][0]["items"][0]
+    confirm = ask("escríbeme un whatsapp para confirmar la reunión de mañana")
+    assert (
+        confirm["options"][0]["name"] == "Confirmación"
+        and "confirmar" in confirm["options"][0]["text"]
+    )
+    demo = ask("escríbeme un correo de seguimiento después de una demo")
+    body = demo["options"][0]["text"]
+    assert "Resumen de nuestra reunión" in body and "Lo que buscan resolver" in body
+    cfo = ask("qué le digo a un CFO para que me reciba")
+    assert cfo["topic"] == "redactar" and "CFO" in cfo["summary"]
+    pitch = ask("explícame el producto en 30 segundos")
+    assert pitch["options"] and "30 segundos" in pitch["options"][0]["name"]
+    icp = ask("quién debería ser mi cliente ideal")
+    assert icp["topic"] == "estrategia"
+
+
+def test_concertino_answers_with_the_sellers_numbers_and_the_named_account(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """«¿Cuántas propuestas envié este mes?» responde con datos reales; «prepárame la demo con
+    Banco Andino» usa lo que el CRM sabe de esa cuenta."""
+    from datetime import UTC, datetime, timedelta
+
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    contact = client.post("/api/contacts", json={"first_name": "Laura", "last_name": "Gómez",
+        "company": "Banco Andino", "job_title": "Gerente de Compras", "email": "laura@bancoandino.co"}).json()  # fmt: skip
+    deal = client.post("/api/crm/deals", json={"contact_id": contact["id"], "title": "Banco Andino · Licencias",
+                                               "value": 25000}).json()  # fmt: skip
+    due = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    client.post("/api/crm/activities", json={"type": "task", "deal_id": deal["id"],
+                                             "body": "Enviar caso de éxito", "due_at": due})  # fmt: skip
+    p = client.post("/api/proposals", json={"deal_id": deal["id"]}).json()
+    client.post(f"/api/proposals/{p['id']}/send")
+    stats = client.post(
+        "/api/concertino/ask", json={"question": "¿cuántas propuestas envié este mes?"}
+    ).json()
+    assert stats["summary"].startswith("Hola") and "enviaste 1 propuesta;" in stats["summary"], (
+        stats["summary"]
+    )
+    titles = [s["title"] for s in stats["sections"]]
+    assert titles == ["Prospección", "Ventas", "Lo primero que mejoraría"]
+    assert any("Oportunidades nuevas: 1" in i for i in stats["sections"][1]["items"])
+    prep = client.post(
+        "/api/concertino/ask",
+        json={"question": "ayúdame a preparar la demo de mañana con Banco Andino"},
+    ).json()
+    assert prep["topic"] == "reunion" and "Banco Andino" in prep["summary"]
+    account = next(s for s in prep["sections"] if s["title"] == "Lo que ya sabes de la cuenta")[
+        "items"
+    ]
+    joined = " ".join(account)
+    assert (
+        "Banco Andino · Licencias" in joined
+        and "Enviar caso de éxito" in joined
+        and "(vencida)" in joined
+    )
+    assert f"Propuesta #{p['number']}" in joined
