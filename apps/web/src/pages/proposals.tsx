@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Send,
   Trash2,
+  UserPlus,
   X,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import {
   TextField,
 } from "../components/ui";
 import { ProposalDocument, RichText } from "../components/ProposalDocument";
+import { ContactPicker } from "../components/ContactPicker";
 import {
   SaveTemplateButton,
   TemplatePicker,
@@ -911,6 +913,7 @@ export function ProposalEditor() {
   );
   const [openItem, setOpenItem] = useState<number | null>(null);
   const [emailing, setEmailing] = useState(false);
+  const [linking, setLinking] = useState(false);
   const caret = useRef<{
     el: HTMLInputElement | HTMLTextAreaElement;
     pos: number;
@@ -1060,6 +1063,14 @@ export function ProposalEditor() {
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-ork-mist">
             <Badge tone={STATUS_TONE[p.status]}>{p.status_label}</Badge>
             {p.contact && <span>{p.contact.full_name}</span>}
+            <button
+              type="button"
+              onClick={() => setLinking(true)}
+              className="inline-flex items-center gap-1 font-semibold text-ork-blue hover:underline"
+            >
+              <UserPlus className="size-3.5" aria-hidden />
+              {p.contact ? "Cambiar contacto" : "Ligar a un contacto"}
+            </button>
             {p.company && <span>· {p.company}</span>}
             {p.deal && (
               <Link
@@ -1841,19 +1852,32 @@ export function ProposalEditor() {
               {p.design.last_email.from}.
             </p>
           )}
-          {!locked && (
             <button
               type="button"
               className="mt-5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-bad hover:underline"
               onClick={() =>
-                window.confirm("¿Eliminar esta propuesta?") && remove.mutate()
+                window.confirm(
+                  locked
+                    ? `La propuesta #${p.number} ya fue ${p.status === "accepted" ? "aceptada" : "rechazada"} por el cliente. Si la eliminas, el enlace deja de funcionar y no se puede recuperar. ¿Eliminarla?`
+                    : "¿Eliminar esta propuesta?",
+                ) && remove.mutate()
               }
             >
               <Trash2 className="size-3.5" aria-hidden /> Eliminar propuesta
             </button>
-          )}
         </Card>
       </div>
+      {linking && (
+        <LinkContactModal
+          proposal={p}
+          onClose={() => setLinking(false)}
+          onLinked={(data) => {
+            refresh(data);
+            setLinking(false);
+            client.invalidateQueries({ queryKey: ["proposals"] });
+          }}
+        />
+      )}
       {emailing && (
         <EmailProposalModal
           proposal={p}
@@ -1879,6 +1903,59 @@ const EMAIL_COPY = {
     body: "<p>Olá, {{nombre}}:</p><p>Conforme conversamos, compartilho a proposta para {{empresa}}. Você pode revisá-la, baixá-la em PDF e aceitá-la diretamente pelo link.</p><p>Fico à disposição para comentários.</p><p>Abraços,</p>",
   },
 };
+
+/** Ligar la propuesta a un contacto, también si ya se envió: su historia pasa a la ficha. */
+function LinkContactModal({
+  proposal: p,
+  onClose,
+  onLinked,
+}: {
+  proposal: Proposal;
+  onClose: () => void;
+  onLinked: (data: Proposal) => void;
+}) {
+  const [ids, setIds] = useState<string[]>(p.contact ? [p.contact.id] : []);
+  const chosen = ids[ids.length - 1];
+  const link = useMutation({
+    mutationFn: () =>
+      api<Proposal>(`/api/proposals/${p.id}/contact`, {
+        method: "PUT",
+        json: { contact_id: chosen },
+      }),
+    onSuccess: onLinked,
+  });
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Ligar la propuesta #${p.number} a un contacto`}
+      description="Funciona aunque ya la hayas enviado. Lo que pasó con la propuesta (envío, aperturas, respuesta) queda en la ficha del contacto y, si tiene una sola oportunidad abierta, también se liga a ella."
+    >
+      <div className="flex flex-col gap-4">
+        <ContactPicker
+          single
+          ids={chosen ? [chosen] : []}
+          onChange={(next) => setIds(next.slice(-1))}
+        />
+        {link.isError && (
+          <Alert tone="bad">{(link.error as Error).message}</Alert>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            loading={link.isPending}
+            disabled={!chosen || chosen === p.contact?.id}
+            onClick={() => link.mutate()}
+          >
+            Ligar contacto
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function EmailProposalModal({
   proposal: p,

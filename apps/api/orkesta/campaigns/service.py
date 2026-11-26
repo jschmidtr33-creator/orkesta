@@ -35,6 +35,7 @@ from orkesta.data.service import ContactFilters, _filtered
 from orkesta.engine.normalize.location import COUNTRIES
 from orkesta.notifications.service import notify
 from orkesta.platform.models import Tenant, User
+from orkesta.validation.checks import FREE
 
 logger = logging.getLogger("orkesta.campaigns")
 MAX_STEPS = 6
@@ -607,8 +608,11 @@ def waiting_reason(session: Session, c: Campaign, mailbox: Mailbox | None) -> st
             Recipient.next_send_at <= now(),
             func.lower(func.split_part(Recipient.email, "@", 2)).not_in(full)))  # fmt: skip
         if not open_:
-            return ("Las empresas pendientes ya bloquearon antes un correo tuyo: se les escribe "
-                    "uno al día para cuidar tu buzón. Sigue mañana.")  # fmt: skip
+            cap = int(c.settings.get("per_domain_daily", 3) or 0)
+            return (
+                f"Las empresas pendientes ya recibieron hoy su máximo de {cap} correos por "
+                "empresa (lo cambias en la configuración de la campaña): sigue mañana."
+            )
     return None
 
 
@@ -926,28 +930,33 @@ def blocked_domains(session: Session, tenant_id: uuid.UUID) -> set[str]:
     return set(rows)
 
 
-def _domain_counts(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> dict[str, int]:
+def _domain_counts(
+    session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo
+) -> dict[str, int]:
+    """Correos de hoy por empresa en ESTA campaña. Cada campaña tiene su propio tope: dos
+    campañas a la misma empresa no se quitan el cupo entre sí (el buzón igual respeta su máximo
+    diario). Gmail, Hotmail y demás correos personales no son una empresa: no tienen tope."""
     domain = func.lower(func.split_part(Recipient.email, "@", 2))
     rows = session.execute(
         select(domain, func.count())
         .select_from(Message)
         .join(Recipient, Recipient.id == Message.recipient_id)
-        .where(Message.mailbox_id == mailbox.id, Message.sent_at >= _day_start(tz))
+        .where(Message.mailbox_id == mailbox.id, Message.sent_at >= _day_start(tz),
+               Recipient.campaign_id == campaign.id)
         .group_by(domain)
-    ).all()
-    return {str(row[0]): int(row[1]) for row in rows}
+    ).all()  # fmt: skip
+    return {str(row[0]): int(row[1]) for row in rows if str(row[0]) not in FREE}
 
 
 def _full_domains(session: Session, campaign: Campaign, mailbox: Mailbox, tz: ZoneInfo) -> set[str]:
-    """Empresas que hoy ya recibieron su máximo: las que bloquearon un correo de este cliente,
-    uno al día; las demás, el tope por empresa de la campaña (3 por defecto). Así nunca llega
-    una ráfaga de correos iguales a un mismo servidor."""
-    counts = _domain_counts(session, mailbox, tz)
-    if not counts:
-        return set()
-    blocked = blocked_domains(session, campaign.tenant_id)
+    """Empresas que hoy ya recibieron el tope por empresa de la campaña (3 por defecto). Así
+    nunca llega una ráfaga de correos iguales a un mismo servidor. Que una persona de la empresa
+    haya bloqueado un correo no frena al resto: a esa empresa se le escribe con el mismo tope que
+    a las demás."""
     cap = int(campaign.settings.get("per_domain_daily", 3) or 0)
-    return {d for d, n in counts.items() if (d in blocked and n >= 1) or (cap and n >= cap)}
+    if not cap:
+        return set()
+    return {d for d, n in _domain_counts(session, campaign, mailbox, tz).items() if n >= cap}
 
 
 def _probes_today(session: Session, mailbox: Mailbox, tz: ZoneInfo) -> int:

@@ -6,8 +6,11 @@ from __future__ import annotations
 
 OBJECTIONS: dict[str, tuple[str, ...]] = {
     "precio": ("me dijo que está carísimo", "dice que se sale del presupuesto", "le pareció costoso",
-               "pidió un descuento grande", "dice que por ese precio no", "comparó el precio y le pareció alto",
+               "dice que por ese precio no", "comparó el precio y le pareció alto",
                "no tienen plata para eso", "el cliente dice que es muy caro para su tamaño"),
+    "descuento": ("pidió un descuento grande", "quiere 30 % de descuento para firmar", "me pidió rebaja para cerrar este mes",
+                  "dice que si le bajo el precio firma", "compras quiere sacar un 10 % más"),
+    "pensar": ("dice que lo va a pensar", "quedó en pensarlo", "lo va a analizar y me avisa", "necesita unos días para pensarlo"),
     "prioridad": ("me dijo que ahora no es el momento", "tienen otras prioridades este trimestre",
                   "que lo hablemos el próximo año", "están en cierre fiscal", "dice que lo deja para después",
                   "que le escriba en unos meses"),
@@ -23,7 +26,7 @@ OBJECTIONS: dict[str, tuple[str, ...]] = {
                   "no confía en proveedores pequeños"),
     "competencia": ("tiene una cotización más barata", "está comparando con otra empresa", "la competencia le ofreció más",
                     "está evaluando tres proveedores", "otro le dio mejores condiciones"),
-    "comite": ("lo tiene que aprobar la junta", "debe consultarlo con su gerente", "lo decide su socio",
+    "comite": ("lo iba a hablar con su jefe", "lo hablaría con su jefe y no volvió", "lo tiene que aprobar la junta", "debe consultarlo con su gerente", "lo decide su socio",
                "tiene que pasar por el comité de compras", "lo tiene que validar finanzas"),
     "silencio": ("no me ha vuelto a responder", "me ignoró después de la propuesta", "no contesta las llamadas",
                  "desde la demo no sé nada", "lo llamo y no contesta"),

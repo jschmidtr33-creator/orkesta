@@ -152,7 +152,7 @@ def ask(
     history: list[dict[str, Any]] | None = None, answering: str | None = None,
     role: str | None = None, practicing: str | None = None,
 ) -> dict[str, Any]:  # fmt: skip
-    from orkesta.concertino import coach, interview, strategy
+    from orkesta.concertino import coach, extras, interview, numbers, pipeline, strategy
 
     question = (question or "").strip()[:4000]
     history = (history or [])[-6:]
@@ -168,6 +168,11 @@ def ask(
         return interview.ask_step(
             step, intro="Antes de ayudarte necesito conocer bien lo que vendes."
         )
+    if question and contact_id is None and deal_id is None and recipient_id is None:
+        # «Prepárame la demo con Clínica Horizonte»: la cuenta nombrada, con su historia del CRM.
+        from orkesta.concertino import accounts
+
+        contact_id, deal_id = accounts.mentioned(session, tenant_id, question)
     ctx = _context(session, tenant_id=tenant_id, user=user, contact_id=contact_id,
                    deal_id=deal_id, recipient_id=recipient_id, campaign_id=campaign_id,
                    trato=trato)  # fmt: skip
@@ -185,6 +190,39 @@ def ask(
         return strategy.build(session, ctx, question)
     if question and mode is None and strategy.wants_pains(question):
         return strategy.pains(ctx, question)
+    # Ánimo, después de ganar y cómo se hace en ORKESTA: respuestas de jefe comercial.
+    special = None
+    if question and mode is None:
+        if extras.wants_mood(question):
+            special = extras.mood()
+        elif extras.wants_win(question):
+            special = extras.after_win()
+        else:
+            special = extras.howto(question)
+    if special is not None:
+        special["summary"] = chat.greet(str(special["summary"]), name, turn)
+        return {"case_id": None, "topic": "general", "topic_label": pb.TOPICS["general"],
+                "objection": None, "objection_label": None, "formal": ctx.formal, **special,
+                "sources": []}  # fmt: skip
+    # «¿Cuántos correos envié esta semana?», «¿cómo voy?»: con los números reales de la persona.
+    if question and mode is None and numbers.wants(question):
+        stats = numbers.build(session, tenant_id, user, question)
+        stats["summary"] = chat.greet(str(stats["summary"]), name, turn)
+        return {"case_id": None, "topic": "general", "topic_label": pb.TOPICS["general"],
+                "objection": None, "objection_label": None, "formal": ctx.formal, **stats,
+                "sources": ["Datos de ORKESTA"]}  # fmt: skip
+    # «¿Qué oportunidad priorizo esta semana?»: con los datos del CRM de la persona.
+    if (
+        question
+        and mode is None
+        and pipeline.wants(question)
+        and allowed(session, tenant_id, "cuenta")
+    ):
+        ranked = pipeline.build(session, tenant_id, user.id)
+        ranked["summary"] = chat.greet(str(ranked["summary"]), name, turn)
+        return {"case_id": None, "topic": "cuenta", "topic_label": pb.TOPICS["cuenta"],
+                "objection": None, "objection_label": None, "formal": ctx.formal, **ranked,
+                "sources": ["CRM de ORKESTA"]}  # fmt: skip
     # Charla (saludos, gracias, «¿qué puedes hacer?») y «¿qué vendo?»: respuesta directa.
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
     # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).
@@ -264,6 +302,10 @@ def ask(
                 "tipo de objeción y te propongo cómo responder.")  # fmt: skip
         else:
             advice = engine.advise_objection(session, ctx, objection)
+            if objection == "comite" and engine.objection_said(text, "silencio"):
+                # «Lo iba a hablar con su jefe y no volvió»: primero retomar la consulta.
+                opts = advice.get("options") or []
+                advice["options"] = sorted(opts, key=lambda o: "retomar" not in str(o.get("code")))
     elif topic == "perfil":
         advice = engine.advise_profile(session, ctx, text)
         sheet = chat.from_sheet(text, ctx) if question else None

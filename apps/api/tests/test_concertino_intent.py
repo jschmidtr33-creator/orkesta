@@ -67,6 +67,10 @@ BANK: list[tuple[str, str | None, str | None, int | None]] = [
     ("¿Cuándo propongo una delegación?", None, None, None),
     ("ya tienen proveedor", None, None, None),
     ("¿A qué sector apunto?", None, None, None),
+    # Piden un consejo, no una pieza escrita
+    ("qué hago si no me contestan después de 3 correos", None, None, None),
+    ("cómo hago seguimiento sin molestar después de 2 correos", None, None, None),
+    ("como manejo una secuencia de 4 correos que no tiene respuestas", None, None, None),
 ]
 GOAL = 0.9
 
@@ -97,3 +101,35 @@ def test_details_and_tweaks() -> None:
     for tweak in ("Hazlo más corto", "Ahora para un CFO", "Más formal", "en inglés"):
         assert understand(tweak, last_topic="redactar").action == "ajustar", tweak
     assert understand("gracias", last_topic="redactar").action is None
+
+
+def test_cargo_keeps_accents_and_sector_comes_from_outside_the_cargo() -> None:
+    it = understand(
+        "escríbeme un correo en frío para un gerente de logística de una minorista en México"
+    )
+    assert it.cargo == "gerente de logística"
+    assert it.industry == "retail_consumo"
+
+
+def test_advice_question_after_a_draft_is_not_a_tweak() -> None:
+    it = understand("qué hago si no me contestan después de 3 correos", last_topic="redactar")
+    assert it.action is None
+
+
+def test_linkedin_post_and_messages_are_different_pieces() -> None:
+    assert understand("hazme un post de linkedin").piece == "post"
+    assert understand("una publicación para linkedin sobre el producto").piece == "post"
+    assert understand("escríbeme un mensaje de linkedin para un CFO").piece == "linkedin"
+    assert understand("hazme un post de linkedin").action == "redactar"
+
+
+def test_purposes_and_new_pieces() -> None:
+    assert (
+        understand("escríbeme un whatsapp para confirmar la reunión de mañana").purpose
+        == "confirmar"
+    )
+    assert (
+        understand("escríbeme un correo de seguimiento después de una demo").purpose == "agradecer"
+    )
+    assert understand("qué le escribo a un cliente para pedirle un referido").piece == "referido"
+    assert understand("qué le digo a un CFO para que me reciba").piece == "correo"

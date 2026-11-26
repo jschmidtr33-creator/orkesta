@@ -20,6 +20,8 @@ PIECES = {
     "correo": "Correo",
     "whatsapp": "Mensaje de WhatsApp",
     "linkedin": "Mensaje de LinkedIn",
+    "post": "Post de LinkedIn",
+    "referido": "Pedido de referidos",
     "asuntos": "Asuntos de correo",
     "resumen": "Resumen ejecutivo",
     "guion": "Guion de llamada",
@@ -29,7 +31,8 @@ _VERB = (
     r"(crea|creame|crear|crees|redacta|redactame|redactar|escribe|escribeme|escribir|arma|armame|armar|"
     r"genera|generame|generar|hazme|haz|hacer|hagamos|prepara|preparame|preparar|dame|damelo|necesito|quiero|"
     r"ayudame (a|con)|propon|proponme|sugiere|sugiereme|elabora|elaborame|construye|monta|diseña|disena|"
-    r"pasame|mandame|envia(me)?|me (das|haces|armas|escribes|redactas|creas|preparas))"
+    r"pasame|mandame|envia(me)?|me (das|haces|armas|escribes|redactas|creas|preparas)|"
+    r"que (le|les) (escribo|digo|mando|envio|pongo))"
 )
 _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
     (
@@ -37,6 +40,11 @@ _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
         r"\b(secuencia|secuensia|secuancia|cadencia|seguidilla|serie de correos|varios correos|flujo de correos|campa(n|ñ)a de correos?|\d+ (correos|mails|emails|toques)|(dos|tres|cuatro|cinco|seis) (correos|mails|emails|toques))\b",
     ),
     ("whatsapp", r"\b(whatsapp|whats|wsp|wpp|wasap|guasap|mensaje de texto|sms)\b"),
+    (
+        "referido",
+        r"\b(referid\w*|referencias?|recomendacion(es)?|que me recomiende|recomendarnos|resena|resenas|testimonio\w*)\b",
+    ),
+    ("post", r"\b(post|posts|posteo|posteos|publicacion|publicaciones|articulo|carrusel)\b"),
     ("linkedin", r"\b(linkedin|linked in|inmail|in mail)\b"),
     ("asuntos", r"\b(asuntos?|subject|linea de asunto)\b"),
     (
@@ -98,7 +106,7 @@ _INDUSTRY: tuple[tuple[str, str], ...] = (
     ("seguros", r"\b(seguros?|asegurador(a|as)?|aseguradoras)\b"),
     (
         "retail_consumo",
-        r"\b(retail|consumo masivo|supermercados?|tiendas?|ecommerce|e-commerce|comercio)\b",
+        r"\b(retail|minoristas?|consumo masivo|supermercados?|tiendas?|ecommerce|e-commerce|comercio)\b",
     ),
     (
         "telecomunicaciones",
@@ -145,12 +153,16 @@ _TWEAK = re.compile(
 # Para qué es la pieza: no es lo mismo el primer contacto que un seguimiento o una invitación.
 _PURPOSES: tuple[tuple[str, str], ...] = (
     (
-        "seguimiento",
-        r"\b(seguimiento|no (me )?(ha )?(respondio|respondido|contesto|contestado|responde|contesta)|sin respuesta|no respondio|recordatorio|insistir|volver a escribir(le)?)\b",
+        "confirmar",
+        r"\b(confirmar|confirmacion|confirma|recordar(le)?|recordatorio)( de)? (la |nuestra |su |mi |una )?(reunion|cita|llamada|demo|visita)\b",
     ),
     (
         "agradecer",
-        r"\b(despues de (la|una) (reunion|llamada|demo)|post ?reunion|gracias por (la|su) (reunion|tiempo|llamada)|agradecer|agradecimiento)\b",
+        r"\b(despues de (la|una|nuestra) (reunion|llamada|demo|presentacion)|post ?(reunion|demo)|gracias por (la|su) (reunion|tiempo|llamada)|agradecer|agradecimiento)\b",
+    ),
+    (
+        "seguimiento",
+        r"\b(seguimiento|no (me )?(ha )?(respondio|respondido|contesto|contestado|responde|contesta)|sin respuesta|no respondio|recordatorio|insistir|volver a escribir(le)?)\b",
     ),
     (
         "propuesta",
@@ -212,7 +224,9 @@ class Intent:
     language: str = "es"
     tone: str | None = None  # formal | cercano | directo
     goal: str | None = None
-    purpose: str | None = None  # seguimiento | invitacion | propuesta | agradecer | reactivar
+    purpose: str | None = (
+        None  # seguimiento | invitacion | propuesta | agradecer | reactivar | confirmar
+    )
     person: str = ""  # «para Juan Pérez»: el correo sale con su nombre
     target_company: str = ""  # «CFO de Bancolombia»
     place: str = ""  # «a Miami», «en Chile»
@@ -235,6 +249,34 @@ def _count(folded: str) -> int | None:
     return max(1, min(6, n)) if n else None
 
 
+_TILDES = {
+    "logistica": "logística",
+    "tecnologia": "tecnología",
+    "tecnologico": "tecnológico",
+    "tecnologica": "tecnológica",
+    "informacion": "información",
+    "produccion": "producción",
+    "operacion": "operación",
+    "administracion": "administración",
+    "atencion": "atención",
+    "innovacion": "innovación",
+    "comunicacion": "comunicación",
+    "transformacion": "transformación",
+    "gestion": "gestión",
+    "dueno": "dueño",
+    "duena": "dueña",
+    "lider": "líder",
+    "credito": "crédito",
+    "analitica": "analítica",
+    "estrategia": "estrategia",
+}
+
+
+def _accents(cargo: str) -> str:
+    """El cargo se detecta sin tildes; se devuelve escrito bien («gerente de logística»)."""
+    return " ".join(_TILDES.get(w, w) for w in cargo.split())
+
+
 def details(text: str) -> Intent:
     """Los datos que vienen en la frase, sin decidir todavía la acción."""
     folded = fold(text)
@@ -251,9 +293,18 @@ def details(text: str) -> Intent:
         words = m.group(0).split()
         while len(words) > 1 and words[-1] in _TAIL:
             words.pop()
-        it.cargo = " ".join(words)
+        it.cargo = _accents(" ".join(words))
+    # «¿Qué le digo a un CFO para que me reciba?» es un pedido de correo para ese cargo.
+    if (
+        it.piece is None
+        and it.cargo
+        and re.match(r"^(y )?que (le|les) (digo|escribo|mando|envio|pongo)\b", folded)
+    ):
+        it.piece = "correo"
+    # El sector se busca fuera del cargo: «gerente de logística de una minorista» es retail.
+    sector_text = folded[: m.start()] + " " + folded[m.end() :] if m else folded
     for code, pattern in _INDUSTRY:
-        if re.search(pattern, folded):
+        if re.search(pattern, sector_text):
             it.industry = code
             break
     it.language = "en" if _ENGLISH.search(folded) else "es"
@@ -302,13 +353,13 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
     # «Correo para ofrecer una delegación a…» sin verbo también es un pedido de redacción.
     asks_to_write = asks_to_write or bool(
         re.match(
-            r"^(un |una |el |la )?(correo|mail|email|e-mail|mensaje|secuencia|whatsapp|inmail)s? (para|de|a|sobre|ofreciendo|invitando)\b",
+            r"^(un |una |el |la )?(correo|mail|email|e-mail|mensaje|secuencia|whatsapp|inmail|post|publicacion)s? (para|de|a|sobre|en|ofreciendo|invitando)\b",
             folded,
         )
     )
     # «Secuencia de 3 correos para un CEO» sin verbo también es un pedido de redacción.
     bare = (
-        it.piece in ("secuencia", "whatsapp", "linkedin", "asuntos", "resumen", "guion")
+        it.piece in ("secuencia", "whatsapp", "linkedin", "post", "asuntos", "resumen", "guion")
         and len(folded.split()) <= 12
         and "?" not in text
     )
@@ -321,10 +372,21 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
     )
     # «¿Qué le digo en la llamada?» pide el guion aunque venga como pregunta.
     bare = bare or (it.piece == "guion" and bool(re.search(r"\bque (le )?digo\b", folded)))
-    if (asks_to_write or bare) and not question:
+    # «¿Qué hago si no me contestan después de 3 correos?» pide un consejo, no una secuencia:
+    # sin un verbo de redactar, una pregunta de «qué hago / cómo manejo» va al oficio.
+    advice = not verb and bool(
+        re.match(
+            r"^(y )?(que (hago|hacemos|debo hacer|deberia hacer|me recomiendas|recomiendas)|"
+            r"como (hago|hacemos|manejo|manejar|le hago|puedo|debo|deberia|se hace|lograr|logro|consigo|mejoro)|"
+            r"(es normal|vale la pena|conviene|sirve) )",
+            folded,
+        )
+    )
+    if (asks_to_write or bare) and not question and not advice:
         it.action = "redactar"
     elif (
         last_topic == "redactar"
+        and not advice
         and len(folded.split()) <= 10
         and (
             _TWEAK.search(folded)

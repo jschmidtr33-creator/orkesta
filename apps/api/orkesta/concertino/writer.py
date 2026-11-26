@@ -20,7 +20,7 @@ from orkesta.concertino import playbook as pb
 from orkesta.concertino.intent import PIECES, Intent
 from orkesta.concertino.models import ProductFact
 from orkesta.copywriter import engine as copy
-from orkesta.copywriter.knowledge import INDUSTRY_CONTEXT, PERSONAS
+from orkesta.copywriter.knowledge import INDUSTRY_CONTEXT, PERSONAS, WHO
 from orkesta.engine.normalize.text import fold
 
 _EVENT = re.compile(
@@ -54,6 +54,12 @@ _WRITING_WORDS = frozenset(
         "mensajes",
         "whatsapp",
         "linkedin",
+        "post",
+        "posts",
+        "referido",
+        "referidos",
+        "testimonio",
+        "publicacion",
         "crea",
         "crear",
         "creame",
@@ -166,7 +172,9 @@ def _offer_kind(fact: ProductFact | None) -> str:
 
 def _who(it: Intent, area: str | None) -> str:
     if it.cargo:
-        return f"un {it.cargo.upper()}" if len(it.cargo) <= 5 else f"un {it.cargo}"
+        first = it.cargo.split()[0]
+        acronym = re.fullmatch(r"c[a-z]?o|ciso|chro|vp", first) is not None
+        return f"un {it.cargo.upper()}" if acronym and " " not in it.cargo else f"un {it.cargo}"
     if area and area in PERSONAS:
         return PERSONAS[area]["es"]["label"]
     return "tus contactos"
@@ -218,7 +226,10 @@ def brief(
         language=it.language,
         steps=count if it.piece in ("secuencia", "correo") else 1,
     )
-    meta = {"who": _who(it, area), "where": _where(it.industry), "product": b.product,
+    where = _where(it.industry)
+    if where and fold(where.split(" de ", 1)[-1].split(" y ")[0]) in fold(it.cargo):
+        where = ""  # «gerente de logística» ya dice el sector: no «… de logística y transporte»
+    meta = {"who": _who(it, area), "where": where, "product": b.product,
             "formal": tone == "formal" or (tone == "directo" and group in ("alta", "direccion")), "area": area, "focus": focus, "proof": proof,
             "main": _offer_name(main) if main else b.product, "kind": _offer_kind(focus),
             "price": _price_for(ctx, text, focus),
@@ -248,7 +259,19 @@ def write(
         advice = _emails(ctx, b, meta, piece)
     elif piece == "asuntos":
         advice = _subjects(b, meta)
-    elif piece in ("whatsapp", "linkedin"):
+    elif piece == "linkedin":
+        from orkesta.concertino import linkedin
+
+        advice = linkedin.messages(ctx, b, meta)
+    elif piece == "post":
+        from orkesta.concertino import linkedin
+
+        advice = linkedin.posts(ctx, b, meta)
+    elif piece == "referido":
+        from orkesta.concertino import referrals
+
+        advice = referrals.referrals(ctx, b, meta)
+    elif piece == "whatsapp":
         advice = _short_messages(ctx, b, meta, piece)
     elif piece == "resumen":
         advice = _summary(ctx, meta)
@@ -313,6 +336,22 @@ def _sheet_emails(
         ]
     if meta["purpose"] == "seguimiento" and subjects:
         subjects = [f"Re: {subjects[0]}", *subjects[1:]]
+    elif meta["purpose"] == "agradecer":
+        subjects = [
+            "Resumen de nuestra reunión y próximos pasos",
+            "Gracias por [tu|su] tiempo, {{nombre}}",
+        ]
+    elif meta["purpose"] == "reactivar":
+        subjects = [
+            "{{nombre}}, ¿cómo va todo en {{empresa|[tu|su] equipo}}?",
+            "Retomando nuestra conversación",
+        ]
+    elif meta["purpose"] == "confirmar":
+        subjects = [
+            "Confirmación: nuestra reunión de [día]",
+            "{{nombre}}, ¿seguimos en pie para [día]?",
+        ]
+    subjects = [pb.voice(x, formal) for x in subjects]
     steps = []
     for i, parts in enumerate(bodies):
         html = _p(*(pb.voice(x, formal) for x in [*parts])).replace("<p>", "<p>", 1)
@@ -351,10 +390,18 @@ def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str
                 f"Sé que la agenda está llena, así que voy al grano: {valor}." if valor else "",
                 proof,
                 "¿Tiene sentido que lo veamos 15 minutos esta semana, o prefiere[s|] que [te|le] escriba más adelante?"]  # fmt: skip
+    if purpose == "confirmar":
+        return ["[Te|Le] escribo para confirmar nuestra reunión de [día y hora].",
+                f"La idea es revisar en 20 o 30 minutos cómo {product} puede ayudar a {company}"
+                + (f" con {problema}." if problema else "."),
+                "Si [necesitas|necesita] moverla, [dime|dígame] y buscamos otro horario sin problema."]  # fmt: skip
     if purpose == "agradecer":
         return ["Gracias por [tu|su] tiempo hoy.",
-                f"Como conversamos, con {product} {company} logra: {valor}." if valor else f"Como conversamos, [te|le] dejo el resumen de {product}.",
-                "Para avanzar, ¿[te|le] envío la propuesta esta semana y la revisamos juntos?"]  # fmt: skip
+                "[Te|Le] dejo el resumen de lo que conversamos:",
+                f"• Lo que buscan resolver: {problema}." if problema else "",
+                f"• Cómo lo resuelve {product}: {valor}." if valor else f"• La propuesta: {product}.",
+                f"• Un caso parecido: {prueba}." if prueba else "",
+                "Próximo paso: [te|le] envío la propuesta y la revisamos juntos 20 minutos. ¿[Te|Le] queda bien el jueves?"]  # fmt: skip
     if purpose == "propuesta":
         return [f"Como acordamos, [te|le] comparto la propuesta de {product} para {company}.",
                 f"En resumen: {valor}." if valor else "",
@@ -377,7 +424,13 @@ def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str
                 f"Lo que se llevan: {valor}." if valor else "",
                 team or proof,
                 "¿[Te|Le] reservo un lugar o prefiere[s|] que [te|le] envíe la agenda?"]  # fmt: skip
-    return [f"Hablo seguido con líderes{where} y hay un tema que se repite: {problema}." if problema else "",
+    peers = WHO[meta["area"]]["es"] if meta.get("area") in WHO else ("líderes" if where else "")
+    talk = (
+        f"Hablo seguido con {peers}{where}"
+        if peers
+        else "Hablo seguido con equipos como el [tuyo|suyo]"
+    )
+    return [f"{talk} y hay un tema que se repite: {problema}." if problema else "",
             f"Por eso [te|le] escribo por {product}: {valor}." if valor else f"[Te|Le] escribo por {product}.",
             proof, cta]  # fmt: skip
 
@@ -432,7 +485,21 @@ def _short_messages(
     prueba = values.get("prueba", "")
     problema = values.get("problema", "")
     product = meta["product"]
-    if piece == "whatsapp":
+    if piece == "whatsapp" and meta.get("purpose") == "confirmar":
+        a = ("Hola {{nombre}}, ¿cómo [estás|está]? [Te|Le] escribo para confirmar nuestra reunión de "
+             "[día y hora]. ¿Seguimos en pie?")  # fmt: skip
+        bmsg = (f"Hola {{{{nombre}}}}, mañana nos vemos a las [hora] para revisar {product}. "
+                "[Te|Le] dejo el enlace: [enlace]. Si algo cambia, [avísame|avíseme] y lo movemos.")  # fmt: skip
+        names = ("Confirmación", "Recordatorio con enlace")
+        why = "Confirmar el día antes reduce las ausencias a la mitad. Corto, con día, hora y una salida fácil."
+    elif piece == "whatsapp" and meta.get("purpose") == "agradecer":
+        a = (f"Hola {{{{nombre}}}}, gracias por [tu|su] tiempo hoy. Como quedamos, [te|le] envío la propuesta de {product} "
+             "por correo. ¿Lo revisamos juntos el jueves?")  # fmt: skip
+        bmsg = ("Hola {{nombre}}, [te|le] acabo de enviar el resumen de la reunión por correo. "
+                "Cualquier duda, por aquí [te|le] respondo rápido.")  # fmt: skip
+        names = ("Después de la reunión", "Aviso del correo")
+        why = "El mismo día de la reunión, mientras está fresca: confirma el siguiente paso con fecha."
+    elif piece == "whatsapp":
         a = (
             f"Hola {{{{nombre}}}}, [te|le] escribo por {product}. "
             + (f"En pocas palabras: {valor}. " if valor else "")
@@ -485,7 +552,13 @@ def _summary(ctx: engine.Context, meta: dict[str, Any]) -> dict[str, Any]:
 
 def _call_script(ctx: engine.Context, b: copy.Brief, meta: dict[str, Any]) -> dict[str, Any]:
     v = engine.slots(ctx)
-    pains = PERSONAS.get(meta["area"] or "direccion", PERSONAS["direccion"])["es"]["pains"]
+    persona_pains = list(
+        PERSONAS.get(meta["area"] or "direccion", PERSONAS["direccion"])["es"]["pains"]
+    )
+    # Primero el problema que resuelve el producto (la ficha); luego los del cargo.
+    sheet = [_clean(f.title).rstrip(".") for f in (ctx.facts.get("problema") or [])]
+    sheet = [p[:1].lower() + p[1:] if len(p) > 1 and not p[1].isupper() else p for p in sheet]
+    pains = list(dict.fromkeys([*sheet, *persona_pains]))
     objection = next((f for f in ctx.facts.get("objecion") or [] if f.answer), None)
     parts = [
         "Apertura: «Hola, {{nombre}}, habla [tu nombre] de "
@@ -499,7 +572,11 @@ def _call_script(ctx: engine.Context, b: copy.Brief, meta: dict[str, Any]) -> di
         )
         + "»",
         f"Pregunta 1: «¿Cómo están resolviendo hoy {pains[0]}?»",
-        f"Pregunta 2: «¿Qué pasaría si {pains[1]} fuera más simple este año?»",
+        (
+            "Pregunta 2: «¿Cuánto les está costando eso hoy, en tiempo o en dinero?»"
+            if sheet
+            else f"Pregunta 2: «¿Qué pasaría si {pains[1]} fuera más simple este año?»"
+        ),
         "Propuesta: «"
         + (_sentence(v["valor"]) if v.get("valor") else _sentence(meta["product"]))
         + (f" {_sentence(v['prueba'])}" if v.get("prueba") else "")
@@ -526,4 +603,8 @@ def _tweaks(it: Intent, piece: str) -> list[str]:
         out.append("Pásalo a WhatsApp")
     elif piece == "whatsapp":
         out.append("Ahora como secuencia de 3 correos")
+    elif piece == "post":
+        return ["Ahora los mensajes de LinkedIn", "Post para un CEO", "Hazlo más corto"]
+    elif piece == "linkedin":
+        out.append("Ahora un post de LinkedIn")
     return out[:4]

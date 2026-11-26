@@ -577,6 +577,42 @@ def update_proposal(session: Session, proposal: Proposal, data: dict[str, Any]) 
     return proposal
 
 
+def link_contact(
+    session: Session, proposal: Proposal, contact_id: uuid.UUID, user: User
+) -> Proposal:
+    """Liga una propuesta (también una ya enviada o respondida) a un contacto. Si la propuesta
+    no tiene oportunidad y el contacto tiene una sola abierta, queda ligada también. Lo que ya
+    pasó con la propuesta (creada, enviada, abierta, respondida) aparece en la ficha del
+    contacto."""
+    contact = session.get(Contact, contact_id)
+    if contact is None or contact.tenant_id != proposal.tenant_id:
+        raise ProposalError("Ese contacto no existe.", 404)
+    proposal.contact_id = contact.id
+    if proposal.deal_id is None:
+        deals = list(session.scalars(
+            select(Deal).where(Deal.tenant_id == proposal.tenant_id, Deal.contact_id == contact.id,
+                               Deal.status == "open").limit(2)
+        ))  # fmt: skip
+        if len(deals) == 1:
+            proposal.deal_id = deals[0].id
+    # La historia de la propuesta quedó sin contacto: se le asigna (solo la de esta propuesta).
+    mark = f"propuesta N.º {proposal.number}"
+    for act in session.scalars(
+        select(Activity).where(Activity.tenant_id == proposal.tenant_id,
+                               Activity.contact_id.is_(None),
+                               Activity.created_at >= proposal.created_at,
+                               func.lower(Activity.body).like(f"%{mark.lower()}%"))
+    ):  # fmt: skip
+        if re.search(rf"\bN\.º {proposal.number}(?!\d)", act.body):
+            act.contact_id = contact.id
+            if act.deal_id is None:
+                act.deal_id = proposal.deal_id
+    note = f"Ligó la propuesta N.º {proposal.number} («{proposal.title}») a este contacto."
+    crm_log(session, tenant_id=proposal.tenant_id, kind="system", user_id=user.id,
+            contact_id=contact.id, deal_id=proposal.deal_id, body=note)  # fmt: skip
+    return proposal
+
+
 def regenerate(session: Session, proposal: Proposal, user: User) -> Proposal:
     deal = session.get(Deal, proposal.deal_id) if proposal.deal_id else None
     contact = session.get(Contact, proposal.contact_id) if proposal.contact_id else None

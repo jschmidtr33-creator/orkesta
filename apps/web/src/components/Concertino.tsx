@@ -505,7 +505,7 @@ function OptionBox({ option, caseId }: { option: Option; caseId: string | null }
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        rows={Math.min(12, text.split("\n").length + 2)}
+        rows={Math.min(22, text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 46)), 0) + 1)}
         aria-label={`Texto sugerido: ${option.name}`}
         className="ork-focus mt-2 w-full resize-y rounded-lg border border-ork-line bg-ork-card px-3 py-2 text-[13px] leading-relaxed text-ork-ink"
       />
