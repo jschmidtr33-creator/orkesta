@@ -54,6 +54,9 @@ _WRITING_WORDS = frozenset(
         "mensajes",
         "whatsapp",
         "linkedin",
+        "post",
+        "posts",
+        "publicacion",
         "crea",
         "crear",
         "creame",
@@ -253,7 +256,15 @@ def write(
         advice = _emails(ctx, b, meta, piece)
     elif piece == "asuntos":
         advice = _subjects(b, meta)
-    elif piece in ("whatsapp", "linkedin"):
+    elif piece == "linkedin":
+        from orkesta.concertino import linkedin
+
+        advice = linkedin.messages(ctx, b, meta)
+    elif piece == "post":
+        from orkesta.concertino import linkedin
+
+        advice = linkedin.posts(ctx, b, meta)
+    elif piece == "whatsapp":
         advice = _short_messages(ctx, b, meta, piece)
     elif piece == "resumen":
         advice = _summary(ctx, meta)
@@ -537,4 +548,8 @@ def _tweaks(it: Intent, piece: str) -> list[str]:
         out.append("Pásalo a WhatsApp")
     elif piece == "whatsapp":
         out.append("Ahora como secuencia de 3 correos")
+    elif piece == "post":
+        return ["Ahora los mensajes de LinkedIn", "Post para un CEO", "Hazlo más corto"]
+    elif piece == "linkedin":
+        out.append("Ahora un post de LinkedIn")
     return out[:4]

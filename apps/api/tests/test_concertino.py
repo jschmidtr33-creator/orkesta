@@ -584,3 +584,31 @@ def test_concertino_prioritizes_the_sellers_opportunities(
     items = r["sections"][0]["items"]
     assert items[0].startswith("1. Grande") and "Llamar para cerrar" in items[0]
     assert items[1].startswith("2. Pequeña") and small["id"]
+
+
+def test_concertino_writes_linkedin_posts_and_messages_from_the_sheet(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    """Posts y mensajes de LinkedIn con lo que sabe de ventas y lo que dice la ficha: el caso real,
+    el problema y el diferencial; invitación de menos de 300 caracteres y sin vender."""
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    ask = lambda q: client.post("/api/concertino/ask", json={"question": q}).json()  # noqa: E731
+    post = ask("hazme un post de linkedin")
+    assert post["topic"] == "redactar" and len(post["options"]) >= 2, post
+    first = post["options"][0]["text"]
+    assert first.startswith("Una empresa de software pasó de 4 a 12 reuniones")
+    assert "#Ventas" in first and "http" not in first and first.count("#") <= 3
+    joined = " ".join(o["text"] for o in post["options"])
+    assert "el equipo comercial pierde horas buscando contactos" in joined
+    assert any("primer comentario" in t for t in post["tips"])
+    msgs = ask("escríbeme mensajes de linkedin para una gerente comercial")
+    names = [o["name"] for o in msgs["options"]]
+    assert names[0] == "Invitación a conectar" and len(names) == 4
+    invite = msgs["options"][0]["text"]
+    assert len(invite) <= 300 and "Plataforma" not in invite and "{{nombre}}" in invite
+    assert "líderes comerciales" in invite
+    assert "4 a 12 reuniones" in msgs["options"][2]["text"]
+    ceo = ask("mensajes de linkedin para un CEO")
+    assert "[tu|su]" not in ceo["options"][0]["text"] and "su perfil" in ceo["options"][0]["text"]

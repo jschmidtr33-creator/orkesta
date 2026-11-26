@@ -20,6 +20,7 @@ PIECES = {
     "correo": "Correo",
     "whatsapp": "Mensaje de WhatsApp",
     "linkedin": "Mensaje de LinkedIn",
+    "post": "Post de LinkedIn",
     "asuntos": "Asuntos de correo",
     "resumen": "Resumen ejecutivo",
     "guion": "Guion de llamada",
@@ -37,6 +38,7 @@ _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
         r"\b(secuencia|secuensia|secuancia|cadencia|seguidilla|serie de correos|varios correos|flujo de correos|campa(n|ñ)a de correos?|\d+ (correos|mails|emails|toques)|(dos|tres|cuatro|cinco|seis) (correos|mails|emails|toques))\b",
     ),
     ("whatsapp", r"\b(whatsapp|whats|wsp|wpp|wasap|guasap|mensaje de texto|sms)\b"),
+    ("post", r"\b(post|posts|posteo|posteos|publicacion|publicaciones|articulo|carrusel)\b"),
     ("linkedin", r"\b(linkedin|linked in|inmail|in mail)\b"),
     ("asuntos", r"\b(asuntos?|subject|linea de asunto)\b"),
     (
@@ -332,13 +334,13 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
     # «Correo para ofrecer una delegación a…» sin verbo también es un pedido de redacción.
     asks_to_write = asks_to_write or bool(
         re.match(
-            r"^(un |una |el |la )?(correo|mail|email|e-mail|mensaje|secuencia|whatsapp|inmail)s? (para|de|a|sobre|ofreciendo|invitando)\b",
+            r"^(un |una |el |la )?(correo|mail|email|e-mail|mensaje|secuencia|whatsapp|inmail|post|publicacion)s? (para|de|a|sobre|en|ofreciendo|invitando)\b",
             folded,
         )
     )
     # «Secuencia de 3 correos para un CEO» sin verbo también es un pedido de redacción.
     bare = (
-        it.piece in ("secuencia", "whatsapp", "linkedin", "asuntos", "resumen", "guion")
+        it.piece in ("secuencia", "whatsapp", "linkedin", "post", "asuntos", "resumen", "guion")
         and len(folded.split()) <= 12
         and "?" not in text
     )
