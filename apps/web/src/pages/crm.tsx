@@ -11,6 +11,7 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
+  Pencil,
   Phone,
   Plus,
   Search,
@@ -563,12 +564,77 @@ function DealsTable({ stages, deals, onOpen, onMove }: { stages: Stage[]; deals:
   );
 }
 
+// --- Editar una actividad o tarea -----------------------------------------------------------
+
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+function ActivityEditor({ a, onDone }: { a: ActivityItem; onDone: () => void }) {
+  const client = useQueryClient();
+  const [body, setBody] = useState(a.body);
+  const [due, setDue] = useState(toLocalInput(a.due_at));
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/crm/activities/${a.id}`, {
+        method: "PATCH",
+        json: a.type === "task" ? { body, due_at: due ? new Date(due).toISOString() : null } : { body },
+      }),
+    onSuccess: () => {
+      for (const k of ["crm-tasks", "crm-timeline", "crm-deal", "crm-deals", "dashboard"]) client.invalidateQueries({ queryKey: [k] });
+      onDone();
+    },
+  });
+  return (
+    <form
+      className="mt-1 rounded-lg border border-ork-blue/40 bg-ork-card p-2.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <textarea
+        aria-label={a.type === "task" ? "Tarea" : "Detalle"}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={2}
+        autoFocus
+        className="ork-focus w-full resize-y rounded-lg border border-ork-line px-3 py-2 text-[13.5px]"
+      />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        {a.type === "task" ? (
+          <label className="flex items-center gap-2 text-[12.5px] text-ork-graphite">
+            Vence
+            <input type="datetime-local" required value={due} onChange={(e) => setDue(e.target.value)} className="ork-focus h-8 rounded-lg border border-ork-line px-2 text-[12.5px]" />
+          </label>
+        ) : (
+          <span />
+        )}
+        <div className="flex gap-2">
+          <Button size="sm" type="button" variant="ghost" onClick={onDone}>
+            Cancelar
+          </Button>
+          <Button size="sm" type="submit" loading={save.isPending} disabled={!body.trim()}>
+            Guardar
+          </Button>
+        </div>
+      </div>
+      {save.error && <p className="mt-2 text-[12.5px] text-bad">{save.error.message}</p>}
+    </form>
+  );
+}
+
 // --- Tareas -------------------------------------------------------------------------------
 
 function TasksView({ onOpenDeal, isManager }: { onOpenDeal: (id: string) => void; isManager: boolean }) {
   const client = useQueryClient();
   const [team, setTeam] = useState(false);
   const [done, setDone] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const { session } = useSession();
   const tasks = useQuery({
     queryKey: ["crm-tasks", team, done],
     queryFn: () => api<ActivityItem[]>(`/api/crm/tasks?equipo=${team}&todas=${done}`),
@@ -606,7 +672,11 @@ function TasksView({ onOpenDeal, isManager }: { onOpenDeal: (id: string) => void
                   {t.done_at ? <CheckCircle2 className="size-5 text-ok" /> : <Circle className="size-5" />}
                 </button>
                 <div className="min-w-0 flex-1">
+                  {editing === t.id ? (
+                    <ActivityEditor a={t} onDone={() => setEditing(null)} />
+                  ) : (
                   <p className={cx("text-[14px] text-ork-ink", t.done_at && "text-ork-mist line-through")}>{t.body}</p>
+                  )}
                   <p className="text-[12px] text-ork-mist">
                     {t.due_at && <span className={cx(overdue && "font-semibold text-bad")}>Vence {formatWhen(t.due_at)}</span>}
                     {t.contact_name && ` · ${t.contact_name}`}
@@ -625,6 +695,11 @@ function TasksView({ onOpenDeal, isManager }: { onOpenDeal: (id: string) => void
                     {t.user && ` · ${t.user.name}`}
                   </p>
                 </div>
+                {editing !== t.id && (!t.user || t.user.id === session?.user.id || session?.workspace?.role === "admin") && (
+                  <button type="button" aria-label="Editar tarea" title="Editar tarea" onClick={() => setEditing(t.id)} className="ork-focus h-7 rounded p-1 text-ork-mist hover:text-ork-blue">
+                    <Pencil className="size-4" />
+                  </button>
+                )}
               </li>
             );
           })}
@@ -674,6 +749,9 @@ export function Timeline({ contactId, dealId }: { contactId?: string; dealId?: s
   });
   const toggle = useMutation({ mutationFn: (id: string) => api(`/api/crm/activities/${id}/done`, { method: "POST" }), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => api(`/api/crm/activities/${id}`, { method: "DELETE" }), onSuccess: refresh });
+  const [editing, setEditing] = useState<string | null>(null);
+  const { session } = useSession();
+  const mine = (a: ActivityItem) => !a.user || a.user.id === session?.user.id || session?.workspace?.role === "admin";
   const types = [
     ["note", "Nota"],
     ["call", "Llamada"],
@@ -738,8 +816,12 @@ export function Timeline({ contactId, dealId }: { contactId?: string; dealId?: s
                 <strong className="font-semibold text-ork-graphite">{a.label}</strong> ·{" "}
                 {a.user && <Avatar name={a.user.name} email="" size={16} src={a.user.avatar_url} />} {a.user?.name ?? "ORKESTA"} · {formatWhen(a.created_at)}
               </p>
+              {editing === a.id ? (
+                <ActivityEditor a={a} onDone={() => setEditing(null)} />
+              ) : (
               <p className={cx("whitespace-pre-wrap text-[13.5px] text-ork-ink", a.done_at && "text-ork-mist line-through")}>{a.body}</p>
-              {a.type === "task" && (
+              )}
+              {a.type === "task" && editing !== a.id && (
                 <div className="mt-1 flex items-center gap-3 text-[12px]">
                   {a.due_at && <span className={cx(!a.done_at && new Date(a.due_at) < new Date() ? "font-semibold text-bad" : "text-ork-mist")}>Vence {formatWhen(a.due_at)}</span>}
                   <button type="button" className="font-semibold text-ork-blue hover:underline" onClick={() => toggle.mutate(a.id)}>
@@ -748,6 +830,11 @@ export function Timeline({ contactId, dealId }: { contactId?: string; dealId?: s
                 </div>
               )}
             </div>
+            {a.type !== "stage" && a.type !== "system" && editing !== a.id && mine(a) && (
+              <button type="button" aria-label={a.type === "task" ? "Editar tarea" : "Editar actividad"} onClick={() => setEditing(a.id)} className="ork-focus h-7 rounded p-1 text-ork-mist hover:text-ork-blue">
+                <Pencil className="size-3.5" />
+              </button>
+            )}
             {a.type !== "stage" && a.type !== "system" && (
               <button type="button" aria-label="Borrar actividad" onClick={() => remove.mutate(a.id)} className="ork-focus h-7 rounded p-1 text-ork-mist hover:text-bad">
                 <Trash2 className="size-3.5" />

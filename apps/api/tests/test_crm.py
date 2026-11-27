@@ -57,6 +57,17 @@ def test_default_pipeline_and_deal_lifecycle(client: TestClient) -> None:
     assert metrics["pipeline"] == {"USD": 12000.5}
     assert metrics["weighted"] == {"USD": 7200.3}  # 60 % de probabilidad en «Propuesta enviada»
     assert client.get("/api/crm/tasks").json()[0]["body"] == "Enviar propuesta"
+    # La tarea se edita: texto y vencimiento (ya no queda vencida).
+    later = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+    edited = client.patch(f"/api/crm/activities/{task['id']}",
+                          json={"body": "Enviar propuesta con descuento", "due_at": later})  # fmt: skip
+    assert edited.status_code == 200, edited.text
+    assert client.get("/api/crm/tasks").json()[0]["body"] == "Enviar propuesta con descuento"
+    assert client.get("/api/crm/deals").json()["metrics"]["overdue_tasks"] == 0
+    assert client.patch(f"/api/crm/activities/{task['id']}", json={"body": " "}).status_code in (
+        400,
+        422,
+    )
     client.post(f"/api/crm/activities/{task['id']}/done")
     assert client.get("/api/crm/tasks").json() == []
 

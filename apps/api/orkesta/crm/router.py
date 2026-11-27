@@ -67,6 +67,11 @@ class ActivityIn(BaseModel):
     due_at: datetime | None = None
 
 
+class ActivityPatch(BaseModel):
+    body: str | None = Field(default=None, min_length=1, max_length=5000)
+    due_at: datetime | None = None
+
+
 # --- Etapas ---------------------------------------------------------------------------------
 
 
@@ -296,6 +301,30 @@ def complete(activity_id: uuid.UUID, principal: Member, db: Db) -> dict[str, Any
     if activity.type != "task":
         raise HTTPException(400, "Solo las tareas se pueden completar.")
     activity.done_at = None if activity.done_at else svc.now()
+    return svc.activity_dict(activity, principal.user)
+
+
+@router.patch("/activities/{activity_id}")
+def edit_activity(
+    activity_id: uuid.UUID, body: ActivityPatch, principal: Member, db: Db
+) -> dict[str, Any]:
+    """Editar el texto de una actividad y, si es tarea, su vencimiento."""
+    try:
+        activity = svc.get_activity(db, principal.tenant_id, activity_id)
+    except svc.CrmError as exc:
+        raise _fail(exc) from exc
+    if activity.type in ("stage", "system"):
+        raise HTTPException(400, "Los registros automáticos no se pueden editar.")
+    if not principal.can_modify(activity.user_id):
+        raise HTTPException(403, "Solo puedes editar tus propias actividades.")
+    if body.body is not None:
+        if not body.body.strip():
+            raise HTTPException(400, "Escribe el detalle.")
+        activity.body = body.body.strip()
+    if "due_at" in body.model_fields_set and activity.type == "task":
+        if body.due_at is None:
+            raise HTTPException(400, "La tarea necesita una fecha de vencimiento.")
+        activity.due_at = body.due_at
     return svc.activity_dict(activity, principal.user)
 
 
