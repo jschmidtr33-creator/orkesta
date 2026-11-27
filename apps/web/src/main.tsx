@@ -2,10 +2,12 @@ import { ConnectExtensionPage } from "./pages/connectExtension";
 import "@orkesta/ui/theme.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  Component,
   lazy,
   StrictMode,
   Suspense,
   type ComponentType,
+  type ErrorInfo,
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
@@ -99,8 +101,67 @@ const client = new QueryClient({
 
 applyTheme();
 
+/** Después de publicar una versión nueva, una pestaña vieja puede pedir archivos que ya no existen:
+ *  se recarga una vez (sin borrar caché) para traer la versión nueva. */
+const RELOADED = "orkesta-reloaded";
+function reloadOnce(): boolean {
+  try {
+    if (sessionStorage.getItem(RELOADED)) return false;
+    sessionStorage.setItem(RELOADED, String(Date.now()));
+  } catch {
+    // sin almacenamiento: se recarga igual
+  }
+  window.location.reload();
+  return true;
+}
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  reloadOnce();
+});
+window.setTimeout(() => {
+  try {
+    sessionStorage.removeItem(RELOADED); // la app cargó bien: se permite otra recarga a futuro
+  } catch {
+    // nada
+  }
+}, 10_000);
+
+/** Si algo falla al dibujar, nunca una pantalla en blanco: un aviso con un botón para seguir. */
+class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("ORKESTA", error, info.componentStack);
+    if (/dynamically imported module|Importing a module script|ChunkLoadError|Loading chunk/i.test(String(error?.message))) {
+      reloadOnce();
+    }
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-ork-surface p-6 text-center">
+        <img src="/app/logo-mark.svg" alt="" className="size-12" />
+        <h1 className="text-[20px] font-bold text-ork-ink">Algo no cargó bien</h1>
+        <p className="max-w-sm text-[14px] text-ork-mist">
+          Puede pasar justo después de una actualización de ORKESTA. Recarga y sigue donde ibas.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-ork-blue px-5 py-2.5 text-[14px] font-semibold text-white"
+        >
+          Recargar
+        </button>
+      </div>
+    );
+  }
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <Boundary>
     <QueryClientProvider client={client}>
       <BrowserRouter basename="/app">
         <SessionProvider>
@@ -139,5 +200,6 @@ createRoot(document.getElementById("root")!).render(
         </SessionProvider>
       </BrowserRouter>
     </QueryClientProvider>
+    </Boundary>
   </StrictMode>,
 );
