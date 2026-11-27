@@ -21,6 +21,9 @@ RUN mkdir -p apps/api/orkesta/static && npm run build
 FROM python:3.12-slim AS model
 ARG MODEL_REPO=Xenova/paraphrase-multilingual-MiniLM-L12-v2
 ARG MODEL_REV=main
+RUN pip install --no-cache-dir -q onnx==1.19.1 wordfreq==3.1.1 tokenizers==0.23.3 numpy==2.5.5
+COPY apps/api/scripts/podar_modelo.py /tmp/podar_modelo.py
+COPY apps/api/orkesta/concertino /tmp/textos
 RUN mkdir -p /models/concertino && cd /models/concertino && python - <<'PY'
 import hashlib, os, urllib.request
 repo, rev = os.environ.get("MODEL_REPO", "Xenova/paraphrase-multilingual-MiniLM-L12-v2"), os.environ.get("MODEL_REV", "main")
@@ -31,6 +34,9 @@ try:
         urllib.request.urlretrieve(url, name)
         data = open(name, "rb").read()
         print(f"{name}: {len(data) / 1e6:.1f} MB sha256={hashlib.sha256(data).hexdigest()}")
+    # Vocabulario solo en español: la RAM del modelo baja de ~480 MB a menos de 300 MB
+    import subprocess
+    subprocess.run(["python", "/tmp/podar_modelo.py", ".", "/tmp/textos"], check=True)
 except Exception as exc:
     print("Modelo de Concertino no descargado:", exc)
     for name in files:

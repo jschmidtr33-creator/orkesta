@@ -1136,9 +1136,10 @@ WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecid
 
 # Con el modelo de comprensión (embed.py) la similitud es de significado y se mide distinto.
 # Umbrales calibrados con el banco (cada frase contra las demás), ver calibrate.py.
-EMB = {"lost": float(os.environ.get("CONCERTINO_EMB_LOST", "0.62")),
-       "weak": float(os.environ.get("CONCERTINO_EMB_WEAK", "0.7")),
-       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.8"))}  # fmt: skip
+EMB = {"lost": float(os.environ.get("CONCERTINO_EMB_LOST", "0.5")),
+       "weak": float(os.environ.get("CONCERTINO_EMB_WEAK", "0.6")),
+       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.72"))}  # fmt: skip
+MIX = float(os.environ.get("CONCERTINO_EMB_MIX", "0.4"))  # peso del modelo en la mezcla
 TFIDF = {"lost": ENOUGH, "weak": WEAK, "strong": STRONG}
 
 
@@ -1152,12 +1153,14 @@ def rewrite(question: str, cargo: str | None, extra: list[tuple[str, str]] | Non
     idx = index(extra)
     found: Match | None = None
     if embed.available():
-        texts = tuple(text for text, _ in idx.pairs)
-        hit = embed.nearest(normalize(question), texts)
-        if hit is not None:
-            i, score = hit
-            if score >= EMB[mode or "lost"]:
-                found = Match(canonical=idx.pairs[i][1], example=idx.pairs[i][0], score=score)
+        # Mezcla: lo que significa la frase (modelo) y las ideas que nombra (conceptos)
+        sims = embed.similarities(normalize(question), tuple(text for text, _ in idx.pairs))
+        if sims is not None:
+            cs = idx.scores(question)
+            mix = [MIX * a + (1 - MIX) * b for a, b in zip(sims, cs, strict=True)]
+            i = max(range(len(mix)), key=mix.__getitem__)
+            if mix[i] >= EMB[mode or "lost"]:
+                found = Match(canonical=idx.pairs[i][1], example=idx.pairs[i][0], score=mix[i])
     if found is None:
         m = idx.best(question)
         limit = TFIDF[mode] if mode else minimum

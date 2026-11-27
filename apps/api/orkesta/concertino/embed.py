@@ -1,9 +1,10 @@
 """Modelo de comprensión de lenguaje propio de Concertino (corre en el servidor de ORKESTA).
 
-Un modelo pequeño de código abierto (paraphrase-multilingual-MiniLM-L12-v2, cuantizado a 8 bits,
-~118 MB) convierte cada frase en un vector que representa su SIGNIFICADO: «me está regateando» y
-«quiere un descuento» quedan cerca aunque no compartan palabras. Sin servicios externos, sin
-costo por uso y sin enviar las preguntas de nadie a terceros.
+Un modelo pequeño de código abierto (paraphrase-multilingual-MiniLM-L12-v2, cuantizado a 8 bits
+y con el vocabulario podado al español, ver scripts/podar_modelo.py) convierte cada frase en un
+vector que representa su SIGNIFICADO: «me está regateando» y «quiere un descuento» quedan cerca
+aunque no compartan palabras. Sin servicios externos, sin costo por uso y sin enviar las
+preguntas de nadie a terceros.
 
 Si el modelo no está instalado (desarrollo local, pruebas), Concertino sigue con la similitud por
 conceptos de semantic.py: nada se rompe.
@@ -93,7 +94,7 @@ def vectors(texts: tuple[str, ...]) -> Any:
         return None
     key = str(hash(texts))
     if key not in _CACHE:
-        chunks = [m.encode(list(texts[i : i + 32])) for i in range(0, len(texts), 32)]
+        chunks = [m.encode(list(texts[i : i + 16])) for i in range(0, len(texts), 16)]
         _CACHE[key] = m.np.vstack(chunks) if chunks else None
     return _CACHE[key]
 
@@ -108,6 +109,15 @@ def nearest(question: str, texts: tuple[str, ...]) -> tuple[int, float] | None:
     sims = bank @ q
     best = int(sims.argmax())
     return best, float(sims[best])
+
+
+def similarities(question: str, texts: tuple[str, ...]) -> list[float] | None:
+    """Similitud de significado de la pregunta contra cada frase del banco."""
+    m = model()
+    if m is None or not texts:
+        return None
+    sims = vectors(texts) @ m.encode([question])[0]
+    return [float(x) for x in sims]
 
 
 def reset() -> None:

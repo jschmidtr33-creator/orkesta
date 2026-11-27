@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [concertino-modelo]
-    paths: ["apps/api/orkesta/concertino/**", ".github/workflows/evaluar-concertino.yml"]
+    paths: ["apps/api/orkesta/concertino/**", "apps/api/scripts/**", ".github/workflows/evaluar-concertino.yml"]
 
 permissions:
   contents: read
@@ -36,6 +36,10 @@ jobs:
               data = open(name, "rb").read()
               print(f"{name}: {len(data) / 1e6:.1f} MB sha256={hashlib.sha256(data).hexdigest()}")
           PY
+      - name: Podar vocabulario
+        run: |
+          pip install -q onnx==1.19.1 wordfreq==3.1.1
+          python scripts/podar_modelo.py /tmp/modelo orkesta/concertino
       - name: Calibración
         env:
           CONCERTINO_MODEL_DIR: /tmp/modelo
