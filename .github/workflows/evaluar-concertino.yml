@@ -1,0 +1,43 @@
+# Evalúa el modelo de comprensión de Concertino: lo descarga (igual que la imagen de producción),
+# mide acierto con el banco de frases, similitudes, tiempo por pregunta y memoria.
+name: evaluar-concertino
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [concertino-modelo]
+    paths: ["apps/api/orkesta/concertino/**", ".github/workflows/evaluar-concertino.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  evaluar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: pip install -q -r requirements.txt
+      - name: Modelo
+        run: |
+          mkdir -p /tmp/modelo && cd /tmp/modelo
+          python - <<'PY'
+          import hashlib, urllib.request
+          repo = "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
+          for name, path in {"model.onnx": "onnx/model_quantized.onnx", "tokenizer.json": "tokenizer.json"}.items():
+              urllib.request.urlretrieve(f"https://huggingface.co/{repo}/resolve/main/{path}", name)
+              data = open(name, "rb").read()
+              print(f"{name}: {len(data) / 1e6:.1f} MB sha256={hashlib.sha256(data).hexdigest()}")
+          PY
+      - name: Calibración
+        env:
+          CONCERTINO_MODEL_DIR: /tmp/modelo
+          PYTHONPATH: .
+        run: python -m orkesta.concertino.calibrate tests/data/concertino_nuevas.txt

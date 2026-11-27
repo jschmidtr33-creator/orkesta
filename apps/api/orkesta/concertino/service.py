@@ -227,7 +227,7 @@ def ask(
         return result
     cargo = intent.details(intent.roles(spoken)).cargo
     match = semantic.rewrite(spoken, cargo, _learned(session, tenant_id),
-                             minimum=semantic.ENOUGH if lost or (doubtful and said) else semantic.WEAK if _weak(result) else semantic.STRONG)  # fmt: skip
+                             mode="lost" if lost or (doubtful and said) else "weak" if _weak(result) else "strong")  # fmt: skip
     if match is None or fold(match.canonical) == fold(spoken):
         return result
     if not lost and match.canonical in semantic.PRODUCT:

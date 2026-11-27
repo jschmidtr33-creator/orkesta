@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # ORKESTA: una sola imagen con la API, la app web (/app) y el sitio público (/).
 
 # 1) Frontend: app React y sitio Astro, compilados a apps/api/orkesta/static.
@@ -13,7 +14,31 @@ COPY apps/web apps/web
 COPY apps/site apps/site
 RUN mkdir -p apps/api/orkesta/static && npm run build
 
-# 2) Backend Python con los archivos estáticos ya compilados.
+# 2) Modelo de comprensión de lenguaje de Concertino (código abierto, ~118 MB, corre local).
+#    paraphrase-multilingual-MiniLM-L12-v2 cuantizado a 8 bits: entiende el significado de las
+#    preguntas en español. Si la descarga falla, la imagen se arma igual y Concertino sigue con
+#    sus reglas (lo dice /api/health).
+FROM python:3.12-slim AS model
+ARG MODEL_REPO=Xenova/paraphrase-multilingual-MiniLM-L12-v2
+ARG MODEL_REV=main
+RUN mkdir -p /models/concertino && cd /models/concertino && python - <<'PY'
+import hashlib, os, urllib.request
+repo, rev = os.environ.get("MODEL_REPO", "Xenova/paraphrase-multilingual-MiniLM-L12-v2"), os.environ.get("MODEL_REV", "main")
+files = {"model.onnx": "onnx/model_quantized.onnx", "tokenizer.json": "tokenizer.json"}
+try:
+    for name, path in files.items():
+        url = f"https://huggingface.co/{repo}/resolve/{rev}/{path}"
+        urllib.request.urlretrieve(url, name)
+        data = open(name, "rb").read()
+        print(f"{name}: {len(data) / 1e6:.1f} MB sha256={hashlib.sha256(data).hexdigest()}")
+except Exception as exc:
+    print("Modelo de Concertino no descargado:", exc)
+    for name in files:
+        if os.path.exists(name):
+            os.remove(name)
+PY
+
+# 3) Backend Python con los archivos estáticos ya compilados.
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONPATH=/app
 WORKDIR /app
@@ -21,6 +46,7 @@ COPY apps/api/requirements.txt ./
 RUN pip install -r requirements.txt
 COPY apps/api/ ./
 COPY --from=frontend /src/apps/api/orkesta/static ./orkesta/static
+COPY --from=model /models /opt/models
 RUN useradd --create-home --uid 10001 orkesta
 USER orkesta
 EXPOSE 8000

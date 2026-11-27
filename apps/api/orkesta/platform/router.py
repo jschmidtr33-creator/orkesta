@@ -182,7 +182,11 @@ def _issue(db: Db, tokens: svc.Tokens, response: Response) -> dict[str, Any]:
 @router.get("/health")
 def health() -> dict[str, str]:
     # Render expone el commit desplegado; la app lo usa para avisar que hay versión nueva.
-    return {"status": "ok", "version": os.environ.get("RENDER_GIT_COMMIT", "dev")[:12]}
+    from orkesta.concertino import embed
+
+    model = "instalado" if (embed.DEFAULT_DIR / "model.onnx").is_file() else "no"
+    return {"status": "ok", "version": os.environ.get("RENDER_GIT_COMMIT", "dev")[:12],
+            "concertino_model": model}  # fmt: skip
 
 
 @router.get("/public/pricing")

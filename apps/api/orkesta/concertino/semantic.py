@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 import re
 import threading
 from collections import Counter
@@ -1125,15 +1126,41 @@ def index(extra: list[tuple[str, str]] | None = None) -> Index:
 # --- 4. Reescribir conservando lo concreto --------------------------------------------------------
 
 STRONG = 0.6  # casi la misma frase: se usa aunque las reglas hayan respondido algo
-ENOUGH = 0.4
-WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecida  # parecida: se usa solo si la pregunta no se entendió
+ENOUGH = 0.4  # parecida: se usa solo si la pregunta no se entendió
+WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecida
+
+# Con el modelo de comprensión (embed.py) la similitud es de significado y se mide distinto.
+# Umbrales calibrados con el banco (cada frase contra las demás), ver calibrate.py.
+EMB = {"lost": float(os.environ.get("CONCERTINO_EMB_LOST", "0.62")),
+       "weak": float(os.environ.get("CONCERTINO_EMB_WEAK", "0.7")),
+       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.8"))}  # fmt: skip
+TFIDF = {"lost": ENOUGH, "weak": WEAK, "strong": STRONG}
 
 
 def rewrite(question: str, cargo: str | None, extra: list[tuple[str, str]] | None = None,
-            minimum: float = ENOUGH) -> Match | None:  # fmt: skip
-    """La forma canónica más parecida (con el cargo de la pregunta original), o None."""
-    m = index(extra).best(question)
-    if m is None or m.score < minimum:
+            minimum: float = ENOUGH, mode: str | None = None) -> Match | None:  # fmt: skip
+    """La forma canónica más parecida (con el cargo de la pregunta original), o None.
+
+    Con el modelo de comprensión instalado se compara por significado; si no, por conceptos."""
+    from orkesta.concertino import embed
+
+    idx = index(extra)
+    found: Match | None = None
+    if embed.available():
+        texts = tuple(text for text, _ in idx.pairs)
+        hit = embed.nearest(normalize(question), texts)
+        if hit is not None:
+            i, score = hit
+            if score >= EMB[mode or "lost"]:
+                found = Match(canonical=idx.pairs[i][1], example=idx.pairs[i][0], score=score)
+    if found is None:
+        m = idx.best(question)
+        limit = TFIDF[mode] if mode else minimum
+        if m is not None and m.score >= limit:
+            found = m
+    if found is None:
         return None
     who = f"un {cargo}" if cargo else "un gerente comercial"
-    return Match(canonical=SLOTTED.sub(who, m.canonical), example=m.example, score=m.score)
+    return Match(
+        canonical=SLOTTED.sub(who, found.canonical), example=found.example, score=found.score
+    )
