@@ -92,26 +92,38 @@ def prune_tokenizer(tok_json: dict, keep: list[int]) -> dict:
     return out
 
 
+def _tensors(model: onnx.ModelProto) -> list[onnx.TensorProto]:
+    """Inicializadores y constantes del grafo (la tabla puede venir de cualquiera de los dos)."""
+    found = list(model.graph.initializer)
+    for node in model.graph.node:
+        if node.op_type == "Constant":
+            found += [a.t for a in node.attribute if a.name == "value"]
+    return found
+
+
 def prune_onnx(model: onnx.ModelProto, keep: list[int], vocab_size: int) -> str:
     """Recorta las filas de la tabla de vectores de palabras (directa o cuantizada)."""
-    inits = {i.name: i for i in model.graph.initializer}
-    producers = {o: n for n in model.graph.node for o in n.output}
+    tensors = _tensors(model)
+    table = [t for t in tensors if len(t.dims) == 2 and vocab_size <= t.dims[0] <= vocab_size + 512]
+    if not table:
+        big = [
+            (t.name, list(t.dims), t.data_type) for t in tensors if t.dims and max(t.dims) > 50000
+        ]
+        raise SystemExit(f"No encontré la tabla de vectores de palabras. Tensores grandes: {big}")
     rows = np.array(keep, dtype=np.int64)
-    for init in model.graph.initializer:
-        if len(init.dims) == 2 and init.dims[0] == vocab_size:
-            arr = numpy_helper.to_array(init)
-            init.CopyFrom(numpy_helper.from_array(arr[rows], init.name))
-            # Escala o punto cero por fila (cuantización por eje 0)
-            for node in model.graph.node:
-                if node.op_type == "DequantizeLinear" and node.input[0] == init.name:
-                    for name in node.input[1:]:
-                        p = inits.get(name)
-                        if p is not None and len(p.dims) == 1 and p.dims[0] == vocab_size:
-                            v = numpy_helper.to_array(p)
-                            p.CopyFrom(numpy_helper.from_array(v[rows], p.name))
-            return f"{init.name}: {arr.shape} {arr.dtype} → {(len(keep), arr.shape[1])}"
-    del producers
-    raise SystemExit("No encontré la tabla de vectores de palabras en el modelo")
+    done = []
+    for t in table:
+        n = t.dims[0]
+        arr = numpy_helper.to_array(t)
+        t.CopyFrom(numpy_helper.from_array(arr[rows], t.name))
+        done.append(f"{t.name}: {arr.shape} {arr.dtype} → {(len(keep), arr.shape[1])}")
+        # Escala o punto cero por fila (cuantización por eje 0)
+        for p in tensors:
+            if len(p.dims) == 1 and p.dims[0] == n:
+                v = numpy_helper.to_array(p)
+                p.CopyFrom(numpy_helper.from_array(v[rows], p.name))
+                done.append(f"{p.name}: por fila")
+    return "; ".join(done)
 
 
 def main() -> None:
