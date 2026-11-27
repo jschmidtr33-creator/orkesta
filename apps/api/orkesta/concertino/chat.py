@@ -23,9 +23,40 @@ _GREET = re.compile(
 _THANKS = re.compile(
     r"^(gracias|muchas gracias|mil gracias|genial|perfecto|excelente|listo|ok|okey|vale|super|buenisimo|de acuerdo)\b"
 )
-_BYE = re.compile(r"^(chao|adios|hasta luego|nos vemos|bye)\b")
+_BYE = re.compile(
+    r"^(chao|chau|adios|hasta luego|hasta manana|nos vemos|bye|me voy|buenas noches y gracias)\b"
+)
+# «¿Cómo estás?» y sus formas de Colombia, México y el resto de Latinoamérica
+_HOW = re.compile(
+    r"\b(como (estas|vas|andas|te va|te sientes|amaneciste|has estado|sigues)|"
+    r"como (esta|va|anda|le va|te fue)( (usted|todo|tu dia|el dia|hoy|concertino))?$|"
+    r"que (mas|hubo|onda|cuentas|tal (estas|vas|todo|tu dia)|haces|hay de nuevo)|quiubo|quibo|"
+    r"todo bien|bien o que|como (estamos|vamos)|estas ahi|sigues ahi|hay alguien)\b"
+)
+# Cómo está la persona (respuesta a «¿y tú?» o comentario suelto)
+_FINE = re.compile(
+    r"^(bien|muy bien|super bien|todo bien|todo bien y tu|bien y tu|bien gracias|excelente y tu|"
+    r"de maravilla|aqui (andamos|vamos|estamos)|ahi vamos|tranquila|tranquilo|feliz|contenta|contento)\b"
+)
+_LOW = re.compile(
+    r"^(mal|mas o menos|regular|cansada|cansado|agotada|agotado|estresada|estresado|aburrida|"
+    r"aburrido|triste|no muy bien|no tan bien|frustrada|frustrado)\b"
+)
+_LAUGH = re.compile(r"^(j[aeiou]){2,}|^(lol|xd+|😂|🤣|😄)")
+_PRAISE = re.compile(
+    r"\b(eres (muy )?(bueno|buena|genial|lo maximo|un crack|una crack|increible)|te pasaste|"
+    r"me (sirvio|ayudo|encanto|gusto)|que (bien|chevere|bacano|buena)|chevere|bacano|brutal|"
+    r"buenisim[oa]|te amo|te quiero)\b"
+)
+_UPSET = re.compile(
+    r"\b(no (sirves|entiendes|me entiendes|me ayudas)|eres (tonto|malo|mala|inutil)|no sabes nada|"
+    r"que (respuesta|cosa) (tan )?(mala|rara)|no era eso|eso no (es|era) lo que)\b"
+)
+_BOT = re.compile(
+    r"\b(eres (un )?(humano|persona|robot|bot|ia|inteligencia artificial|chatgpt|gpt|real))\b"
+)
 _WHO = re.compile(
-    r"\b(quien eres|que eres|como te llamas|que (puedes|sabes) hacer|en que (me )?(puedes )?ayudar|como funcionas|para que sirves|ayuda)\b"
+    r"\b(quien eres|que eres|quien te (hizo|creo)|como te llamas|que (puedes|sabes) hacer|en que (me )?(puedes )?ayudar|como funcionas|para que sirves|ayuda)\b"
 )
 _CATALOG = re.compile(
     r"\b(que (le )?(vendo|vendemos|vende|ofrezco|ofrecemos|ofrece)\b(?! (a|al|para) )|"
@@ -83,7 +114,19 @@ def greet(summary: str, name: str, turn: int) -> str:
     head = opener(name, turn)
     if not head or not summary:
         return summary or head
-    if summary.startswith(("Hola", name)):
+    if summary.startswith(
+        (
+            "Hola",
+            name,
+            "No ",
+            "Tienes razón",
+            "¡",
+            "Lo siento",
+            "Me alegra",
+            "Con gusto",
+            "Hasta luego",
+        )
+    ):
         return summary
     return f"{head} {summary}"
 
@@ -129,33 +172,76 @@ def _reply(summary: str, *, suggestions: list[str] | None = None,
             "next_step": "", "missing": [], "suggestions": suggestions or []}  # fmt: skip
 
 
+_FILLER = {"hola", "holi", "buenas", "buenos", "dias", "tardes", "noches", "y", "tu", "usted", "hoy",
+           "concertino", "amigo", "amiga", "hey", "oye", "que", "tal", "pues", "bien", "todo", "el", "dia",
+           "como", "por", "ahi", "ahora", "entonces", "parce", "bro", "mi", "estas", "vas"}  # fmt: skip
+
+
+def _only_chat(rest: str) -> bool:
+    """Lo que queda de la frase es solo saludo o relleno (no «…con la propuesta de Acme»)."""
+    return all(w in _FILLER for w in rest.split())
+
+
+def _work(ctx: engine.Context) -> list[str]:
+    """Sugerencias para pasar de la charla al trabajo."""
+    out = ["¿Qué oportunidad priorizo esta semana?", "¿Cómo voy este mes?"]
+    return out + starters(ctx)[:2]
+
+
 def small_talk(question: str, ctx: engine.Context, name: str) -> dict[str, Any] | None:
-    """Saludos, gracias, despedidas y «¿qué puedes hacer?». None si es una consulta de trabajo."""
-    folded = fold(question).strip(" ?¿!¡.")
+    """Charla: saludos, «¿cómo estás?», gracias, risas, despedidas y «¿qué puedes hacer?».
+
+    None si es una consulta de trabajo."""
+    folded = fold(question).strip(" ?¿!¡.,")
     words = len(folded.split())
-    if _WHO.search(folded) and words <= 8:
+    hi = f", {name}" if name else ""
+    if (_WHO.search(folded) or _BOT.search(folded)) and words <= 8:
         has = bool(ctx.facts)
         return _reply(
-            f"Hola, {name}. Soy Concertino, la IA de ventas propia de ORKESTA: no uso servicios "
-            "externos. Aprendo de la ficha de producto de tu empresa, de las respuestas de tus "
-            "campañas y de lo que te funciona a ti. "
+            f"Hola{hi}. Soy Concertino, la IA de ventas propia de ORKESTA: no soy una persona ni "
+            "uso servicios externos. Aprendo de la ficha de producto de tu empresa, de las "
+            "respuestas de tus campañas y de lo que te funciona a ti. "
             + ("Ya conozco tu producto: pregúntame qué vender, precios, cómo responder una objeción, "
                "cómo hablarle a un cargo o cómo seguir una cuenta." if has else
                "Todavía no conozco tu producto: escríbeme «actualizar mi producto» y te "
                "pregunto lo necesario."),
             suggestions=starters(ctx),
         )  # fmt: skip
-    if words > 4:
+    if words > 7:
         return None
-    if _GREET.search(folded):
-        return _reply(f"Hola, {name}. ¿En qué te ayudo hoy? Puedo responder dudas del producto, "
+    if _UPSET.search(folded):
+        return _reply(f"Tienes razón{hi}, perdón: no te entendí bien. ¿Me lo cuentas de otra forma? "
+                      "Por ejemplo: «el cliente me dijo que lo va a pensar», «escríbeme un correo "
+                      "para un gerente de compras» o «¿qué cuenta priorizo hoy?».",
+                      suggestions=_work(ctx))  # fmt: skip
+    if _HOW.search(folded) and _only_chat(_HOW.sub(" ", folded)):
+        return _reply(f"¡Muy bien{hi}, gracias por preguntar! Con ganas de ayudarte a vender. "
+                      "¿Y tú cómo vas? Si quieres, arrancamos por lo que más te mueva hoy: una "
+                      "cuenta, un correo o tus números.", suggestions=_work(ctx))  # fmt: skip
+    if _LOW.search(folded) and words <= 5:
+        return _reply(f"Lo siento{hi}. Hay días pesados, y en ventas más. Si te sirve, vamos con "
+                      "algo pequeño que dé un avance rápido: un seguimiento a alguien que ya mostró "
+                      "interés suele ser lo que más anima.",
+                      suggestions=["¿Qué oportunidad priorizo esta semana?", "Estoy desmotivada, nadie me responde",
+                                   "¿Cómo voy esta semana?"])  # fmt: skip
+    if _FINE.search(folded) and words <= 5:
+        return _reply(f"¡Qué bueno{hi}! Aprovechemos ese ánimo. ¿En qué trabajamos hoy?",
+                      suggestions=_work(ctx))  # fmt: skip
+    if _GREET.search(folded) and words <= 4:
+        return _reply(f"Hola{hi}. ¿En qué te ayudo hoy? Puedo responder dudas del producto, "
                       "ayudarte con una objeción o preparar tu próximo paso con una cuenta.",
                       suggestions=starters(ctx))  # fmt: skip
-    if _THANKS.search(folded):
-        return _reply(f"Con gusto, {name}. Aquí estoy cuando me necesites.",
+    if _LAUGH.search(folded) and words <= 3:
+        return _reply(f"Me alegra sacarte una sonrisa{hi}. ¿Seguimos con algo de tus ventas?",
+                      suggestions=_work(ctx))  # fmt: skip
+    if _PRAISE.search(folded) and words <= 6:
+        return _reply(f"¡Gracias{hi}! Me alegra que te sirva. Cuando quieras seguimos.",
+                      suggestions=_work(ctx))  # fmt: skip
+    if _THANKS.search(folded) and words <= 4:
+        return _reply(f"Con gusto{hi}. Aquí estoy cuando me necesites.",
                       suggestions=["¿Cómo hago el seguimiento si no responde?", "¿Qué vendo?"])  # fmt: skip
-    if _BYE.search(folded):
-        return _reply(f"Hasta luego, {name}. Que te vaya muy bien con tus cuentas.")
+    if _BYE.search(folded) and words <= 5:
+        return _reply(f"Hasta luego{hi}. Que te vaya muy bien con tus cuentas.")
     return None
 
 

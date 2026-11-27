@@ -1105,6 +1105,19 @@ MORE_3: dict[str, tuple[str, ...]] = {
 }
 
 
+# Charla: formas de saludar o preguntar cómo está. Al reescribir no se anuncia «Lo entendí como».
+CHAT: dict[str, tuple[str, ...]] = {
+    "cómo estás": ("qué tal te va", "cómo te trata la vida", "cómo amaneces", "cómo te ha ido",
+                   "qué cuentas de nuevo", "cómo va tu día", "cómo te encuentras", "qué tal tu día",
+                   "cómo has estado", "qué hay de tu vida"),
+    "gracias": ("te agradezco mucho", "muy amable", "mil gracias por la ayuda", "qué amable eres",
+                "gracias por todo", "te lo agradezco"),
+    "quién eres": ("con quién hablo", "qué tipo de asistente eres", "eres una persona de verdad",
+                   "me estás contestando tú o una máquina", "qué sabes hacer tú"),
+    "chao": ("me tengo que ir", "hablamos luego", "nos hablamos mañana", "hasta la próxima"),
+}  # fmt: skip
+
+
 def _base_pairs() -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for canonical, others in BANK:
@@ -1114,6 +1127,8 @@ def _base_pairs() -> list[tuple[str, str]]:
     for canonical, others in MORE_3.items():
         if canonical not in known:
             pairs.extend((text, canonical) for text in (canonical, *others))
+    for canonical, others in CHAT.items():
+        pairs.extend((text, canonical) for text in (canonical, *others))
     return pairs
 
 

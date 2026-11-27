@@ -390,3 +390,34 @@ def test_concertino_semantic_layer_understands_new_phrasings(
     for q in lost:
         print("  ✗", q)
     assert rate >= 0.9, lost
+
+
+CHARLA = [
+    ("Como estas?", "Muy bien"),
+    ("hola, ¿cómo estás?", "Muy bien"),
+    ("qué más pues", "Muy bien"),
+    ("quiubo", "Muy bien"),
+    ("bien y tú?", "Qué bueno"),
+    ("jajaja", "sonrisa"),
+    ("¿eres un robot?", "Soy Concertino"),
+    ("no me entiendes", "no te entendí"),
+    ("te pasaste", "Gracias"),
+    ("gracias!", "Con gusto"),
+    ("chao", "Hasta luego"),
+]
+
+
+def test_concertino_conversa_como_persona(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    for question, expected in CHARLA:
+        r = client.post("/api/concertino/ask", json={"question": question}).json()
+        summary = str(r.get("summary", ""))
+        assert expected in summary, (question, summary[:120])
+        assert not summary.startswith(("Claro", "Perfecto", "Listo")), (question, summary[:80])
+    # Una pregunta de trabajo con «cómo vas» no se toma como charla
+    r = client.post("/api/concertino/ask", json={"question": "cómo voy este mes"}).json()
+    assert "Muy bien" not in str(r.get("summary", ""))

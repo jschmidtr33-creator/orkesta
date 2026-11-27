@@ -232,6 +232,8 @@ def ask(
         return result
     if not lost and match.canonical in semantic.PRODUCT:
         return result  # la ficha ya respondió una duda del producto
+    if match.canonical in semantic.CHAT and not lost:
+        return result  # la charla solo reemplaza lo que no se entendió
     again = _ask_once(session, tenant_id=tenant_id, user=user, question=match.canonical, **kwargs)  # type: ignore[arg-type]
     if _lost(again, has_recipient=recipient_id is not None):
         return result
@@ -242,6 +244,8 @@ def ask(
         and not again.get("objection")
     ):
         return result  # la otra lectura dice lo mismo: se queda la respuesta original
+    if match.canonical in semantic.CHAT:
+        return again  # en la charla no se anuncia la reescritura
     again["understood_as"] = match.canonical
     body = str(again.get("summary") or "")
     note = f"Lo entendí como «{match.canonical}»."
@@ -293,7 +297,7 @@ def _ask_once(
         return interview.answer(session, tenant_id=tenant_id, user=user, can_edit=can_edit,
                                 kind=answering, text=question, name=chat.user_name(user))  # fmt: skip
     if question and interview.wants_restart(question):
-        return interview.start(session, tenant_id, chat.user_name(user),
+        return interview.start(session, tenant_id, chat.user_name(user), question=question,
                                can_edit=can_curate(role))  # fmt: skip
     if (step := interview.pending(session, tenant_id)) is not None and mode is None:
         return interview.ask_step(

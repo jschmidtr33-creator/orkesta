@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from orkesta.concertino.models import ProductFact
+from orkesta.concertino.ortografia import corregir, resumen
 from orkesta.engine.normalize.text import fold
 from orkesta.platform.models import User
 
@@ -48,9 +49,29 @@ KINDS = [q["kind"] for q in QUESTIONS]
 _SKIP = re.compile(r"^(saltar|salta|siguiente|paso|despues|luego|no se|no lo se|omitir|ninguna?)\b")
 _KEEP = re.compile(r"^(igual|mantener|mantenla|mantenlo|dejalo|dejala|asi esta bien|esta bien)\b")
 _RESTART = re.compile(
-    r"\b(actualiza|actualizar|cambia|cambiar|entrena|entrenar|ensena|ensenar|corrige|corregir)"
-    r"(te)?\b.{0,25}\b(producto|lo que vendo|que vendo|lo que vendemos|mi empresa)\b"
+    r"\b(actualiza|actualizar|cambia|cambiar|entrena|entrenar|ensena|ensenar|corrige|corregir|"
+    r"reentrena|reentrenar|repasa|repasar|edita|editar|modifica|modificar)"
+    r"(te|r|rte)?\b.{0,25}\b(producto|lo que vendo|que vendo|lo que vendemos|mi empresa|mi ficha|la ficha)\b|"
+    # «Vuélveme a hacer las preguntas iniciales», «quiero volver a enseñarte»
+    r"\b(vuelve|vuelveme|volver|vuelvo|empezar|empecemos|arrancar|comenzar)\b.{0,20}"
+    r"\b(preguntas|preguntar(me)?|ensenar(te)?|entrenar(te)?|explicar(te)?|de nuevo|de cero|otra vez)\b|"
+    r"\bpreguntas (iniciales|del (inicio|principio)|de (mi|la) ficha|sobre mi producto)\b|"
+    r"\b(ensenarte|entrenarte|explicarte)\b.{0,15}\b(de nuevo|otra vez|nuevamente|mejor|bien)\b|"
+    r"\blo que te (ensene|explique|dije|conte)\b.{0,30}\b(no|mal|cambiar|corregir|mejorar)\b|"
+    r"\bno me (gusta|gusto|convence|convencio|satisface|sirve) (lo que|como) (te ensene|aprendiste|entendiste|respondes)"
 )
+# «Corrige el precio», «quiero volver a enseñarte el diferencial»: empieza por esa pregunta
+_KIND_WORDS = {
+    "producto": r"que (vendo|vendemos)|el producto|la descripcion",
+    "publico": r"a quien (le )?(vendo|vendemos)|publico|cliente ideal|segmento|sector",
+    "problema": r"problema|dolor",
+    "valor": r"resultado|valor|beneficio",
+    "diferencial": r"diferencial|diferencia|nos diferencia",
+    "prueba": r"caso de exito|casos de exito|prueba|testimonio",
+    "precio": r"precio|precios|inversion|tarifa",
+    "competidor": r"competencia|competidor|competidores",
+    "objecion": r"objecion|objeciones",
+}
 NEEDS = ["Crea una secuencia de 3 correos", "Me dijo que es muy caro",
          "Preparar una reunión", "¿A qué sector le apunto?"]  # fmt: skip
 
@@ -77,7 +98,21 @@ def pending(session: Session, tenant_id: uuid.UUID) -> dict[str, Any] | None:
 
 
 def wants_restart(question: str) -> bool:
-    return bool(_RESTART.search(fold(question)))
+    folded = fold(question)
+    if _RESTART.search(folded):
+        return True
+    # «Quiero cambiar el precio que te enseñé», «corrige el diferencial»
+    return bool(re.search(r"\b(cambia|cambiar|corrige|corregir|actualiza|actualizar|ensenarte|"
+                          r"reensenarte|editar|edita|modifica|modificar)\b", folded)
+                and kind_asked(question) and re.search(r"\b(te ense|mi |el |la |los |las )", folded))  # fmt: skip
+
+
+def kind_asked(question: str) -> str | None:
+    folded = fold(question)
+    for kind, pattern in _KIND_WORDS.items():
+        if re.search(rf"\b({pattern})\b", folded):
+            return kind
+    return None
 
 
 def _reply(summary: str, step: dict[str, Any] | None, suggestions: list[str]) -> dict[str, Any]:
@@ -101,21 +136,31 @@ def ask_step(step: dict[str, Any], *, intro: str = "", current: str = "") -> dic
     return _reply(text, step, chips)
 
 
-def start(session: Session, tenant_id: uuid.UUID, name: str, *, can_edit: bool) -> dict[str, Any]:
-    """«Actualizar mi producto»: vuelve a pasar por todas las preguntas, mostrando lo guardado."""
+def start(session: Session, tenant_id: uuid.UUID, name: str, *, can_edit: bool,
+          question: str = "") -> dict[str, Any]:  # fmt: skip
+    """«Actualizar mi producto»: vuelve a pasar por las preguntas, mostrando lo guardado.
+
+    Si nombra un tema («corrige el precio») empieza por esa pregunta."""
     if not can_edit:
         return _reply("Lo que vende tu empresa lo actualiza la administración o la jefatura. "
                       "Si algo está desactualizado, avísales y lo corrijo con ellos.", None, NEEDS)  # fmt: skip
     have = _facts(session, tenant_id)
-    first = _step(KINDS[0])
-    current = next((f.title for f in have.get(KINDS[0], []) if f.status == "confirmado"), "")
-    return ask_step(first, intro=f"Perfecto, {name}. Repasemos lo que vendes.", current=current)
+    folded = fold(question)
+    whole = bool(re.search(r"\b(preguntas|producto|de nuevo|de cero|todo|ficha)\b", folded))
+    kind = (None if whole else kind_asked(question)) or KINDS[0]
+    current = next((f.title for f in have.get(kind, []) if f.status == "confirmado"), "")
+    intro = (f"Claro, {name}. Volvamos a empezar: te hago las preguntas de nuevo y lo que me "
+             "respondas reemplaza lo que te habías enseñado. Si una respuesta te sirve como está, "
+             "escribe «igual»." if kind == KINDS[0] else
+             f"Claro, {name}. Corrijamos eso: lo que me escribas reemplaza lo que tenía guardado.")  # fmt: skip
+    return ask_step(_step(kind), intro=intro, current=current)
 
 
 def answer(session: Session, *, tenant_id: uuid.UUID, user: User, can_edit: bool, kind: str,
            text: str, name: str) -> dict[str, Any]:  # fmt: skip
     """Guarda la respuesta a la pregunta ``kind`` y devuelve la siguiente (o el cierre)."""
     have = _facts(session, tenant_id)
+    fixed_note = ""
     existed = bool(have.get(kind))
     confirmed = [f for f in have.get(kind, []) if f.status == "confirmado"]
     folded = fold(text).strip(" .¡!¿?")
@@ -131,6 +176,9 @@ def answer(session: Session, *, tenant_id: uuid.UUID, user: User, can_edit: bool
     elif len(folded) < 4:
         return ask_step(step, intro="Necesito un poco más de detalle para venderlo bien.")
     else:
+        text, changes = corregir(text)
+        if changes:
+            fixed_note = f"Corregí la ortografía: {resumen(changes)}."
         lines = [x.strip() for x in text.strip().splitlines() if x.strip()]
         title, detail = lines[0][:300], text.strip()[:4000]
         if confirmed:
@@ -149,12 +197,12 @@ def answer(session: Session, *, tenant_id: uuid.UUID, user: User, can_edit: bool
     nxt = later[0] if (existed and later) else next((k for k in later if not have.get(k)), None)
     if nxt is not None:
         current = next((f.title for f in have.get(nxt, []) if f.status == "confirmado"), "")
-        return ask_step(_step(nxt), intro="Anotado.", current=current)
+        return ask_step(_step(nxt), intro=f"Anotado. {fixed_note}".strip(), current=current)
     missing = [k for k in REQUIRED if not have.get(k)]
     if missing:
         return ask_step(_step(missing[0]), intro="Me falta esta para poder venderlo bien.")
     saved = [f for k in KINDS for f in have.get(k, []) if f.status == "confirmado"]
-    summary = (f"Listo, {name}. Guardé en la memoria de tu empresa lo que vendes "
+    summary = ((fixed_note + "\n\n" if fixed_note else "") + f"Listo, {name}. Guardé en la memoria de tu empresa lo que vendes "
                f"({len(saved)} datos): {saved[0].title[:140]}… Ya puedo venderlo contigo.\n\n"
                "¿Qué necesitas hoy? Puedo crear una secuencia de correos, ayudarte a responder "
                "una objeción, preparar una reunión o una propuesta, o decirte a qué sector "

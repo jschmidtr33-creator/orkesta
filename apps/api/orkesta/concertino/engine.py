@@ -17,8 +17,10 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from orkesta.brain import ml
+from orkesta.concertino import ortografia
 from orkesta.concertino import playbook as pb
 from orkesta.concertino.models import AdviceCase, ProductFact
 from orkesta.engine.normalize.text import fold
@@ -154,6 +156,12 @@ def load_facts(session: Session, tenant_id: uuid.UUID) -> dict[str, list[Product
         # Un dato con vigencia vencida (una promoción, un precio especial) deja de usarse solo.
         if str((fact.meta or {}).get("vigencia") or "9999") < today:
             continue
+        # Fichas guardadas antes del corrector: se muestran corregidas (sin escribir en la base)
+        for attr in ("title", "detail", "answer"):
+            value = getattr(fact, attr) or ""
+            fixed = ortografia.fix(value) if value else value
+            if fixed != value:
+                set_committed_value(fact, attr, fixed)
         out.setdefault(fact.kind, []).append(fact)
     return out
 
