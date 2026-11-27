@@ -24,7 +24,8 @@ _WANTS = re.compile(
     r"(a quien|a quienes) (llamo|escribo|le escribo|contacto) (hoy|esta semana|primero)|"
     r"(revisa|revisame|analiza|ordena|ordename) (mis|el) (oportunidades|negocios|pipeline|embudo|cuentas)|"
     r"como (va|esta|van) mi (pipeline|embudo)|"
-    r"mis oportunidades)"
+    r"mis oportunidades|"
+    r"(oportunidades|negocios|deals|cuentas) (que llevan|sin moverse|estancad\w*|frenad\w*|parad\w*|dormid\w*|sin movimiento))"
 )
 
 LIMIT = 5

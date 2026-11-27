@@ -21,7 +21,10 @@ _WANTS = re.compile(
     r"como (voy|vamos|me fue|me va|nos fue|nos va|va mi semana|va mi mes|van mis numeros)|"
     r"mis (numeros|metricas|resultados|indicadores|kpis|estadisticas)|"
     r"(resumen|balance|reporte) de (mi|mis|la|esta|este) (semana|mes|dia|actividad|resultados)|"
-    r"(mi|la) tasa de (respuesta|apertura|cierre))\b"
+    r"(mi|la) tasa de (respuesta|apertura|cierre)|"
+    r"(cuanto|cuantos|cuantas|que) (vendi|vendimos|facture|facturamos|cerre|cerramos|gane|ganamos)|"
+    r"(mis|las|nuestras) ventas (de|del) (hoy|este|esta|el|la)|como (van|estan) (mis|las) ventas|"
+    r"(cuanto|que tanto) me falta|(mi|la) meta)\b"
 )
 
 
@@ -182,11 +185,38 @@ def build(session: Session, tenant_id: uuid.UUID, user: Any, question: str) -> d
         "reunion": f"{label.capitalize()} {_n(asked_meeting, 'persona pidió', 'personas pidieron')} reunión y registraste {_n(meetings, 'reunión', 'reuniones')} en el CRM.",
         "propuesta": f"{label.capitalize()} enviaste {_n(p_sent, 'propuesta', 'propuestas')}; {p_viewed} vistas y {p_won} aceptadas.",
         "oportunidad": f"{label.capitalize()} creaste {_n(deals_new, 'oportunidad', 'oportunidades')} y ganaste {int(won[0])}.",
-        "venta": f"{label.capitalize()} ganaste {_n(int(won[0]), 'oportunidad', 'oportunidades')}.",
+        "venta": f"{label.capitalize()} ganaste {_n(int(won[0]), 'oportunidad', 'oportunidades')}"
+        + (
+            f" por {(won[2] + ' ') if won[2] else ''}{int(won[1]):,}".replace(",", ".")
+            if int(won[0]) and won[1]
+            else ""
+        )
+        + f" y enviaste {_n(p_sent, 'propuesta', 'propuestas')}.",
     }
-    lead = next((line for key, line in asked.items() if re.search(rf"\b{key}", folded)), "")
+    if re.search(r"\b(me falta|meta)\b", folded):
+        lead = ("Aún no tengo tu meta guardada. Dímela así: «tengo que lograr 10 reuniones al mes, ¿cómo lo "
+                f"logro?» y te armo el plan. Esto llevas {label}:")  # fmt: skip
+    elif re.search(r"\bcontactos\b", folded):
+        from orkesta.data.models import Contact
+
+        base = select(func.count()).select_from(Contact).where(Contact.tenant_id == tenant_id)
+        total = int(session.scalar(base) or 0)
+        with_email = int(
+            session.scalar(base.where(Contact.email.is_not(None), Contact.email != "")) or 0
+        )
+        new_ones = int(
+            session.scalar(base.where(Contact.created_at >= s, Contact.created_at < e)) or 0
+        )
+        lead = (f"Tienes {_n(total, 'contacto', 'contactos')} en ORKESTA, {with_email} con correo; "
+                f"{label} sumaste {new_ones}.")  # fmt: skip
+    elif re.search(
+        r"\b(vendi|vendimos|facture|facturamos|cerre|cerramos|gane|ganamos|ventas)\b", folded
+    ):
+        lead = asked["venta"]
+    else:
+        lead = next((line for key, line in asked.items() if re.search(rf"\b{key}", folded)), "")
     return {
-        "summary": (lead + " El detalle:") if lead else f"Tus números de {label} en ORKESTA:",
+        "summary": (lead if lead.endswith(":") else lead + " El detalle:") if lead else f"Tus números de {label} en ORKESTA:",
         "options": [], "tips": [],
         "sections": [{"title": "Prospección", "items": prospecting},
                      {"title": "Ventas", "items": selling},

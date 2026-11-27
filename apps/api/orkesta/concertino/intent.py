@@ -28,7 +28,8 @@ PIECES = {
 }
 
 _VERB = (
-    r"(crea|creame|crear|crees|redacta|redactame|redactar|escribe|escribeme|escribir|arma|armame|armar|"
+    r"(crea|creame|crear|crees|redacta|redactame|redactale|redactar|escribe|escribeme|escribele|escribeles|escribir|"
+    r"invita(le|les)?|arma|armame|armar|"
     r"genera|generame|generar|hazme|haz|hacer|hagamos|prepara|preparame|preparar|dame|damelo|necesito|quiero|"
     r"ayudame (a|con)|propon|proponme|sugiere|sugiereme|elabora|elaborame|construye|monta|diseña|disena|"
     r"pasame|mandame|envia(me)?|me (das|haces|armas|escribes|redactas|creas|preparas)|"
@@ -153,6 +154,18 @@ _TWEAK = re.compile(
 # Para qué es la pieza: no es lo mismo el primer contacto que un seguimiento o una invitación.
 _PURPOSES: tuple[tuple[str, str], ...] = (
     (
+        "cobro",
+        r"\b(no (ha|han) pagado|cobrar(le)?|cobro|cobranza|factura (vencida|pendiente)|pago (pendiente|atrasado)|recordar(le)? (el )?pago)\b",
+    ),
+    (
+        "felicitar",
+        r"\b(felicitar(lo|la|le)?|felicitacion|felicitaciones|premio|reconocimiento|aniversario|cumpleanos|ascenso)\b",
+    ),
+    (
+        "ampliar",
+        r"\b(ampliar|aumentar|subir|crecer) (el |la |su )?(presupuesto|contrato|alcance|plan|cuenta)\b|\b(upsell|venta cruzada|renovacion|renovar)\b",
+    ),
+    (
         "confirmar",
         r"\b(confirmar|confirmacion|confirma|recordar(le)?|recordatorio)( de)? (la |nuestra |su |mi |una )?(reunion|cita|llamada|demo|visita)\b",
     ),
@@ -170,9 +183,12 @@ _PURPOSES: tuple[tuple[str, str], ...] = (
     ),
     (
         "reactivar",
-        r"\b(reactivar|retomar (el )?contacto|cliente (antiguo|anterior|perdido)|hace (mucho )?tiempo|volver a contactar)\b",
+        r"\b(reactivar|retomar (el )?contacto|cliente (antiguo|anterior|perdido)|hace (mucho )?tiempo|volver a contactar|perdimos|perdi|se (nos )?fue)\b",
     ),
-    ("invitacion", r"\b(invitar(lo|la|le)?|invitacion|invitandol[oa]|invitarle)\b"),
+    (
+        "invitacion",
+        r"\b(invitar(lo|la|le|los)?|invitacion|invitandol[oa]|invitarle|webinar|evento|taller|desayuno)\b",
+    ),
 )
 _PERSON = re.compile(
     r"\b(?:para|a) ([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?: [A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)(?=,| de | del | que | en |$|\s*,)"
@@ -277,6 +293,19 @@ def _accents(cargo: str) -> str:
     return " ".join(_TILDES.get(w, w) for w in cargo.split())
 
 
+_ROLE_OF = re.compile(
+    r"\b(al|el|la|a la|del|de la) (encargad[oa] |responsable |jef[ea] |gerente )?de "
+    r"(finanzas|compras|marketing|mercadeo|ti|tecnolog[ií]a|sistemas|rrhh|recursos humanos|"
+    r"operaciones|log[ií]stica|ventas|legal|producci[oó]n|abastecimiento|innovaci[oó]n)\b",
+    re.IGNORECASE,
+)
+
+
+def roles(text: str) -> str:
+    """«Cómo convenzo al de finanzas» → «… al gerente de finanzas»: el cargo que se entiende."""
+    return _ROLE_OF.sub(lambda m: f"{m.group(1)} gerente de {m.group(3)}", text)
+
+
 def details(text: str) -> Intent:
     """Los datos que vienen en la frase, sin decidir todavía la acción."""
     folded = fold(text)
@@ -349,6 +378,11 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
         rf"^(por favor )?{_VERB}\b|\b{_VERB} (un|una|unos|unas|la|el|los|las|me|mi|\d|dos|tres|cuatro|cinco|seis)\b",
         folded,
     )
+    # «Escríbele a un CEO…», «invita a un cliente al webinar»: el verbo ya dice que es un correo.
+    if it.piece is None and re.match(
+        r"^(escribele|escribeles|redactale|invita|invitale|invitales)\b", folded
+    ):
+        it.piece = "correo"
     asks_to_write = bool(verb) and it.piece is not None
     # «Correo para ofrecer una delegación a…» sin verbo también es un pedido de redacción.
     asks_to_write = asks_to_write or bool(

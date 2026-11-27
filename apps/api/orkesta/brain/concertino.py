@@ -28,6 +28,8 @@ OBJECTION_SEED: dict[str, tuple[str, ...]] = {
     "descuento": ("si me dan un 20 % de descuento firmamos", "¿cuánto descuento me puedes dar?",
                   "necesito un mejor precio para cerrar este mes", "compras pide una rebaja del 15 %",
                   "si bajan el precio lo firmamos hoy", "dame un precio especial y cerramos"),
+    "pago": ("quiere pagar a 90 días", "nos piden plazo de pago", "¿se puede pagar en cuotas?",
+             "su política es pago a 60 días", "necesitan financiación"),
     "pensar": ("lo voy a pensar", "déjame pensarlo y te aviso", "lo pienso y te cuento", "necesito tiempo para decidir",
                "lo vamos a evaluar internamente", "me dijo que lo va a pensar"),
     "prioridad": ("no es prioridad en este momento", "retomemos el próximo año", "ahora no es buen momento",
