@@ -146,7 +146,122 @@ def _lesson_for(session: Session, ctx: Any, question: str) -> oficio.Lesson | No
     return oficio.match(question)
 
 
+_LOST = ("No tengo eso en la ficha todavía", "No estoy seguro de haber entendido",
+         "No encontré eso tal cual en la ficha", "No reconozco la objeción",
+         "Es una respuesta sin una objeción clara",
+         "Abre la oportunidad o el contacto y pregúntame desde ahí")  # fmt: skip
+
+
+def _lost(result: dict[str, Any], *, has_recipient: bool) -> bool:
+    summary = str(result.get("summary") or "")
+    if has_recipient and "Es una respuesta sin una objeción clara" in summary:
+        return False  # con la respuesta real de un destinatario, la lectura es válida
+    return any(m in summary for m in _LOST)
+
+
+def _weak(result: dict[str, Any]) -> bool:
+    """Respondió con un dato suelto de la ficha a algo que quizá no era del producto."""
+    return (
+        result.get("topic") in ("general", "producto")
+        and not result.get("options")
+        and not any(
+            s.get("title") not in ("También te puede servir",)
+            for s in (result.get("sections") or [])
+        )
+    )
+
+
+def _learned(session: Session, tenant_id: uuid.UUID) -> list[tuple[str, str]]:
+    """Frases que la empresa ya le enseñó a Concertino (pregunta → la sugerencia que eligió)."""
+    rows = session.execute(
+        select(AdviceCase.context["learned_from"].astext, AdviceCase.question)
+        .where(AdviceCase.tenant_id == tenant_id, AdviceCase.context.has_key("learned_from"))
+        .order_by(AdviceCase.created_at.desc()).limit(500)
+    ).all()  # fmt: skip
+    return [(str(a), str(b)) for a, b in rows if a and b]
+
+
 def ask(
+    session: Session, *, tenant_id: uuid.UUID, user: User, question: str = "",
+    mode: str | None = None, contact_id: uuid.UUID | None = None,
+    deal_id: uuid.UUID | None = None, recipient_id: uuid.UUID | None = None,
+    campaign_id: uuid.UUID | None = None, trato: str = "auto",
+    history: list[dict[str, Any]] | None = None, answering: str | None = None,
+    role: str | None = None, practicing: str | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Concertino con comprensión semántica: si la pregunta no se entendió (o se parece mucho a
+    una que sabe responder mejor), la reescribe a esa forma y responde; dice cómo la entendió."""
+    from orkesta.concertino import semantic
+
+    kwargs = dict(mode=mode, contact_id=contact_id, deal_id=deal_id, recipient_id=recipient_id,
+                  campaign_id=campaign_id, trato=trato, history=history, answering=answering,
+                  role=role, practicing=practicing)  # fmt: skip
+    original = (question or "").strip()
+    spoken = semantic.normalize(original) if original else original
+    result = _ask_once(session, tenant_id=tenant_id, user=user, question=spoken, **kwargs)  # type: ignore[arg-type]
+    if not original or answering or practicing or mode is not None:
+        return result
+    lost = _lost(result, has_recipient=recipient_id is not None)
+    # Respondió, pero con un tema genérico que quizá no era (perfil, reunión, propuesta o
+    # campaña sin objeción): si la idea se parece mucho a otra, se compara.
+    said = re.search(r"\b(dice|dijo|me dijo|respondio|contesto|me pidio)\b", fold(spoken))
+    doubtful = (result.get("topic") in (("perfil", "reunion", "propuesta") if said else ("reunion", "propuesta"))
+                and not result.get("objection") and contact_id is None and deal_id is None
+                and campaign_id is None)  # fmt: skip
+    if not lost and not _weak(result) and not doubtful:
+        _maybe_learn(session, tenant_id, original, history or [])
+        return result
+    cargo = intent.details(intent.roles(spoken)).cargo
+    match = semantic.rewrite(spoken, cargo, _learned(session, tenant_id),
+                             minimum=semantic.ENOUGH if lost or (doubtful and said) else semantic.WEAK if _weak(result) else semantic.STRONG)  # fmt: skip
+    if match is None or fold(match.canonical) == fold(spoken):
+        return result
+    if not lost and match.canonical in semantic.PRODUCT:
+        return result  # la ficha ya respondió una duda del producto
+    again = _ask_once(session, tenant_id=tenant_id, user=user, question=match.canonical, **kwargs)  # type: ignore[arg-type]
+    if _lost(again, has_recipient=recipient_id is not None):
+        return result
+    if (
+        not lost
+        and not _weak(result)
+        and again.get("topic") == result.get("topic")
+        and not again.get("objection")
+    ):
+        return result  # la otra lectura dice lo mismo: se queda la respuesta original
+    again["understood_as"] = match.canonical
+    body = str(again.get("summary") or "")
+    note = f"Lo entendí como «{match.canonical}»."
+    head = re.match(
+        r"^((Hola|Claro|Perfecto|Listo|Buena pregunta|Con gusto),? [^.]{1,40}\. )", body
+    )
+    again["summary"] = (
+        f"{head.group(1)}{note} {body[head.end() :]}" if head else f"{note} {body}"
+    ).strip()
+    return again
+
+
+def _maybe_learn(session: Session, tenant_id: uuid.UUID, question: str,
+                 history: list[dict[str, Any]]) -> None:  # fmt: skip
+    """Si eligió una sugerencia después de una pregunta que no se entendió, Concertino aprende
+    que esa pregunta significaba la sugerencia."""
+    if not history or question not in chat.CATALOG:
+        return
+    previous = str(history[-1].get("question") or "").strip()
+    if (
+        not previous
+        or previous in chat.CATALOG
+        or history[-1].get("topic") not in (None, "general")
+    ):
+        return
+    last = session.scalars(
+        select(AdviceCase).where(AdviceCase.tenant_id == tenant_id, AdviceCase.question == question)
+        .order_by(AdviceCase.created_at.desc()).limit(1)
+    ).first()  # fmt: skip
+    if last is not None:
+        last.context = {**(last.context or {}), "learned_from": previous[:300]}
+
+
+def _ask_once(
     session: Session, *, tenant_id: uuid.UUID, user: User, question: str = "",
     mode: str | None = None, contact_id: uuid.UUID | None = None,
     deal_id: uuid.UUID | None = None, recipient_id: uuid.UUID | None = None,

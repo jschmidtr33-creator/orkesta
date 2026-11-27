@@ -35,11 +35,18 @@ def objection_rules(text: str) -> tuple[str | None, int]:
     """(tipo de objeción, coincidencias) según el mapa de objeciones."""
     folded = fold(text).lower()
     best, hits = None, 0
+    counts: dict[str, int] = {}
     for obj in pb.OBJECTIONS:
         patterns = (*obj.patterns, *pb.MORE_PATTERNS.get(obj.code, ()))
         n = sum(1 for p in patterns if re.search(p, folded))
+        counts[obj.code] = n
         if n > hits:
             best, hits = obj.code, n
+    # En empate gana la más específica: «bajar el precio» es descuento, no solo precio.
+    for specific, general in (("descuento", "precio"), ("pago", "precio"), ("pago", "descuento"),
+                              ("pensar", "prioridad"), ("comite", "persona")):  # fmt: skip
+        if best == general and counts.get(specific, 0) == hits and hits:
+            best = specific
     return best, hits
 
 

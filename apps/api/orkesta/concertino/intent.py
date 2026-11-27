@@ -29,6 +29,7 @@ PIECES = {
 
 _VERB = (
     r"(crea|creame|crear|crees|redacta|redactame|redactale|redactar|escribe|escribeme|escribele|escribeles|escribir|"
+    r"escribirle|escribirles|necesito escribirle|tengo que escribirle|"
     r"invita(le|les)?|arma|armame|armar|"
     r"genera|generame|generar|hazme|haz|hacer|hagamos|prepara|preparame|preparar|dame|damelo|necesito|quiero|"
     r"ayudame (a|con)|propon|proponme|sugiere|sugiereme|elabora|elaborame|construye|monta|diseña|disena|"
@@ -45,7 +46,10 @@ _PIECE_PATTERNS: tuple[tuple[str, str], ...] = (
         "referido",
         r"\b(referid\w*|referencias?|recomendacion(es)?|que me recomiende|recomendarnos|resena|resenas|testimonio\w*)\b",
     ),
-    ("post", r"\b(post|posts|posteo|posteos|publicacion|publicaciones|articulo|carrusel)\b"),
+    (
+        "post",
+        r"\b(post|posts|posteo|posteos|publicacion|publicaciones|publicar|articulo|carrusel)\b",
+    ),
     ("linkedin", r"\b(linkedin|linked in|inmail|in mail)\b"),
     ("asuntos", r"\b(asuntos?|subject|linea de asunto)\b"),
     (
@@ -314,6 +318,12 @@ def details(text: str) -> Intent:
         if re.search(pattern, folded):
             it.piece = piece
             break
+    if (
+        it.piece == "linkedin"
+        and re.search(r"\b(publico|publicar|publicacion|contenido|post)\b", folded)
+        and not re.search(r"\b(mensaje|mensajes|invitacion|inmail|conectar)\b", folded)
+    ):
+        it.piece = "post"  # «qué publico en LinkedIn» es un post, no un mensaje
     it.count = _count(folded)
     if it.piece in (None, "correo") and it.count and it.count > 1:
         it.piece = "secuencia"
@@ -379,8 +389,11 @@ def understand(text: str, *, last_topic: str | None = None) -> Intent:
         folded,
     )
     # «Escríbele a un CEO…», «invita a un cliente al webinar»: el verbo ya dice que es un correo.
-    if it.piece is None and re.match(
-        r"^(escribele|escribeles|redactale|invita|invitale|invitales)\b", folded
+    if it.piece is None and (
+        re.match(r"^(escribele|escribeles|redactale|invita|invitale|invitales)\b", folded)
+        or re.match(
+            r"^(escribeme|redactame|hazme|dame|armame) (algo|un texto|unas lineas)\b", folded
+        )
     ):
         it.piece = "correo"
     asks_to_write = bool(verb) and it.piece is not None

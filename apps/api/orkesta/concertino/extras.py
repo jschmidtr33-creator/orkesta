@@ -250,6 +250,7 @@ _VIEWED = re.compile(
     r"\b(abrio|vio|reviso|abrieron|vieron|revisaron|leyo|leyeron) (la |mi |nuestra )?(propuesta|cotizacion)\b.*\b(no (me )?(responde|contesta|respondio|contesto|dice nada)|sin respuesta|nada|silencio)\b"
     r"|\b(propuesta|cotizacion)\b.*\b\d+ veces\b"
     r"|\bseguimiento (a|de) (una|la|mi|las|mis) (propuesta|propuestas|cotizacion)\b"
+    r"|\b(mande|envie|mandamos|enviamos|le mande|le envie)( la| mi| una)? (propuesta|cotizacion)\b.*\b(no (me )?(responde|contesta)|nada|sin respuesta|no hay respuesta|silencio)\b"
 )
 _RESCHEDULE = re.compile(
     r"\b(cancelo|cancelaron|cancela|me cancelo|movio|movieron|aplazo|aplazaron|postergo|postergaron|"
