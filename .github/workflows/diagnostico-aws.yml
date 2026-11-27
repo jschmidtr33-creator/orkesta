@@ -26,33 +26,18 @@ jobs:
           install -m 600 /dev/null key.pem && printf '%s\n' "$KEY" > key.pem
           echo "SSH=ssh -i key.pem -o StrictHostKeyChecking=accept-new ubuntu@$HOST" >> "$GITHUB_ENV"
 
-      - name: Actividad desde el cambio a correos verificados
+      - name: Espacio en el servidor
         run: |
           $SSH 'sudo bash -s' <<'REMOTE' | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<correo>/g; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<ip>/g'
           cd /opt/orkesta
-          q() { docker compose exec -T db psql -U postgres -d orkesta -A -F ' | ' -c "$1" </dev/null; }
-          # Desde la publicación del PR #171 (19 nov, 15:20 UTC). Personas solo por iniciales.
-          T="'2026-11-19 15:20+00'"
-          W="WITH u AS (SELECT id, upper(regexp_replace(coalesce(full_name,'?'), '([^ ])[^ ]* ?', '\\1', 'g')) AS ini FROM orkesta.users)"
-          echo "==> Tracción (todas las empresas, sin la de demostración)"
-          q "SELECT count(*) empresas FROM orkesta.tenants WHERE slug NOT LIKE '%demo%';"
-          q "SELECT count(DISTINCT m.user_id) usuarios_activos_30d FROM orkesta.memberships m JOIN orkesta.users u ON u.id=m.user_id WHERE m.status='active' AND u.last_login_at > now() - interval '30 days';"
-          for P in "30 days" "90 days"; do
-          echo "-- Últimos $P"
-          q "SELECT
-               (SELECT count(*) FROM orkesta.campaign_messages WHERE sent_at > now() - interval '$P') correos,
-               (SELECT count(DISTINCT recipient_id) FROM orkesta.campaign_messages WHERE sent_at > now() - interval '$P') personas,
-               (SELECT count(*) FROM orkesta.campaign_recipients WHERE replied_at > now() - interval '$P') respuestas,
-               (SELECT count(*) FROM orkesta.deals WHERE created_at > now() - interval '$P') oportunidades,
-               (SELECT count(*) FROM orkesta.deals d WHERE d.status='won' AND d.updated_at > now() - interval '$P') ganadas,
-               (SELECT count(*) FROM orkesta.activities WHERE type='meeting' AND created_at > now() - interval '$P') reuniones,
-               (SELECT count(*) FROM orkesta.proposals WHERE sent_at > now() - interval '$P') propuestas,
-               (SELECT count(*) FROM orkesta.contacts WHERE created_at > now() - interval '$P') contactos,
-               (SELECT count(*) FROM orkesta.research_runs WHERE created_at > now() - interval '$P') busquedas;"
-          done
-          q "SELECT reply_category, count(*) FROM orkesta.campaign_recipients WHERE replied_at > now() - interval '90 days' GROUP BY 1 ORDER BY 2 DESC;" 2>&1 | head -12
-          q "SELECT count(*) FILTER (WHERE email_status IN ('verificado','confirmado')) verificados, count(*) FILTER (WHERE email_status='confirmado') confirmados FROM orkesta.people_index;"
-          q "SELECT min(created_at)::date primer_envio FROM orkesta.campaign_messages;"
+          echo "==> Disco"; df -h / | tail -1
+          echo "==> Memoria (MB)"; free -m | head -3
+          echo "==> CPU"; nproc; uptime
+          echo "==> Docker"; docker system df
+          echo "==> Base de datos"; docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT pg_size_pretty(pg_database_size('orkesta'));" </dev/null
+          echo "==> Tablas más grandes"; docker compose exec -T db psql -U postgres -d orkesta -At -c "SELECT relname, pg_size_pretty(pg_total_relation_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='orkesta' AND c.relkind='r' ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 6;" </dev/null
+          echo "==> Carpetas grandes"; du -sh /var/lib/docker /opt/orkesta /var/log 2>/dev/null
+          echo "==> Uso por contenedor"; docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}'
           REMOTE
 
       - name: Estado
