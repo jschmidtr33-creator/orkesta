@@ -133,6 +133,8 @@ def _lesson_for(session: Session, ctx: Any, question: str) -> oficio.Lesson | No
     if not allowed(session, ctx.tenant_id, "estrategia"):
         return None  # el oficio completo es del plan Pro
     topic = engine.classify_topic(session, question, objection=None, has={})
+    if topic == "cuenta" and ctx.deal is None and ctx.contact is None:
+        return oficio.match(question, minimum=12)  # «¿cómo sé si una oportunidad es real?»
     if topic in ("perfil", "respuesta", "objecion", "cuenta"):
         return None  # tienen su propio motor (perfil del decisor, respuestas, objeciones)
     if engine.classify_objection(session, question) is not None:
@@ -168,11 +170,16 @@ def ask(
         return interview.ask_step(
             step, intro="Antes de ayudarte necesito conocer bien lo que vendes."
         )
+    from orkesta.concertino import intent as intent_mod
+
+    question = intent_mod.roles(question)  # «al de finanzas» → «al gerente de finanzas»
+    named = False
     if question and contact_id is None and deal_id is None and recipient_id is None:
         # «Prepárame la demo con Clínica Horizonte»: la cuenta nombrada, con su historia del CRM.
         from orkesta.concertino import accounts
 
         contact_id, deal_id = accounts.mentioned(session, tenant_id, question)
+        named = contact_id is not None or deal_id is not None
     ctx = _context(session, tenant_id=tenant_id, user=user, contact_id=contact_id,
                    deal_id=deal_id, recipient_id=recipient_id, campaign_id=campaign_id,
                    trato=trato)  # fmt: skip
@@ -197,6 +204,29 @@ def ask(
             special = extras.mood()
         elif extras.wants_win(question):
             special = extras.after_win()
+        elif extras.wants_references(question):
+            v = engine.slots(ctx)
+            special = extras.references(v.get("prueba", ""), chat.short_name_of(ctx), ctx.formal)
+        elif extras.wants_reply_rate(question):
+            special = extras.reply_rate()
+        elif extras.wants_public(question):
+            special = extras.public_sector()
+        elif extras.wants_upsell(question):
+            special = extras.upsell(ctx.formal)
+        elif extras.wants_new_boss(question):
+            special = extras.new_boss(ctx.formal)
+        elif extras.wants_trial(question):
+            special = extras.trial(ctx.formal)
+        elif extras.wants_early_price(question):
+            special = extras.early_price(ctx.formal, engine.slots(ctx).get("precio", ""))
+        elif (goal := extras.meeting_goal(question)) is not None:
+            special = extras.goal_plan(goal)
+        elif extras.wants_viewed(question):
+            special = extras.viewed_proposal(ctx.formal)
+        elif extras.wants_reschedule(question):
+            special = extras.reschedule(ctx.formal)
+        elif extras.wants_upset(question):
+            special = extras.upset(ctx.formal)
         else:
             special = extras.howto(question)
     if special is not None:
@@ -288,6 +318,39 @@ def ask(
     if (topic == "objecion" and question and mode is None and chat.is_question(question)
             and engine.advise_product(session, ctx, question).get("_hits")):  # fmt: skip
         topic, objection = "producto", None
+    # «¿Qué precio tiene?» o «me pregunta si se integra con SAP»: dudas del producto (la ficha
+    # responde o Concertino dice cómo contestar sin inventar), no objeciones.
+    if question and mode is None:
+        fq = fold(question)
+        asks_price = (
+            chat.is_question(question)
+            and engine._PRICE.search(fq)
+            and not re.search(
+                r"\b(caro|cara|costoso|presupuesto|descuento|rebaja|no (le|les|nos) alcanza)\b", fq
+            )
+        )
+        asks_feature = chat._FEATURE.search(fq) and re.search(
+            r"\b(pregunta|preguntan|pregunto|quiere saber|quieren saber|consulta)( si| por| cuanto| como| que)?\b|^(tienen|tiene|tenemos|se integra|funciona con|es compatible)\b",
+            fq,
+        )
+        if (asks_price or asks_feature) and topic in (
+            "objecion",
+            "general",
+            "producto",
+            "respuesta",
+        ):
+            topic, objection = "producto", None
+    # «Me ghostea después de la demo»: el silencio manda sobre el tema de la reunión.
+    if (
+        objection == "silencio"
+        and topic in ("reunion", "propuesta", "campana")
+        and mode is None
+        and ctx.campaign is None
+    ):
+        topic = "objecion"
+    # «Ayúdame con Minera Pacífico»: si nombra una cuenta del CRM, se responde con esa cuenta.
+    if named and topic in ("general", "producto") and mode is None:
+        topic, objection = "cuenta", None
     if topic == "objecion" and objection is None:
         objection = engine.objection_rules(text)[0]
     if not allowed(session, tenant_id, topic if topic != "respuesta" else "objecion"):

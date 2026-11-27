@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from orkesta.concertino import engine
+from orkesta.concertino import playbook as pb
 from orkesta.concertino.models import ProductFact
 from orkesta.engine.normalize.text import fold
 from orkesta.platform.models import User
@@ -45,8 +46,23 @@ def is_question(text: str) -> bool:
     """Una duda del vendedor («¿tienen…?», «¿hay…?»), no lo que dijo un cliente."""
     folded = fold(text)
     return (
-        "?" in text or folded.startswith(("hay ", "tienen ", "tenemos ", "se puede", "puedo "))
+        "?" in text
+        or folded.startswith(("hay ", "tienen ", "tenemos ", "se puede", "puedo "))
+        or bool(_ASKS.match(folded))
     ) and not _SAID.search(folded)
+
+
+# «Qué precio tiene», «cuánto cuesta», «se integra con SAP»: dudas del producto, no objeciones.
+_ASKS = re.compile(
+    r"^(y )?(que precio|cual es el precio|cuanto (cuesta|vale|cobran|cobramos|sale)|"
+    r"cuales son los precios|tienen|tenemos|se integra|se conecta|funciona con|es compatible|"
+    r"incluye|hay (una )?(version|prueba|demo|plan))\b"
+)
+_FEATURE = re.compile(
+    r"\b(integra\w*|se conecta|conecta con|funciona con|compatible|api|sap|salesforce|hubspot|"
+    r"oracle|excel|soporte|garantia|implementa\w*|seguridad|certificac\w*|iso|factura\w*|contrato|"
+    r"permanencia|cancelar|idiomas?|ingles|capacitacion|onboarding)\b"
+)
 
 
 def user_name(user: User) -> str:
@@ -70,6 +86,12 @@ def greet(summary: str, name: str, turn: int) -> str:
     if summary.startswith(("Hola", name)):
         return summary
     return f"{head} {summary}"
+
+
+def short_name_of(ctx: engine.Context) -> str:
+    """El nombre corto del producto principal de la ficha («nuestro producto» si no hay)."""
+    main = engine._best(ctx, "producto")
+    return short_name(main) if main is not None else "nuestro producto"
 
 
 def short_name(fact: ProductFact) -> str:
@@ -241,15 +263,54 @@ def product_reply(advice: dict[str, Any], question: str, ctx: engine.Context) ->
     return advice
 
 
+# Preguntas que Concertino responde bien: si no entiende, ofrece las tres más parecidas.
+CATALOG = (
+    "¿Qué oportunidad priorizo esta semana?", "¿Cómo voy este mes?", "¿Cuántos correos envié esta semana?",
+    "Me dijo que es muy caro", "Me dijo que lo va a pensar", "No me responde", "Ya tienen proveedor",
+    "No es prioridad ahora", "Quiere un descuento para firmar", "Escríbeme un correo en frío para un gerente comercial",
+    "Escríbeme una secuencia de 3 correos", "Hazme un post de LinkedIn", "Mensajes de LinkedIn para un CEO",
+    "Escríbeme un WhatsApp para confirmar la reunión", "Correo de seguimiento después de una demo",
+    "Qué le escribo a un cliente para pedirle un referido", "Dame un guion de llamada en frío",
+    "Prepárame una reunión", "¿Cómo están mis campañas?", "¿Quién es mi cliente ideal?",
+    "Preséntame el producto en 30 segundos", "¿Cómo le hablo a un CFO?", "¿Cómo uso ORKESTA para prospectar?",
+    "¿Cómo consigo más respuestas?", "El cliente aceptó, ¿qué sigue?", "Dame una estrategia para conseguir reuniones",
+)  # fmt: skip
+
+
+def nearest_questions(question: str) -> list[str]:
+    words = engine._terms(question)
+    if not words:
+        return []
+    scored = sorted(((len(words & engine._terms(q)), q) for q in CATALOG), key=lambda x: -x[0])
+    return [q for n, q in scored if n > 0][:3]
+
+
 def fallback(question: str, ctx: engine.Context) -> dict[str, Any]:
     """No hay nada en la ficha: propone lo más cercano en vez de una respuesta genérica."""
     facts = [f for items in ctx.facts.values() for f in items]
     near = sorted(facts, key=lambda f: engine._overlap(question, f), reverse=True)
     close = [f.title if f.kind == "pregunta" else f"¿Qué es {short_name(f)}?"
              for f in near[:6] if engine._overlap(question, f) > 0][:3]  # fmt: skip
+    folded = fold(question)
+    if _FEATURE.search(folded):
+        # Una duda técnica que la ficha no responde: qué contestarle hoy sin inventar.
+        return {"summary": "Eso no está en la ficha del producto, así que no lo invento. Mientras lo confirmas, respóndele así y agrégalo en Producto para la próxima:",
+                "options": [{"code": "confirmar_dato", "name": "Confirmar sin inventar",
+                             "why": "Responder rápido y con honestidad genera más confianza que un «sí» que después no se cumple.",
+                             "text": pb.voice("Buena pregunta. Lo confirmo con nuestro equipo y [te|le] escribo hoy mismo con el detalle."
+                                              + (" Mientras tanto, ¿qué sistemas usan hoy? Así [te|le] respondo con [tu|su] caso exacto."
+                                                 if re.search(r"\b(integra\w*|conecta|funciona con|compatible|api|sap|salesforce|hubspot|oracle|excel)\b", folded) else ""),
+                                              ctx.formal),
+                             "record": None}],
+                "tips": [], "sections": [], "next_step": "", "missing": [], "suggestions": []}  # fmt: skip
     if close:
         return _reply("No encontré eso tal cual en la ficha. ¿Te refieres a alguno de estos temas?",
                       suggestions=close)  # fmt: skip
+    near_q = nearest_questions(question)
+    if near_q:
+        return _reply(
+            "No estoy seguro de haber entendido. ¿Es alguna de estas?", suggestions=near_q
+        )
     return _reply(
         "No tengo eso en la ficha todavía. Puedo ayudarte con dudas del producto, una objeción, "
         "cómo hablarle a un cargo, una cuenta, una campaña, una propuesta o una reunión. "

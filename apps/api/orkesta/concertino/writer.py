@@ -229,7 +229,13 @@ def brief(
     where = _where(it.industry)
     if where and fold(where.split(" de ", 1)[-1].split(" y ")[0]) in fold(it.cargo):
         where = ""  # «gerente de logística» ya dice el sector: no «… de logística y transporte»
-    meta = {"who": _who(it, area), "where": where, "product": b.product,
+    ev = re.search(
+        r"\b(webinar|taller|desayuno|evento|demo en vivo|lanzamiento|conferencia)\b", fold(text)
+    )
+    meta_event = {"webinar": "nuestro webinar", "taller": "nuestro taller", "desayuno": "un desayuno de trabajo",
+                  "evento": "nuestro evento", "demo en vivo": "una demo en vivo", "lanzamiento": "nuestro lanzamiento",
+                  "conferencia": "nuestra conferencia"}.get(ev.group(1)) if ev else None  # fmt: skip
+    meta = {"event_word": meta_event, "who": _who(it, area), "where": where, "product": b.product,
             "formal": tone == "formal" or (tone == "directo" and group in ("alta", "direccion")), "area": area, "focus": focus, "proof": proof,
             "main": _offer_name(main) if main else b.product, "kind": _offer_kind(focus),
             "price": _price_for(ctx, text, focus),
@@ -341,6 +347,20 @@ def _sheet_emails(
             "Resumen de nuestra reunión y próximos pasos",
             "Gracias por [tu|su] tiempo, {{nombre}}",
         ]
+    elif meta["purpose"] == "invitacion" or meta.get("eventish"):
+        subjects = [
+            "{{nombre}}, un lugar para {{empresa|[tu|su] equipo}}",
+            "{{nombre}}, [te|le] guardo un lugar",
+        ]
+    elif meta["purpose"] == "cobro":
+        subjects = [
+            "Factura [número]: confirmación de pago",
+            "{{nombre}}, una consulta sobre la factura [número]",
+        ]
+    elif meta["purpose"] == "felicitar":
+        subjects = ["¡Felicitaciones, {{nombre}}!", "Un gran logro para {{empresa|[tu|su] equipo}}"]
+    elif meta["purpose"] == "ampliar":
+        subjects = ["{{nombre}}, una idea para seguir creciendo", "Resultados y próximos pasos"]
     elif meta["purpose"] == "reactivar":
         subjects = [
             "{{nombre}}, ¿cómo va todo en {{empresa|[tu|su] equipo}}?",
@@ -390,6 +410,18 @@ def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str
                 f"Sé que la agenda está llena, así que voy al grano: {valor}." if valor else "",
                 proof,
                 "¿Tiene sentido que lo veamos 15 minutos esta semana, o prefiere[s|] que [te|le] escriba más adelante?"]  # fmt: skip
+    if purpose == "cobro":
+        return ["[Te|Le] escribo por la factura [número] por [valor], que venció el [fecha].",
+                "¿Me [ayudas|ayuda] a confirmar la fecha de pago? Si hay algo que revisar en la factura o en la orden de compra, lo resolvemos hoy.",
+                "Gracias de antemano."]  # fmt: skip
+    if purpose == "felicitar":
+        return ["¡Felicitaciones por [el logro]! Es un reconocimiento muy merecido para {{empresa|[tu|su] equipo}}.",
+                "Da gusto ver cómo crecen.",
+                "Si en algún momento [te|le] sirve algo de mi lado, cuenta conmigo."]  # fmt: skip
+    if purpose == "ampliar":
+        return ["Estos meses trabajando juntos han dado buenos resultados" + (f": {prueba.rstrip('.')}." if prueba else "."),
+                f"Viendo cómo va, creo que hay espacio para llevar {product} a [otra área, sede o volumen] y multiplicar ese resultado.",
+                "¿Lo revisamos 20 minutos esta semana? [Te|Le] llevo los números para que lo [evalúes|evalúe] con calma."]  # fmt: skip
     if purpose == "confirmar":
         return ["[Te|Le] escribo para confirmar nuestra reunión de [día y hora].",
                 f"La idea es revisar en 20 o 30 minutos cómo {product} puede ayudar a {company}"
@@ -416,6 +448,13 @@ def _first_body(v: dict[str, str], meta: dict[str, Any], problema: str, cta: str
                 f"En {main}{place} se reúnen {publico}." if publico else f"[Te|Le] escribo por {main}{place}.",
                 f"Con {product}, {company} está frente a ellos durante el evento" + (f": {detail}" if detail else "."),
                 "¿[Te|Le] comparto las opciones de participación y lo vemos 15 minutos?"]  # fmt: skip
+    if purpose == "invitacion" and not meta.get("eventish"):
+        # El producto no es un evento: se invita a un evento propio (webinar, desayuno, demo).
+        event = meta.get("event_word") or "nuestro próximo evento"
+        return [f"[Te|Le] escribo para invitar[te|le] a {event}: [nombre], el [día] a las [hora].",
+                f"Vamos a mostrar cómo {product} ayuda a resolver {problema}." if problema else f"Vamos a mostrar cómo funciona {product} con casos reales.",
+                f"Un ejemplo de lo que vamos a ver: {prueba.rstrip('.')}." if prueba and not short else "",
+                "Son 45 minutos, con espacio para preguntas. ¿[Te|Le] reservo un lugar?"]  # fmt: skip
     if purpose == "invitacion" or meta.get("eventish"):
         team = (f"Si van varias personas de {company}, {product} tiene condiciones especiales para el equipo."
                 if kind == "delegacion" else "")  # fmt: skip

@@ -380,6 +380,8 @@ def advise_profile(session: Session, ctx: Context, text: str) -> dict[str, Any]:
     persona = PERSONAS.get(ctx.area or "", {}).get("es")
     who = " de ".join(x for x in (LEVEL_LABELS.get(ctx.level or "", ""),
                                   AREA_LABELS.get(ctx.area or "", "")) if x) or "esta persona"  # fmt: skip
+    if who != "esta persona":
+        who = "un " + " ".join(w if w.isupper() else w.lower() for w in who.split())
     sections = []
     cares = []
     if ctx.group:
@@ -900,6 +902,27 @@ def one_liner(ctx: Context) -> str:
 _PITCH = re.compile(
     r"\b(presento|presentar|presentame|presentacion|pitch|explico|explicar|explicame|explicale|resumo|resumir|resumeme)\b"
 )
+_KIND_ASKED = (
+    (
+        r"\b(diferencial|diferencia|diferencian|ventaja|mejores que|por que nosotros|que nos hace)\b",
+        "diferencial",
+    ),
+    (
+        r"\b(caso|casos) de exito|\b(resultado|resultados|testimonio|testimonios|prueba|referencia|referencias)\b",
+        "prueba",
+    ),
+    (
+        r"\b(a quien|a quienes) (le |les )?(vendemos|vendo|apuntamos|nos dirigimos)|\b(publico|para quien es|cliente ideal)\b",
+        "publico",
+    ),
+    (
+        r"\b(problema|problemas|dolor|dolores) (resolvemos|resuelve|resuelven)|\bque (resolvemos|resuelve)\b",
+        "problema",
+    ),
+    (r"\b(beneficio|beneficios|para que sirve|que logra|que logran|valor)\b", "valor"),
+    (r"\b(competidor|competidores|competencia)\b", "competidor"),
+    (r"\bque (vendemos|vendo|ofrecemos|hacemos)\b|\b(nuestro|el) producto\b", "producto"),
+)
 _PITCH_EXTRA = re.compile(
     r"\b(el|mi|nuestro|tu) producto|en \d+ segundos|en (un|1) minuto|que vendemos|que hacemos\b"
 )
@@ -951,6 +974,13 @@ def advise_product(
     scored = [] if pitch_only else [(f, _overlap(question, f)) for f in all_facts]
     # Si se habla de precio (ahora o en la pregunta anterior), los precios van primero.
     price = bool(_PRICE.search(fold(f"{question} {previous}")))
+    # «¿Cuál es nuestro diferencial?», «¿tienen un caso de éxito?»: la pregunta nombra el TIPO
+    # de dato aunque no comparta palabras con él.
+    kinds = {kind for pattern, kind in _KIND_ASKED if re.search(pattern, folded_q)}
+    if price:
+        kinds.add("precio")
+    if not pitch_only:
+        scored = [(f, cur + (3 if f.kind in kinds else 0)) for f, cur in scored]
     scored = [(f, 3 * cur + (_overlap(previous, f) if previous else 0)
                + (4 if price and f.kind == "precio" else 0))
               for f, cur in scored if cur > 0]  # fmt: skip
