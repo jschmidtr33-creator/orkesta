@@ -1,0 +1,63 @@
+# Evalúa el modelo de comprensión de Concertino: lo descarga (igual que la imagen de producción),
+# mide acierto con el banco de frases, similitudes, tiempo por pregunta y memoria.
+name: evaluar-concertino
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [concertino-modelo]
+    paths: ["apps/api/orkesta/concertino/**", "apps/api/scripts/**", ".github/workflows/evaluar-concertino.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  evaluar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias
+        run: pip install -q -r requirements.txt
+      - name: Modelo
+        run: |
+          mkdir -p /tmp/modelo && cd /tmp/modelo
+          python - <<'PY'
+          import hashlib, urllib.request
+          repo = "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
+          for name, path in {"model.onnx": "onnx/model_quantized.onnx", "tokenizer.json": "tokenizer.json"}.items():
+              urllib.request.urlretrieve(f"https://huggingface.co/{repo}/resolve/main/{path}", name)
+              data = open(name, "rb").read()
+              print(f"{name}: {len(data) / 1e6:.1f} MB sha256={hashlib.sha256(data).hexdigest()}")
+          PY
+      - name: Podar vocabulario
+        run: |
+          pip install -q onnx==1.19.1 wordfreq==3.1.1
+          python scripts/podar_modelo.py /tmp/modelo orkesta/concertino
+      - name: Calibración
+        env:
+          CONCERTINO_MODEL_DIR: /tmp/modelo
+          PYTHONPATH: .
+        run: python -m orkesta.concertino.calibrate tests/data/concertino_nuevas.txt
+      - name: Pruebas de Concertino con el modelo
+        env:
+          CONCERTINO_MODEL_DIR: /tmp/modelo
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          PYTHONPATH: .
+        run: |
+          pip install -q -r requirements-dev.txt
+          pytest -q -s -p no:warnings tests/test_concertino_eval.py tests/test_concertino.py tests/test_concertino_intent.py 2>&1 | tail -60

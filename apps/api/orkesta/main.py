@@ -89,6 +89,18 @@ def create_app(session_factory: sessionmaker[Session] | None = None) -> FastAPI:
             workers.append(Scheduler(factory))
             for worker in workers:
                 worker.start()
+        # El modelo de comprensión de Concertino se carga en segundo plano (si está instalado),
+        # para que la primera pregunta no espere.
+        if settings.run_worker:
+            import threading
+
+            from orkesta.concertino import embed, semantic
+
+            def _warm() -> None:
+                if embed.model() is not None:
+                    embed.vectors(tuple(t for t, _ in semantic.index().pairs))
+
+            threading.Thread(target=_warm, name="concertino-modelo", daemon=True).start()
         yield
         for worker in workers:
             worker.stop()

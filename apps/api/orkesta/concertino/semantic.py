@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 import re
 import threading
 from collections import Counter
@@ -1021,6 +1022,11 @@ class Index:
         norm = math.sqrt(sum(x * x for x in v.values())) or 1.0
         return {t: x / norm for t, x in v.items()}
 
+    def scores(self, text: str) -> list[float]:
+        """Similitud por conceptos de la frase contra cada ejemplo del banco."""
+        q = self._vec(_features(text))
+        return [sum(w * v.get(t, 0.0) for t, w in q.items()) for v in self.vecs]
+
     def best(self, text: str) -> Match | None:
         q = self._vec(_features(text))
         top, score = -1, 0.0
@@ -1125,15 +1131,44 @@ def index(extra: list[tuple[str, str]] | None = None) -> Index:
 # --- 4. Reescribir conservando lo concreto --------------------------------------------------------
 
 STRONG = 0.6  # casi la misma frase: se usa aunque las reglas hayan respondido algo
-ENOUGH = 0.4
-WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecida  # parecida: se usa solo si la pregunta no se entendió
+ENOUGH = 0.4  # parecida: se usa solo si la pregunta no se entendió
+WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecida
+
+# Con el modelo de comprensión (embed.py) la similitud es de significado y se mide distinto.
+# Umbrales calibrados con el banco (cada frase contra las demás), ver calibrate.py.
+EMB = {"lost": float(os.environ.get("CONCERTINO_EMB_LOST", "0.5")),
+       "weak": float(os.environ.get("CONCERTINO_EMB_WEAK", "0.6")),
+       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.75"))}  # fmt: skip
+MIX = float(os.environ.get("CONCERTINO_EMB_MIX", "0.5"))  # peso del modelo en la mezcla
+TFIDF = {"lost": ENOUGH, "weak": WEAK, "strong": STRONG}
 
 
 def rewrite(question: str, cargo: str | None, extra: list[tuple[str, str]] | None = None,
-            minimum: float = ENOUGH) -> Match | None:  # fmt: skip
-    """La forma canónica más parecida (con el cargo de la pregunta original), o None."""
-    m = index(extra).best(question)
-    if m is None or m.score < minimum:
+            minimum: float = ENOUGH, mode: str | None = None) -> Match | None:  # fmt: skip
+    """La forma canónica más parecida (con el cargo de la pregunta original), o None.
+
+    Con el modelo de comprensión instalado se compara por significado; si no, por conceptos."""
+    from orkesta.concertino import embed
+
+    idx = index(extra)
+    found: Match | None = None
+    if embed.available():
+        # Mezcla: lo que significa la frase (modelo) y las ideas que nombra (conceptos)
+        sims = embed.similarities(normalize(question), tuple(text for text, _ in idx.pairs))
+        if sims is not None:
+            cs = idx.scores(question)
+            mix = [MIX * a + (1 - MIX) * b for a, b in zip(sims, cs, strict=True)]
+            i = max(range(len(mix)), key=mix.__getitem__)
+            if mix[i] >= EMB[mode or "lost"]:
+                found = Match(canonical=idx.pairs[i][1], example=idx.pairs[i][0], score=mix[i])
+    if found is None:
+        m = idx.best(question)
+        limit = TFIDF[mode] if mode else minimum
+        if m is not None and m.score >= limit:
+            found = m
+    if found is None:
         return None
     who = f"un {cargo}" if cargo else "un gerente comercial"
-    return Match(canonical=SLOTTED.sub(who, m.canonical), example=m.example, score=m.score)
+    return Match(
+        canonical=SLOTTED.sub(who, found.canonical), example=found.example, score=found.score
+    )
