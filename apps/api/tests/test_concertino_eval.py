@@ -198,3 +198,157 @@ def test_concertino_understands_how_sellers_ask(
     for m in misses:
         print("  ✗", m)
     assert rate >= MINIMUM, misses
+
+
+# Preguntas nuevas usadas para medir la comprensión semántica (4 tandas de 30). Concertino no
+# debe quedarse sin respuesta: si no las entiende por reglas, las reescribe a una forma conocida.
+FRESH = [
+    "el cliente dice que no le dan los números",
+    "quiere que le haga una rebajita",
+    "me dijo que me confirma la próxima semana",
+    "el gerente no me ha dado respuesta desde el martes",
+    "dice que ya contrataron a otra agencia",
+    "necesito escribirle a la directora de recursos humanos de un hospital",
+    "mándame un texto para presentarme por linkedin a un gerente de ventas",
+    "quiero un correo para alguien que vi en una feria",
+    "cómo me fue la semana pasada con los correos",
+    "qué negocios están más calientes",
+    "tengo cero respuestas en mi campaña",
+    "cómo armo mi semana de prospección",
+    "qué le pregunto al gerente en la primera reunión",
+    "el cliente me dijo que lo va a revisar con su socio",
+    "cómo le explico el valor a alguien que solo mira el precio",
+    "qué hago si me dicen que mande la propuesta y luego desaparecen",
+    "cómo le gano a un competidor más grande",
+    "me pidió que le llame en otro momento",
+    "quiero algo para publicar el lunes en linkedin",
+    "ayúdame a responderle a un cliente que pide más plazo",
+    "cuántas propuestas me aceptaron este mes",
+    "la gerente me dijo que no tiene tiempo ahora",
+    "qué texto le mando a un cliente que cumplió un año con nosotros",
+    "cómo cierro si el cliente duda",
+    "dime cómo le hablo a un director de operaciones",
+    "qué hago con un prospecto que abre mis correos pero no responde",
+    "el contacto dice que su empresa está congelando gastos",
+    "cómo pido una reunión sin sonar desesperado",
+    "necesito ideas para conseguir clientes en México",
+    "cómo respondo si me dicen que mande todo por correo",
+    "me contestó que por ahora están bien así",
+    "la directora me dijo que el costo no lo justifica",
+    "me pide que le mantenga el precio del año pasado",
+    "dice que lo tiene que ver con finanzas",
+    "el prospecto me dejó de contestar después de la llamada",
+    "escríbele a una gerente de compras de una farmacéutica",
+    "necesito un texto corto para mandar por whatsapp a un cliente nuevo",
+    "qué publico en linkedin esta semana",
+    "cómo van mis números de la semana",
+    "cuál cliente está más cerca de firmar",
+    "nadie responde mis secuencias",
+    "cómo organizo mi agenda de ventas",
+    "qué preguntas hago en una reunión de descubrimiento",
+    "me dijo que lo platica con su esposa que es socia",
+    "cómo justifico el precio frente a uno más barato",
+    "le mandé la propuesta hace una semana y nada",
+    "me dijeron que vuelva a escribir en febrero",
+    "quiero un post contando un caso de éxito",
+    "el cliente pide pagar en 3 cuotas",
+    "la gerente me dijo que no tiene presupuesto este año",
+    "qué le escribo a un cliente que renovó el contrato",
+    "cómo cierro una venta que está estancada",
+    "cómo le vendo a un gerente de ti",
+    "me abre los correos pero nunca contesta",
+    "el cliente dice que tiene que hablarlo con el directorio",
+    "cómo me presento en un evento de networking",
+    "qué hago si me piden bajar el precio un 15%",
+    "el cliente dice que ya lo tienen cubierto",
+    "cómo consigo que me presenten con el gerente general",
+    "me siento estancada con mis ventas",
+    "el cliente me dijo que no ve el beneficio",
+    "dice que prefiere esperar a ver cómo cierra el año",
+    "me respondió que lo tiene que revisar legal",
+    "la persona dejó de responder hace 10 días",
+    "me pidió que le baje un 10 por ciento",
+    "escríbeme algo para un director de marketing de una universidad",
+    "mensaje de linkedin para invitar a conectar a un CEO",
+    "dame contenido para mi linkedin sobre productividad",
+    "cómo estuvo mi mes",
+    "a qué oportunidad le meto más energía",
+    "mis correos no los abre nadie",
+    "qué hago para tener más citas",
+    "qué le pregunto a un cliente para entender su problema",
+    "el cliente dijo que lo va a consultar con su gerente",
+    "cómo defiendo mi precio",
+    "envié la cotización y no hay respuesta",
+    "me dijo que lo retomemos después de semana santa",
+    "haz un post sobre un cliente que ahorró dinero",
+    "el cliente quiere pagar la mitad ahora y la mitad después",
+    "el comprador dice que su jefe no aprueba más gastos",
+    "correo de gracias a un cliente que nos recomendó",
+    "cómo hago que un cliente indeciso decida",
+    "cómo le vendo a un gerente de recursos humanos",
+    "abrió mi correo 4 veces y no responde",
+    "cómo me presento ante un cliente grande",
+    "me piden rebajar el precio para cerrar",
+    "el cliente dice que ya resolvió eso con otra empresa",
+    "cómo llego al dueño de la empresa",
+    "me siento sin ganas de vender",
+    "qué hago si el cliente me ignora",
+    "el cliente dice que nuestro servicio es muy caro comparado con lo que paga hoy",
+    "me dijo que lo vemos el próximo semestre",
+    "dice que tiene que convencer a su jefe primero",
+    "llevo tres semanas sin noticias del cliente",
+    "me pidió un 5% menos para firmar ya",
+    "redáctame algo para un gerente de logística de una cadena de supermercados",
+    "qué le escribo a un CEO por linkedin",
+    "quiero publicar sobre un logro de un cliente",
+    "cuántas respuestas positivas tuve este mes",
+    "cuál es la oportunidad más grande que tengo",
+    "mis secuencias no generan reuniones",
+    "cómo consigo más demos",
+    "qué pregunto para saber si tiene presupuesto",
+    "la jefa de compras lo tiene que consultar con gerencia",
+    "cómo convenzo a alguien que dice que es caro",
+    "mandé la propuesta el lunes y no me dice nada",
+    "me dijo que hablemos en marzo",
+    "escríbeme un post sobre por qué fallan las entregas",
+    "el cliente pide pagar en dos partes",
+    "el gerente dice que su jefe congeló el presupuesto",
+    "correo para agradecer a un cliente por su confianza",
+    "cómo cierro con alguien que tiene dudas",
+    "cómo le vendo a una directora de finanzas",
+    "lo abre pero no contesta",
+    "cómo preparo una reunión con una empresa grande",
+    "me pide un descuento por pagar de contado",
+    "dice que ya trabaja con otra empresa de logística",
+    "cómo llego al gerente general",
+    "estoy agotada de no vender",
+    "el prospecto me dejó en visto",
+]
+
+
+def test_concertino_semantic_layer_understands_new_phrasings(
+    client: TestClient, session_factory: sessionmaker[Session]
+) -> None:
+    from orkesta.concertino import semantic
+
+    assert (
+        semantic.normalize("me ghosteó y no responde el mail")
+        == "no me responde y no responde el correo"
+    )
+    assert (
+        semantic.rewrite("quiere que le haga una rebajita", None).canonical
+        == "quiere un descuento para firmar"
+    )  # type: ignore[union-attr]
+    register(client, "ana@lacteos.co")
+    _pro(session_factory)
+    _ficha(client)
+    lost = []
+    for question in FRESH:
+        r = client.post("/api/concertino/ask", json={"question": question}).json()
+        if any(x in str(r.get("summary", "")) for x in _LOST):
+            lost.append(question)
+    rate = 1 - len(lost) / len(FRESH)
+    print(f"\nComprensión de frases nuevas: {rate:.0%} de {len(FRESH)}")
+    for q in lost:
+        print("  ✗", q)
+    assert rate >= 0.9, lost
