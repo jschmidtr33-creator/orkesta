@@ -987,3 +987,9 @@ def advice(lesson: Lesson) -> dict[str, object]:
         "missing": [],
         "lesson": {"code": lesson.code, "title": lesson.title},
     }
+
+
+# Lecciones adicionales (ciclo de venta, objeciones, valor, confianza…): ver oficio_mas.
+from orkesta.concertino.oficio_mas import MORE_LESSONS  # noqa: E402
+
+LESSONS = LESSONS + MORE_LESSONS

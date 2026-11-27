@@ -132,6 +132,20 @@ def _lesson_for(session: Session, ctx: Any, question: str) -> oficio.Lesson | No
         return None  # con un caso abierto, el consejo sale de sus datos
     if not allowed(session, ctx.tenant_id, "estrategia"):
         return None  # el oficio completo es del plan Pro
+    # «Enséñame a cerrar», «explícame cómo negociar», «tips para…»: pide oficio, sea cual sea el tema.
+    if re.match(r"^(ensename|ensenam|explicame|explica|dame (tips|consejos)|tips|consejos|que es (el|la|un|una)?|como se )",
+                fold(question).strip(" ¿?¡!")):  # fmt: skip
+        taught = oficio.match(question)
+        if taught is not None:
+            return taught
+    # Una lección que encaja muy claro («cómo vendo por valor y no por precio») gana al tema,
+    # salvo que la persona cuente lo que le dijo un cliente (eso es un caso concreto).
+    if not re.search(
+        r"\b(me dijo|dice que|dijo que|me pidio|me respondio|me contesto)\b", fold(question)
+    ):
+        clear = oficio.match(question, minimum=7)
+        if clear is not None:
+            return clear
     topic = engine.classify_topic(session, question, objection=None, has={})
     if topic == "cuenta" and ctx.deal is None and ctx.contact is None:
         return oficio.match(question, minimum=12)  # «¿cómo sé si una oportunidad es real?»
@@ -372,7 +386,11 @@ def _ask_once(
     quick = chat.small_talk(question, ctx, name) if question and mode is None else None
     # Pedidos de redacción («crea la secuencia de 3 correos») y sus ajustes («más corto»).
     if quick is None and question and mode in (None, "redactar"):
-        wanted = _writing_intent(question, history)
+        teaching = re.match(
+            r"^(ensename|explicame|dame (tips|consejos)|tips|consejos)\b",
+            fold(question).strip(" ¿?¡!"),
+        )
+        wanted = None if teaching and oficio.match(question) else _writing_intent(question, history)
         if wanted is not None:
             return _write(session, ctx, user=user, tenant_id=tenant_id, question=question,
                           wanted=wanted, history=history, name=name, turn=turn)  # fmt: skip
