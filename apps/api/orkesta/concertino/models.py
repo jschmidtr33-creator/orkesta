@@ -10,7 +10,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -87,3 +97,17 @@ class AdviceCase(IdMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+def _spelling(_mapper: Any, _connection: Any, fact: ProductFact) -> None:
+    """Todo lo que se guarda en la ficha queda con buena ortografía (ver ortografia.py)."""
+    from orkesta.concertino.ortografia import fix
+
+    for attr in ("title", "detail", "answer"):
+        value = getattr(fact, attr, None)
+        if value and value != "(sin respuesta)":
+            setattr(fact, attr, fix(value)[: 300 if attr == "title" else None])
+
+
+event.listen(ProductFact, "before_insert", _spelling)
+event.listen(ProductFact, "before_update", _spelling)

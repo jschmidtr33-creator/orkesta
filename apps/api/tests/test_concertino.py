@@ -701,3 +701,39 @@ def test_concertino_answers_with_the_sellers_numbers_and_the_named_account(
         and "(vencida)" in joined
     )
     assert f"Propuesta #{p['number']}" in joined
+
+
+def test_concertino_corrige_ortografia_y_se_deja_reensenar(client: TestClient) -> None:
+    """Lo que se le enseña queda con buena ortografía y se puede volver a enseñar."""
+    from orkesta.concertino.ortografia import corregir
+
+    fixed, changes = corregir(
+        "TEner una aplicacion que no se conecta entre si y tambien www.acme.com"
+    )
+    assert fixed == "Tener una aplicación que no se conecta entre sí y también www.acme.com"
+    assert ("TEner", "Tener") in changes
+    assert corregir("esta solo en LATAM y B2B")[0] == "Esta solo en LATAM y B2B"
+
+    register(client, "ana@lacteos.co")
+
+    def say(text: str, kind: str | None = None) -> dict:
+        r = client.post("/api/concertino/ask", json={"question": text, "answering": kind})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    r = say("Una aplicacion para TEner leche fresca en tiendas", "producto")
+    assert "Corregí la ortografía" in r["summary"] and "aplicacion → aplicación" in r["summary"]
+    for kind, text in (("publico", "Tiendas de barrio en Colombia"), ("problema", "Quiebres de inventario"),
+                       ("valor", "Cero quiebres")):  # fmt: skip
+        r = say(text, kind)
+    facts = str(client.get("/api/concertino/facts").json())
+    assert "Una aplicación para Tener leche" in facts
+    # No le gustó lo que enseñó: vuelve a empezar desde la primera pregunta
+    again = say("Vuélveme a hacer las preguntas iniciales para entender mi producto")
+    assert again["interview"]["kind"] == "producto" and "reemplaza" in again["summary"]
+    say("Yogures griegos para cafeterías", "producto")
+    facts = str(client.get("/api/concertino/facts").json())
+    assert "Yogures griegos" in facts and "leche fresca" not in facts
+    # Un solo tema
+    price = say("quiero corregir el precio que te enseñé")
+    assert price["interview"]["kind"] == "precio"
