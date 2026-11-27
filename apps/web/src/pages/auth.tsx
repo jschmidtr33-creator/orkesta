@@ -169,6 +169,9 @@ export function LoginPage() {
   const [params] = useSearchParams();
   const { submit, verify, challenge, reset } = useAuthSubmit("/api/auth/login");
   const [form, setForm] = useState({ email: "", password: "" });
+  // Todos los hooks antes de cualquier «return»: si la sesión llega mientras la página ya está
+  // abierta, React no puede cambiar el número de hooks (antes quedaba la pantalla en blanco).
+  const signupOpen = useSignupOpen();
   if (session) return <Navigate to="/" replace />;
   if (challenge)
     return (
@@ -177,7 +180,6 @@ export function LoginPage() {
       </AuthLayout>
     );
   const googleError = GOOGLE_ERRORS[params.get("error") ?? ""];
-  const signupOpen = useSignupOpen();
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit.mutate(form);

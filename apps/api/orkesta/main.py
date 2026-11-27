@@ -210,6 +210,12 @@ def _mount_frontends(app: FastAPI) -> None:
     @app.get("/app/{rest:path}", include_in_schema=False)
     def web_app(rest: str = "") -> Response:
         found = _file(web, rest) if rest else None
+        if found is None and rest.startswith("assets/"):
+            # Un archivo de una versión anterior: 404 (no la app), así la página vieja se recarga
+            # sola en vez de quedar en blanco al recibir HTML donde esperaba código.
+            return JSONResponse(
+                {"detail": "No encontrado."}, status_code=404, headers={"Cache-Control": "no-store"}
+            )
         target = found or web / "index.html"  # rutas del cliente → la app
         if not target.is_file():
             return JSONResponse({"detail": "La app web no está compilada."}, status_code=503)
