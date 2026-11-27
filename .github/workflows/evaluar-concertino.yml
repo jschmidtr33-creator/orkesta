@@ -14,7 +14,15 @@ permissions:
 jobs:
   evaluar:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: apps/api
@@ -45,3 +53,11 @@ jobs:
           CONCERTINO_MODEL_DIR: /tmp/modelo
           PYTHONPATH: .
         run: python -m orkesta.concertino.calibrate tests/data/concertino_nuevas.txt
+      - name: Pruebas de Concertino con el modelo
+        env:
+          CONCERTINO_MODEL_DIR: /tmp/modelo
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          PYTHONPATH: .
+        run: |
+          pip install -q -r requirements-dev.txt
+          pytest -q -s -p no:warnings tests/test_concertino_eval.py tests/test_concertino.py tests/test_concertino_intent.py 2>&1 | tail -60

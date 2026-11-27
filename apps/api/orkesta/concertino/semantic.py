@@ -1138,8 +1138,8 @@ WEAK = 0.45  # respondió con un dato suelto de la ficha: basta una idea parecid
 # Umbrales calibrados con el banco (cada frase contra las demás), ver calibrate.py.
 EMB = {"lost": float(os.environ.get("CONCERTINO_EMB_LOST", "0.5")),
        "weak": float(os.environ.get("CONCERTINO_EMB_WEAK", "0.6")),
-       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.72"))}  # fmt: skip
-MIX = float(os.environ.get("CONCERTINO_EMB_MIX", "0.4"))  # peso del modelo en la mezcla
+       "strong": float(os.environ.get("CONCERTINO_EMB_STRONG", "0.75"))}  # fmt: skip
+MIX = float(os.environ.get("CONCERTINO_EMB_MIX", "0.5"))  # peso del modelo en la mezcla
 TFIDF = {"lost": ENOUGH, "weak": WEAK, "strong": STRONG}
 
 
