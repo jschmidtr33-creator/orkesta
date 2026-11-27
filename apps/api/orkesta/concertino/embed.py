@@ -94,7 +94,9 @@ def vectors(texts: tuple[str, ...]) -> Any:
         return None
     key = str(hash(texts))
     if key not in _CACHE:
-        chunks = [m.encode(list(texts[i : i + 16])) for i in range(0, len(texts), 16)]
+        # Una por una, igual que las preguntas: el modelo cuantizado ajusta su escala a todo el
+        # lote, así que agruparlas cambiaría ligeramente cada vector según sus vecinas.
+        chunks = [m.encode([t]) for t in texts]
         _CACHE[key] = m.np.vstack(chunks) if chunks else None
     return _CACHE[key]
 
