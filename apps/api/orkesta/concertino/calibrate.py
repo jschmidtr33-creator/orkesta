@@ -25,8 +25,12 @@ def _quantiles(values: list[float]) -> str:
 
 
 def main() -> None:
+    import resource
+
     pairs = semantic.index().pairs
     texts = tuple(t for t, _ in pairs)
+    base_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    print(f"Memoria antes del modelo: {base_rss:.0f} MB")
     t0 = time.time()
     m = embed.model()
     if m is None:
@@ -40,6 +44,10 @@ def main() -> None:
     good: list[float] = []
     bad: list[float] = []
     tf_ok = 0
+    weights = (0.3, 0.4, 0.5, 0.6, 0.7)
+    mix_ok = dict.fromkeys(weights, 0)
+    mix_good: dict[float, list[float]] = {w: [] for w in weights}
+    mix_bad: dict[float, list[float]] = {w: [] for w in weights}
 
     for i, (text, canonical) in enumerate(pairs):
         j = int(sims[i].argmax())
@@ -48,11 +56,25 @@ def main() -> None:
         others = semantic.Index([p for k, p in enumerate(pairs) if k != i])
         tm = others.best(text)
         tf_ok += int(tm is not None and tm.canonical == canonical)
+        # Mezcla: significado (modelo) + conceptos, frase por frase
+        cs = others.scores(text)
+        cs.insert(i, -1.0)
+        for w in weights:
+            mix = [w * float(sims[i, k]) + (1 - w) * cs[k] for k in range(len(pairs))]
+            mix[i] = -9.0
+            j2 = max(range(len(mix)), key=mix.__getitem__)
+            ok = pairs[j2][1] == canonical
+            mix_ok[w] += int(ok)
+            (mix_good if ok else mix_bad)[w].append(mix[j2])
     total = len(pairs)
     print(f"Modelo:    {len(good) / total:.0%} de aciertos ({len(good)}/{total})")
     print(f"Conceptos: {tf_ok / total:.0%} de aciertos")
     print("Similitud de aciertos (p10 p25 p50 p75 p90):", _quantiles(good))
     print("Similitud de errores  (p10 p25 p50 p75 p90):", _quantiles(bad))
+    for w in weights:
+        print(
+            f"Mezcla {w:.1f}: {mix_ok[w] / total:.0%} | aciertos {_quantiles(mix_good[w])} | errores {_quantiles(mix_bad[w])}"
+        )
 
     if len(sys.argv) > 1:
         print("\nFrases nuevas:")
@@ -73,10 +95,8 @@ def main() -> None:
     for _ in range(20):
         m.encode(["me dijo que lo va a pensar y que me avisa"])
     print(f"\nTiempo por pregunta: {(time.time() - t1) / 20 * 1000:.0f} ms")
-    import resource
-
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    print(f"Memoria máxima del proceso: {peak:.0f} MB")
+    print(f"Memoria máxima del proceso: {peak:.0f} MB (el modelo suma {peak - base_rss:.0f} MB)")
 
 
 if __name__ == "__main__":

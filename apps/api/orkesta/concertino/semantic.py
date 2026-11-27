@@ -1022,6 +1022,11 @@ class Index:
         norm = math.sqrt(sum(x * x for x in v.values())) or 1.0
         return {t: x / norm for t, x in v.items()}
 
+    def scores(self, text: str) -> list[float]:
+        """Similitud por conceptos de la frase contra cada ejemplo del banco."""
+        q = self._vec(_features(text))
+        return [sum(w * v.get(t, 0.0) for t, w in q.items()) for v in self.vecs]
+
     def best(self, text: str) -> Match | None:
         q = self._vec(_features(text))
         top, score = -1, 0.0
