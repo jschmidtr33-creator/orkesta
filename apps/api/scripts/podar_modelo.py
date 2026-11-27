@@ -13,6 +13,7 @@ cada pieza conserva exactamente su mismo vector.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -41,13 +42,18 @@ def _latin(piece: str) -> bool:
 def _words(extra: list[Path]) -> list[str]:
     from wordfreq import top_n_list
 
-    words = top_n_list("es", 60000) + top_n_list("en", 15000)
-    lines = [w.capitalize() for w in words[:20000]] + [w.upper() for w in words[:2000]]
+    words = top_n_list("es", 150000) + top_n_list("en", 30000)
+    words += [w.capitalize() for w in words[:30000]] + [w.upper() for w in words[:2000]]
+    # Signos pegados a la palabra, como se escriben las preguntas («¿cómo», «precio?»)
+    words += [
+        v for w in words[:8000] for v in (f"¿{w}", f"{w}?", f"{w},", f"{w}.", f"¡{w}", f"{w}!")
+    ]
+    # Cada palabra sola: pegada a una comilla o paréntesis se partiría distinto
     for path in extra:
         files = path.rglob("*.py") if path.is_dir() else [path]
         for f in files:
-            lines += f.read_text(encoding="utf-8", errors="ignore").splitlines()
-    return words + lines
+            words += re.findall(r"\w+|[^\w\s]", f.read_text(encoding="utf-8", errors="ignore"))
+    return list(dict.fromkeys(words))
 
 
 def keep_ids(tok_json: dict, tok: Tokenizer, texts: list[str]) -> list[int]:
@@ -133,10 +139,18 @@ def main() -> None:
     tok_json = json.loads(tok_path.read_text(encoding="utf-8"))
     tok = Tokenizer.from_file(str(tok_path))
     vocab_size = len(tok_json["model"]["vocab"])
-    keep = keep_ids(tok_json, tok, _words(extra))
+    texts = _words(extra)
+    keep = keep_ids(tok_json, tok, texts)
     print(f"Vocabulario: {vocab_size} → {len(keep)} piezas")
     model = onnx.load(str(model_path))
     print("Tabla:", prune_onnx(model, keep, vocab_size))
+    # Comprobación: las palabras del corpus se parten igual que con el vocabulario completo
+    pruned = Tokenizer.from_str(json.dumps(prune_tokenizer(tok_json, keep), ensure_ascii=False))
+    sample = texts[:: max(1, len(texts) // 20000)]
+    a = [e.tokens for e in tok.encode_batch(sample, add_special_tokens=False)]
+    b = [e.tokens for e in pruned.encode_batch(sample, add_special_tokens=False)]
+    changed = sum(x != y for x, y in zip(a, b, strict=True))
+    print(f"Palabras que cambian al podar: {changed}/{len(sample)}")
     onnx.save(model, str(model_path))
     tok_path.write_text(
         json.dumps(prune_tokenizer(tok_json, keep), ensure_ascii=False), encoding="utf-8"
